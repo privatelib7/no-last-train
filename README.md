@@ -11,11 +11,15 @@ server/   # API 서버
 
 ## 실행
 
-```bash
-# 루트에서 의존성 설치
-npm install
+1. 루트에서 의존성 설치
 
-# Docker Postgres
+```bash
+npm install
+```
+
+2. Docker Postgres 실행
+
+```bash
 docker run -d \
   --name nlt-postgres \
   -e POSTGRES_USER=nlt \
@@ -23,17 +27,31 @@ docker run -d \
   -e POSTGRES_DB=no_last_train \
   -p 5432:5432 \
   postgres:16
+```
 
-# 프론트 / 백엔드
+이미 컨테이너를 만든 뒤에는 `docker start nlt-postgres` 만 하면 된다.
+
+3. `server/.env` 생성
+
+```bash
+cp server/.env.example server/.env
+```
+
+또는 직접 생성:
+
+```env
+DATABASE_URL="postgresql://nlt:nlt@127.0.0.1:5432/no_last_train"
+```
+
+4. 프론트 / 백엔드 실행
+
+```bash
 npm run dev:client
 npm run dev:server
 ```
 
-`server/.env` 예시: `DATABASE_URL="postgresql://nlt:nlt@127.0.0.1:5432/no_last_train"`  
 `npm run dev:server` 실행 시 스키마 반영·시드가 자동으로 돌아간다.  
 프론트는 `http://localhost:5173`, 서버는 `http://localhost:3001`.
-
-이미 컨테이너를 만든 뒤에는 `docker start nlt-postgres` 만 하면 된다.
 
 ## 스크립트
 
