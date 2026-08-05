@@ -1,0 +1,32 @@
+{
+  "name": "no-last-train-server",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "npm run db:prepare && next dev --port 3001",
+    "build": "prisma generate && next build",
+    "start": "next start --port 3001",
+    "db:prepare": "prisma generate && prisma db push && tsx prisma/seed.ts",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:studio": "prisma studio",
+    "db:push": "prisma db push",
+    "db:generate": "prisma generate"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "@prisma/client": "^5.22.0",
+    "next": "^15.0.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "19.2.18",
+    "prisma": "^5.22.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

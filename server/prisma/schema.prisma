@@ -1,0 +1,285 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── 플레이어 ───────────────────────────────────────────────────────────────
+
+model Player {
+  id        String   @id @default(cuid())
+  token     String   @unique           // 익명 세션 토큰
+  nickname  String?
+  createdAt DateTime @default(now())
+
+  lines Line[]
+}
+
+// ─── 도시 (게임 세션) ─────────────────────────────────────────────────────
+
+model City {
+  id          String     @id @default(cuid())
+  name        String
+  seed        Int                         // 결정론적 RNG 시드
+  seasonDay   Int        @default(1)      // 1~3
+  status      CityStatus @default(ACTIVE)
+  currentTick Int        @default(0)      // 누적 시뮬레이션 틱
+  lastTickAt  DateTime   @default(now())  // 마지막 시뮬레이션 시각
+  createdAt   DateTime   @default(now())
+
+  lines    Line[]
+  stations Station[]
+  events   GameEvent[]
+  ticks    SimTick[]
+}
+
+enum CityStatus {
+  ACTIVE
+  SEASON_ENDED
+}
+
+// ─── 역 ──────────────────────────────────────────────────────────────────
+
+model Station {
+  id       String      @id @default(cuid())
+  cityId   String
+  name     String
+  type     StationType
+  capacity Int         @default(200)
+  posX     Float
+  posY     Float
+
+  city           City          @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  lineStations   LineStation[]
+  waitingPassengers Passenger[]
+  eventsHere     GameEvent[]   @relation("AffectedStation")
+  vehiclesHere   Vehicle[]     @relation("CurrentStation")
+}
+
+enum StationType {
+  RESIDENTIAL  // 주거 — 출퇴근 수요 높음
+  COMMERCIAL   // 상업 — 낮/저녁 수요
+  TOURIST      // 관광 — 돌발 수요
+  INDUSTRIAL   // 산업 — 화물/교대
+  HUB          // 환승 거점
+}
+
+// ─── 노선 ────────────────────────────────────────────────────────────────
+
+model Line {
+  id       String     @id @default(cuid())
+  cityId   String
+  playerId String?                    // null = AI 자동 운영
+  color    LineColor
+  name     String
+  status   LineStatus @default(OPERATING)
+
+  city     City    @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  player   Player? @relation(fields: [playerId], references: [id])
+
+  lineStations     LineStation[]
+  vehicles         Vehicle[]
+  policies         Policy[]
+  actionLogs       ActionLog[]
+  supportsGiven    Support[]    @relation("FromLine")
+  supportsReceived Support[]    @relation("ToLine")
+}
+
+enum LineColor {
+  RED
+  BLUE
+  GREEN
+  YELLOW
+  PURPLE
+}
+
+enum LineStatus {
+  OPERATING   // 정상 운행
+  DEGRADED    // 서비스 저하
+  SUSPENDED   // 운행 중단
+}
+
+model LineStation {
+  lineId    String
+  stationId String
+  order     Int     // 노선 내 순서
+
+  line    Line    @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  station Station @relation(fields: [stationId], references: [id], onDelete: Cascade)
+
+  @@id([lineId, stationId])
+  @@index([lineId, order])
+}
+
+// ─── 차량 ────────────────────────────────────────────────────────────────
+
+model Vehicle {
+  id               String        @id @default(cuid())
+  lineId           String
+  capacity         Int           @default(120)
+  status           VehicleStatus @default(OPERATING)
+  isSpare          Boolean       @default(false)
+  currentStationId String?
+  headwayMinutes   Int           @default(5)   // 배차 간격
+
+  line           Line     @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  currentStation Station? @relation("CurrentStation", fields: [currentStationId], references: [id])
+  supports       Support[]
+}
+
+enum VehicleStatus {
+  OPERATING   // 운행 중
+  SPARE       // 예비 (투입 대기)
+  LOANED      // 다른 노선에 대여됨
+  MAINTENANCE // 정비 중
+  BROKEN      // 고장
+}
+
+// ─── 승객 ────────────────────────────────────────────────────────────────
+
+model Passenger {
+  id               String        @id @default(cuid())
+  cityId           String
+  originStationId  String
+  destStationId    String
+  type             PassengerType
+  createdAtTick    Int
+  boardedAtTick    Int?
+  arrivedAtTick    Int?
+
+  originStation Station @relation(fields: [originStationId], references: [id], onDelete: Cascade)
+
+  @@index([cityId, arrivedAtTick])
+  @@index([originStationId, boardedAtTick])
+}
+
+enum PassengerType {
+  COMMUTER  // 삼각형 — 출퇴근
+  TOURIST   // 원 — 관광
+  WORKER    // 사각형 — 산업/교대
+}
+
+// ─── 운영 정책 (AI 관리자 지시) ──────────────────────────────────────────
+
+model Policy {
+  id                   String     @id @default(cuid())
+  lineId               String
+  type                 PolicyType
+  // 조건
+  conditionStationId   String?
+  conditionThreshold   Float?     // 혼잡도 % 등
+  conditionTimeStart   Int?       // 0-23 게임시간
+  conditionTimeEnd     Int?
+  // 행동
+  actionType           ActionType
+  actionTargetLineId   String?
+  resourceLimit        Int        @default(1)  // 최대 차량 수
+  // 메타
+  isActive             Boolean    @default(true)
+  rawInput             String?    // 원본 자연어 입력
+  parsedSummary        String?    // AI가 해석한 요약
+  createdAt            DateTime   @default(now())
+
+  line Line @relation(fields: [lineId], references: [id], onDelete: Cascade)
+}
+
+enum PolicyType {
+  CONGESTION_RESPONSE   // 혼잡 대응
+  PASSENGER_PRIORITY    // 승객 우선순위
+  SUPPORT_CONDITION     // 지원 조건
+}
+
+enum ActionType {
+  DEPLOY_SPARE     // 예비 차량 투입
+  ADJUST_HEADWAY   // 배차 간격 조정
+  LEND_VEHICLE     // 차량 대여
+}
+
+// ─── 도시 사건 ───────────────────────────────────────────────────────────
+
+model GameEvent {
+  id                String      @id @default(cuid())
+  cityId            String
+  type              EventType
+  status            EventStatus @default(PENDING)
+  startsAtTick      Int
+  durationTicks     Int
+  affectedStationId String?
+  demandMultiplier  Float       @default(1.5)
+
+  city            City     @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  affectedStation Station? @relation("AffectedStation", fields: [affectedStationId], references: [id])
+}
+
+enum EventType {
+  CONCERT          // 대형 콘서트 — 특정 역 수요 급증
+  HEAVY_RAIN       // 폭우 — 속도 감소
+  VEHICLE_BREAKDOWN // 차량 고장
+  NEW_TOWN         // 신도시 입주
+}
+
+enum EventStatus {
+  PENDING
+  ACTIVE
+  RESOLVED
+}
+
+// ─── 시뮬레이션 틱 기록 ──────────────────────────────────────────────────
+
+model SimTick {
+  id                    String   @id @default(cuid())
+  cityId                String
+  tickNumber            Int
+  gameTimeHour          Float    // 0.0 ~ 23.9
+  passengersTransported Int      @default(0)
+  avgCongestion         Float    @default(0)
+  serviceScore          Float    @default(100)
+  createdAt             DateTime @default(now())
+
+  city       City        @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  actionLogs ActionLog[]
+
+  @@unique([cityId, tickNumber])
+  @@index([cityId, tickNumber])
+}
+
+// ─── AI 행동 로그 ────────────────────────────────────────────────────────
+
+model ActionLog {
+  id           String     @id @default(cuid())
+  lineId       String
+  tickId       String?
+  actionType   ActionType
+  description  String     // 한국어 설명 (플레이어에게 표시)
+  conditionMet String     // 어떤 조건이 트리거됐는지
+  resourceUsed Int        @default(0)
+  createdAt    DateTime   @default(now())
+
+  line Line     @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  tick SimTick? @relation(fields: [tickId], references: [id])
+}
+
+// ─── 노선 간 지원 ────────────────────────────────────────────────────────
+
+model Support {
+  id            String        @id @default(cuid())
+  fromLineId    String
+  toLineId      String
+  vehicleId     String
+  durationTicks Int
+  status        SupportStatus @default(ACTIVE)
+  createdAt     DateTime      @default(now())
+
+  fromLine Line    @relation("FromLine", fields: [fromLineId], references: [id])
+  toLine   Line    @relation("ToLine", fields: [toLineId], references: [id])
+  vehicle  Vehicle @relation(fields: [vehicleId], references: [id])
+}
+
+enum SupportStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
