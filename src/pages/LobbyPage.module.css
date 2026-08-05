@@ -1,0 +1,376 @@
+.page {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 100svh;
+  min-height: 100dvh;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+/* ── Sidebar ── */
+.sidebar {
+  flex: 0 0 64px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 0;
+  gap: 0;
+  height: 100%;
+  flex-shrink: 0;
+}
+
+.backBtn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+  color: var(--text-muted);
+  font-size: 18px;
+}
+
+.backBtn:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
+.backArrow {
+  line-height: 1;
+}
+
+.sidebarDivider {
+  width: 24px;
+  height: 1px;
+  background: var(--border);
+  margin: 14px 0;
+}
+
+.playerList {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.playerDot {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.15s;
+  cursor: pointer;
+}
+
+.playerDot:hover {
+  transform: scale(1.1);
+}
+
+/* ── Main ── */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: clamp(28px, 4vh, 48px) clamp(24px, 4vw, 64px);
+  overflow-y: auto;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: clamp(24px, 4vh, 40px);
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.headerLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pageTitle {
+  font-size: clamp(24px, 2.5vw, 32px);
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.5px;
+}
+
+.pageSubtitle {
+  font-size: clamp(13px, 1.2vw, 15px);
+  color: var(--text-muted);
+}
+
+.coinDisplay {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-card);
+  border: 1.5px solid var(--border);
+  padding: 8px 16px;
+  border-radius: 99px;
+  box-shadow: var(--shadow-sm);
+}
+
+.coinIcon {
+  font-size: 16px;
+}
+
+.coinAmount {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.3px;
+}
+
+/* ── City grid ── */
+.cityGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: clamp(14px, 1.5vw, 20px);
+  margin-bottom: clamp(32px, 5vh, 48px);
+  width: 100%;
+}
+
+.cityCard {
+  position: relative;
+  background: var(--bg-card);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  padding: clamp(18px, 2vw, 28px);
+  text-align: left;
+  min-height: clamp(180px, 28vh, 280px);
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
+  cursor: pointer;
+  overflow: hidden;
+  width: 100%;
+}
+
+.cityCard:hover:not(:disabled) {
+  border-color: var(--orange-light);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.cityCard:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.cityCardActive {
+  border-color: var(--orange);
+  background: linear-gradient(135deg, #FDFAF7 0%, #FFF6EE 100%);
+  box-shadow: 0 0 0 1px var(--orange), var(--shadow-sm);
+}
+
+.cityCardLocked {
+  opacity: 0.55;
+  cursor: not-allowed;
+  border-style: dashed;
+}
+
+.activeContent {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 12px;
+}
+
+.miniMap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.miniMapSvg {
+  width: 100%;
+  height: auto;
+}
+
+.cityInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cityName {
+  font-size: clamp(16px, 1.5vw, 20px);
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.3px;
+}
+
+.citySub {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.lineChips {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.lineChip {
+  display: inline-block;
+  width: 14px;
+  height: 4px;
+  border-radius: 2px;
+}
+
+.activeBadge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--orange);
+  letter-spacing: 0.3px;
+}
+
+.activeDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--orange);
+  animation: blink 1.5s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.lockedContent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 8px;
+}
+
+.lockIcon {
+  font-size: 24px;
+  opacity: 0.5;
+}
+
+/* New city card */
+.newCityCard {
+  background: transparent;
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  min-height: clamp(180px, 28vh, 280px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: border-color 0.15s, background 0.15s;
+  cursor: pointer;
+  width: 100%;
+}
+
+.newCityCard:hover {
+  border-color: var(--orange-light);
+  background: var(--orange-muted);
+}
+
+.newCityIcon {
+  font-size: 28px;
+  color: var(--text-light);
+  font-weight: 300;
+  line-height: 1;
+}
+
+.newCityLabel {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* ── Activity ── */
+.activitySection {
+  border-top: 1px solid var(--border-light);
+  padding-top: clamp(20px, 3vh, 28px);
+  width: 100%;
+  margin-top: auto;
+}
+
+.activityTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 16px;
+}
+
+.activityList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.activityItem {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.activityTime {
+  flex: 0 0 72px;
+  color: var(--text-light);
+  font-size: 12px;
+}
+
+.activityText {
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* ── Tablet ── */
+@media (max-width: 900px) {
+  .cityGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .newCityCard {
+    grid-column: span 2;
+    min-height: 140px;
+  }
+}
+
+/* ── Mobile ── */
+@media (max-width: 640px) {
+  .sidebar {
+    flex: 0 0 52px;
+    height: 100%;
+  }
+
+  .main {
+    padding: 24px 18px;
+  }
+
+  .pageTitle {
+    font-size: 22px;
+  }
+
+  .cityGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .newCityCard {
+    grid-column: span 1;
+    min-height: 120px;
+  }
+}
