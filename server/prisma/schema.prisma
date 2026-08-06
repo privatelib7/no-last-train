@@ -23,6 +23,7 @@ model Player {
 model City {
   id          String     @id @default(cuid())
   name        String
+  mapKey      String     @default("BUSAN") // 맵 종류 (BUSAN | SEOUL)
   seed        Int                         // 결정론적 RNG 시드
   seasonDay   Int        @default(1)      // 1~3
   status      CityStatus @default(ACTIVE)

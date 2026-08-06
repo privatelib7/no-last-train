@@ -59,6 +59,7 @@ export type GameLine = {
 export type GameCity = {
   id: string
   name: string
+  mapKey: string
   seed: number
   seasonDay: number
   status: 'ACTIVE' | 'SEASON_ENDED'

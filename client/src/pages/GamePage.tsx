@@ -8,6 +8,7 @@ import {
   type Station,
   type Vehicle,
 } from '../api/game'
+import { getCityMap, type CityMapDef } from '../maps'
 import styles from './GamePage.module.css'
 
 interface Props {
@@ -38,7 +39,6 @@ type MapPanState = {
 }
 
 const LIVE_TICK_MS = 3000
-const BUSAN_LAND_PATH = 'M0 0H100V35C98 41 99 46 95 50C92 54 94 59 90 63C86 66 83 63 79 67C75 71 70 67 66 72C62 76 57 73 53 79C49 85 44 80 39 84C34 88 29 83 23 87C15 92 8 87 0 89Z'
 const INITIAL_MAP_VIEW: MapView = { x: 0, y: 0, width: 100, height: 100 }
 
 const LINE_COLORS: Record<string, string> = {
@@ -128,29 +128,6 @@ function nearestStationToDepot(line: GameLine) {
   }, null)
 }
 
-function coastY(x: number) {
-  const coast = [
-    [0, 89], [15, 92], [23, 87], [29, 83], [34, 88], [39, 84], [44, 80],
-    [49, 85], [53, 79], [57, 73], [62, 76], [66, 72], [70, 67], [75, 71],
-    [79, 67], [83, 63], [86, 66], [90, 63], [92, 54], [95, 50], [98, 41], [100, 35],
-  ]
-  for (let index = 1; index < coast.length; index++) {
-    const [leftX, leftY] = coast[index - 1]
-    const [rightX, rightY] = coast[index]
-    if (x <= rightX) {
-      const ratio = (x - leftX) / (rightX - leftX)
-      return leftY + (rightY - leftY) * ratio
-    }
-  }
-  return 35
-}
-
-function isBusanLand(x: number, y: number) {
-  const onMainland = x >= 0 && x <= 100 && y >= 0 && y <= coastY(x)
-  const onYeongdo = x >= 39 && x <= 53 && y >= 84 && y <= 97
-  return onMainland || onYeongdo
-}
-
 function randomUnit(seed: number, index: number, salt: number) {
   let value = Math.imul(seed + index * 374761393 + salt * 668265263, 1274126177)
   value ^= value >>> 13
@@ -158,7 +135,7 @@ function randomUnit(seed: number, index: number, salt: number) {
   return (value >>> 0) / 4294967296
 }
 
-function createPeople(seed: number, waitingCount: number, stations: Station[]) {
+function createPeople(seed: number, waitingCount: number, stations: Station[], map: CityMapDef) {
   const count = Math.min(150, Math.max(45, Math.round(38 + Math.log10(waitingCount + 10) * 23)))
   return Array.from({ length: count }, (_, index) => {
     let x = 0
@@ -170,11 +147,11 @@ function createPeople(seed: number, waitingCount: number, stations: Station[]) {
       x = station.posX + Math.cos(angle) * distance
       y = station.posY + Math.sin(angle) * distance
     }
-    if (!isBusanLand(x, y) || index % 3 === 0) {
+    if (!map.isLand(x, y) || index % 3 === 0) {
       for (let attempt = 0; attempt < 24; attempt++) {
         const candidateX = randomUnit(seed, index, 10 + attempt * 2) * 100
         const candidateY = randomUnit(seed, index, 11 + attempt * 2) * 96
-        if (isBusanLand(candidateX, candidateY)) {
+        if (map.isLand(candidateX, candidateY)) {
           x = candidateX
           y = candidateY
           break
@@ -308,10 +285,11 @@ export default function GamePage({ cityId, onBack }: Props) {
     }
     return new Set([...memberships].filter(([, count]) => count > 1).map(([stationId]) => stationId))
   }, [sortedLines])
+  const mapDef = getCityMap(state?.city.mapKey)
   const people = useMemo(() => {
     if (!state) return []
     const waiting = state.stationStats.reduce((sum, station) => sum + station.waitingCount, 0)
-    return createPeople(state.city.seed, waiting, state.city.stations)
+    return createPeople(state.city.seed, waiting, state.city.stations, getCityMap(state.city.mapKey))
   }, [state])
 
   useEffect(() => {
@@ -397,8 +375,8 @@ export default function GamePage({ cityId, onBack }: Props) {
     const mapPoint = point.matrixTransform(matrix.inverse())
     const posX = Math.round(Math.max(4, Math.min(96, mapPoint.x)) * 10) / 10
     const posY = Math.round(Math.max(4, Math.min(92, mapPoint.y)) * 10) / 10
-    if (!isBusanLand(posX, posY)) {
-      setError('바다에는 역을 지을 수 없습니다.')
+    if (!mapDef.isLand(posX, posY)) {
+      setError('물 위에는 역을 지을 수 없습니다.')
       return
     }
     const name = stationName.trim() || `신설역 ${state!.city.stations.length + 1}`
@@ -569,7 +547,7 @@ export default function GamePage({ cityId, onBack }: Props) {
     return (
       <div className={styles.loadingPage}>
         <span className={styles.loadingDot} />
-        {error ?? '부산 로딩 중'}
+        {error ?? '도시 로딩 중'}
       </div>
     )
   }
@@ -591,7 +569,7 @@ export default function GamePage({ cityId, onBack }: Props) {
         <div className={styles.controlHeader}>
           <button className={styles.backButton} onClick={onBack} aria-label="도시 선택으로 돌아가기">←</button>
           <div>
-            <span>BUSAN CONTROL</span>
+            <span>{mapDef.key} CONTROL</span>
             <h1>도시 운영실</h1>
           </div>
         </div>
@@ -716,7 +694,7 @@ export default function GamePage({ cityId, onBack }: Props) {
       <main className={styles.gameStage}>
         <header className={styles.hudTop}>
           <div className={styles.cityIdentity}>
-            <span className={styles.cityName}>부산</span>
+            <span className={styles.cityName}>{state.city.name}</span>
             <span>1일차 · {formatHour(gameHour)}</span>
           </div>
           <div className={styles.hudStats}>
@@ -727,7 +705,7 @@ export default function GamePage({ cityId, onBack }: Props) {
           </div>
         </header>
 
-        <div className={styles.mapCanvas} aria-label="부산 도시 노선도">
+        <div className={styles.mapCanvas} aria-label={`${mapDef.name} 도시 노선도`}>
           <div className={styles.mapControls}>
             <div className={styles.stationBuilder}>
               <button
@@ -782,7 +760,7 @@ export default function GamePage({ cityId, onBack }: Props) {
             className={`${styles.cityMap} ${stationBuildMode ? styles.stationBuildCursor : ''} ${isMapPanning ? styles.mapPanning : ''}`}
             viewBox={`${mapView.x} ${mapView.y} ${mapView.width} ${mapView.height}`}
             role="img"
-            aria-label="부산 지형과 일반역, 환승역, 노선 차고지"
+            aria-label={`${mapDef.name} 지형과 일반역, 환승역, 노선 차고지`}
             onClick={handleMapClick}
             onPointerDown={handleMapPointerDown}
             onPointerMove={handleMapPointerMove}
@@ -794,36 +772,38 @@ export default function GamePage({ cityId, onBack }: Props) {
               <pattern id="map-grid" width="5" height="5" patternUnits="userSpaceOnUse">
                 <path d="M 5 0 L 0 0 0 5" fill="none" stroke="rgba(26,22,19,.035)" strokeWidth=".18" />
               </pattern>
-              <clipPath id="busan-land-clip">
-                <path d={BUSAN_LAND_PATH} />
-                <path d="M42 87C46 84 51 86 53 91C50 96 43 97 39 92Z" />
+              <clipPath id="city-land-clip">
+                <path d={mapDef.landPath} />
+                {mapDef.islandPaths.map((path, index) => <path key={index} d={path} />)}
               </clipPath>
             </defs>
             <rect width="100" height="100" className={styles.sea} />
             <path
               className={styles.busanLand}
-              d={BUSAN_LAND_PATH}
+              d={mapDef.landPath}
             />
-            <path className={styles.yeongdo} d="M42 87C46 84 51 86 53 91C50 96 43 97 39 92Z" />
+            {mapDef.islandPaths.map((path, index) => (
+              <path key={`island-${index}`} className={styles.yeongdo} d={path} />
+            ))}
             <path className={styles.mapGrid} d="M0 0H100V100H0Z" />
-            <path className={styles.nakdongRiver} d="M19 -4C17 15 23 27 20 42C17 57 22 70 17 90" />
-            <path className={styles.suyeongRiver} d="M72 28C70 40 74 49 70 61C68 68 71 73 70 78" />
+            {mapDef.rivers.map((river, index) => (
+              <path
+                key={`river-${index}`}
+                className={styles.nakdongRiver}
+                d={river.d}
+                style={{ strokeWidth: river.width, opacity: river.opacity }}
+              />
+            ))}
             <g className={styles.mountains}>
-              <path d="M28 17L35 6L41 18Z" />
-              <path d="M48 22L56 8L64 22Z" />
-              <path d="M70 20L77 9L84 22Z" />
+              {mapDef.mountainPaths.map((path, index) => <path key={index} d={path} />)}
             </g>
             <g className={styles.districtLabels}>
-              <text x="9" y="47">강서구</text>
-              <text x="29" y="41">사상구</text>
-              <text x="47" y="49">부산진구</text>
-              <text x="57" y="29">동래구</text>
-              <text x="72" y="45">수영구</text>
-              <text x="84" y="48">해운대구</text>
-              <text x="43" y="94">영도</text>
+              {mapDef.districts.map(district => (
+                <text key={district.label} x={district.x} y={district.y}>{district.label}</text>
+              ))}
             </g>
 
-            <g className={styles.peopleLayer} clipPath="url(#busan-land-clip)" aria-label="도시 인구">
+            <g className={styles.peopleLayer} clipPath="url(#city-land-clip)" aria-label="도시 인구">
               {people.map((person, index) => (
                 <circle
                   key={index}

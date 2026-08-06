@@ -18,6 +18,82 @@ const LINE_LAYOUT = {
   '2호선': { depotX: 18, depotY: 39, stations: ['사상역', '서면역', '광안리역', '센텀역', '해운대역'] },
 } as const
 
+const SEOUL_LAYOUT = {
+  stations: [
+    { name: '서울역', type: 'HUB' as const, capacity: 240, posX: 44, posY: 36 },
+    { name: '시청역', type: 'COMMERCIAL' as const, capacity: 200, posX: 43, posY: 29 },
+    { name: '홍대입구역', type: 'TOURIST' as const, capacity: 180, posX: 24, posY: 38 },
+    { name: '영등포역', type: 'RESIDENTIAL' as const, capacity: 180, posX: 22, posY: 60 },
+    { name: '강남역', type: 'COMMERCIAL' as const, capacity: 200, posX: 60, posY: 64 },
+    { name: '잠실역', type: 'TOURIST' as const, capacity: 180, posX: 78, posY: 58 },
+    { name: '청량리역', type: 'INDUSTRIAL' as const, capacity: 190, posX: 66, posY: 28 },
+    { name: '노원역', type: 'RESIDENTIAL' as const, capacity: 180, posX: 70, posY: 14 },
+  ],
+  lines: [
+    {
+      color: 'RED' as LineColor, name: '1호선', depotX: 74, depotY: 10,
+      stations: ['노원역', '청량리역', '시청역', '서울역', '영등포역'], isPlayer: true,
+    },
+    {
+      color: 'BLUE' as LineColor, name: '2호선', depotX: 14, depotY: 34,
+      stations: ['홍대입구역', '시청역', '강남역', '잠실역'], isPlayer: false,
+    },
+  ],
+  concertStation: '잠실역',
+}
+
+async function seedSeoul(playerId: string) {
+  const existing = await db.city.findFirst({ where: { mapKey: 'SEOUL' } })
+  if (existing) {
+    console.log('시드 스킵: 서울 도시가 이미 있습니다.', existing.id)
+    return
+  }
+
+  const city = await db.city.create({
+    data: { name: '서울', mapKey: 'SEOUL', seed: 84, seasonDay: 1, status: 'ACTIVE' },
+  })
+  const stations = await Promise.all(
+    SEOUL_LAYOUT.stations.map(station => db.station.create({ data: { ...station, cityId: city.id } })),
+  )
+  const stationByName = new Map(stations.map(station => [station.name, station]))
+
+  for (const lineDef of SEOUL_LAYOUT.lines) {
+    const line = await db.line.create({
+      data: {
+        cityId: city.id,
+        color: lineDef.color,
+        name: lineDef.name,
+        playerId: lineDef.isPlayer ? playerId : undefined,
+        status: 'OPERATING',
+        depotX: lineDef.depotX,
+        depotY: lineDef.depotY,
+      },
+    })
+    const stationIds = lineDef.stations.map(name => stationByName.get(name)!.id)
+    await db.lineStation.createMany({
+      data: stationIds.map((stationId, order) => ({ lineId: line.id, stationId, order })),
+    })
+    await db.vehicle.createMany({
+      data: [
+        { lineId: line.id, capacity: 120, status: 'OPERATING', currentStationId: stationIds[0], headwayMinutes: 3 },
+        { lineId: line.id, capacity: 120, status: 'SPARE', isSpare: true, headwayMinutes: 6, direction: -1 },
+      ],
+    })
+  }
+
+  await db.gameEvent.create({
+    data: {
+      cityId: city.id,
+      type: 'CONCERT',
+      startsAtTick: 18,
+      durationTicks: 18,
+      affectedStationId: stationByName.get(SEOUL_LAYOUT.concertStation)!.id,
+      demandMultiplier: 2.5,
+    },
+  })
+  console.log('서울 시드 완료:', city.id)
+}
+
 async function main() {
   const player = await db.player.upsert({
     where: { token: '00000000-0000-4000-8000-000000000001' },
@@ -27,6 +103,8 @@ async function main() {
       nickname: '데모',
     },
   })
+
+  await seedSeoul(player.id)
 
   const existing = await db.city.findFirst({
     where: { name: '부산' },

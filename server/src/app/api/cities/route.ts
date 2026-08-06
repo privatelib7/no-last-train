@@ -6,7 +6,62 @@ const CreateCitySchema = z.object({
   name: z.string().min(1).max(20),
   playerToken: z.string().uuid(),
   lineColor: z.enum(['RED', 'BLUE', 'GREEN', 'YELLOW', 'PURPLE']),
+  mapKey: z.enum(['BUSAN', 'SEOUL']).default('BUSAN'),
 })
+
+type StationDef = {
+  name: string
+  type: 'HUB' | 'RESIDENTIAL' | 'COMMERCIAL' | 'TOURIST' | 'INDUSTRIAL'
+  posX: number
+  posY: number
+}
+
+// 맵별 초기 역/노선 배치 (좌표는 클라이언트 viewBox 0~100 기준)
+const MAP_LAYOUTS: Record<string, {
+  stations: StationDef[]
+  playerLine: { stations: string[]; depotX: number; depotY: number }
+  aiLine: { name: string; stations: string[]; depotX: number; depotY: number }
+  concertStation: string
+}> = {
+  BUSAN: {
+    stations: [
+      { name: '중앙역', type: 'HUB', posX: 45, posY: 76 },
+      { name: '북항역', type: 'RESIDENTIAL', posX: 43, posY: 82 },
+      { name: '서면역', type: 'COMMERCIAL', posX: 49, posY: 57 },
+      { name: '광안리역', type: 'TOURIST', posX: 69, posY: 61 },
+      { name: '사상역', type: 'RESIDENTIAL', posX: 26, posY: 50 },
+      { name: '해운대역', type: 'TOURIST', posX: 86, posY: 56 },
+      { name: '동래역', type: 'COMMERCIAL', posX: 57, posY: 35 },
+      { name: '센텀역', type: 'INDUSTRIAL', posX: 77, posY: 50 },
+    ],
+    playerLine: { stations: ['북항역', '중앙역', '서면역', '동래역'], depotX: 61, depotY: 23 },
+    aiLine: {
+      name: 'AI 2호선',
+      stations: ['사상역', '서면역', '광안리역', '센텀역', '해운대역'],
+      depotX: 18, depotY: 39,
+    },
+    concertStation: '해운대역',
+  },
+  SEOUL: {
+    stations: [
+      { name: '서울역', type: 'HUB', posX: 44, posY: 36 },
+      { name: '시청역', type: 'COMMERCIAL', posX: 43, posY: 29 },
+      { name: '홍대입구역', type: 'TOURIST', posX: 24, posY: 38 },
+      { name: '영등포역', type: 'RESIDENTIAL', posX: 22, posY: 60 },
+      { name: '강남역', type: 'COMMERCIAL', posX: 60, posY: 64 },
+      { name: '잠실역', type: 'TOURIST', posX: 78, posY: 58 },
+      { name: '청량리역', type: 'INDUSTRIAL', posX: 66, posY: 28 },
+      { name: '노원역', type: 'RESIDENTIAL', posX: 70, posY: 14 },
+    ],
+    playerLine: { stations: ['노원역', '청량리역', '시청역', '서울역', '영등포역'], depotX: 74, depotY: 10 },
+    aiLine: {
+      name: 'AI 2호선',
+      stations: ['홍대입구역', '시청역', '강남역', '잠실역'],
+      depotX: 14, depotY: 34,
+    },
+    concertStation: '잠실역',
+  },
+}
 
 const LINE_COLOR_MAP: Record<string, string> = {
   RED: 'red',
@@ -42,58 +97,58 @@ export async function POST(req: NextRequest) {
   }
 
   const seed = Math.floor(Math.random() * 1_000_000)
+  const layout = MAP_LAYOUTS[parsed.data.mapKey]
 
   const city = await db.$transaction(async (tx) => {
     const city = await tx.city.create({
-      data: { name: parsed.data.name, seed },
+      data: { name: parsed.data.name, mapKey: parsed.data.mapKey, seed },
     })
 
-    const stationDefs = [
-      { name: '중앙역', type: 'HUB' as const, posX: 400, posY: 300 },
-      { name: '북부역', type: 'RESIDENTIAL' as const, posX: 300, posY: 150 },
-      { name: '남부역', type: 'COMMERCIAL' as const, posX: 500, posY: 450 },
-      { name: '동부역', type: 'INDUSTRIAL' as const, posX: 600, posY: 280 },
-      { name: '서부역', type: 'RESIDENTIAL' as const, posX: 200, posY: 320 },
-      { name: '공원역', type: 'TOURIST' as const, posX: 350, posY: 420 },
-      { name: '대학역', type: 'COMMERCIAL' as const, posX: 480, posY: 180 },
-      { name: '외곽역', type: 'RESIDENTIAL' as const, posX: 650, posY: 420 },
-    ]
-
     const stations = await Promise.all(
-      stationDefs.map((s) => tx.station.create({ data: { ...s, cityId: city.id } })),
+      layout.stations.map((s) => tx.station.create({ data: { ...s, cityId: city.id } })),
     )
-    const [central, north, south, east, west, park, univ, outer] = stations
+    const stationByName = new Map(stations.map((s) => [s.name, s]))
+    const resolve = (names: string[]) => names.map((name) => stationByName.get(name)!)
 
-    const redLine = await tx.line.create({
+    const playerStations = resolve(layout.playerLine.stations)
+    const playerLine = await tx.line.create({
       data: {
         cityId: city.id,
         playerId: player.id,
         color: parsed.data.lineColor,
-        name: `${player.nickname ?? '플레이어'} 노선`,
+        name: '1호선',
+        depotX: layout.playerLine.depotX,
+        depotY: layout.playerLine.depotY,
       },
     })
-    const redStations = [west, north, central, univ, east]
     await tx.lineStation.createMany({
-      data: redStations.map((s, i) => ({ lineId: redLine.id, stationId: s.id, order: i })),
+      data: playerStations.map((s, i) => ({ lineId: playerLine.id, stationId: s.id, order: i })),
     })
     await tx.vehicle.createMany({
       data: [
-        { lineId: redLine.id, capacity: 120, status: 'OPERATING', currentStationId: central.id },
-        { lineId: redLine.id, capacity: 120, status: 'SPARE', isSpare: true },
+        { lineId: playerLine.id, capacity: 120, status: 'OPERATING', currentStationId: playerStations[0].id, headwayMinutes: 3 },
+        { lineId: playerLine.id, capacity: 120, status: 'SPARE', isSpare: true, headwayMinutes: 6, direction: -1 },
       ],
     })
 
-    const blueLine = await tx.line.create({
-      data: { cityId: city.id, color: 'BLUE', name: 'AI 파랑 노선' },
+    const aiStations = resolve(layout.aiLine.stations)
+    const aiColor = parsed.data.lineColor === 'BLUE' ? 'GREEN' : 'BLUE'
+    const aiLine = await tx.line.create({
+      data: {
+        cityId: city.id,
+        color: aiColor,
+        name: layout.aiLine.name,
+        depotX: layout.aiLine.depotX,
+        depotY: layout.aiLine.depotY,
+      },
     })
-    const blueStations = [north, central, park, south, outer]
     await tx.lineStation.createMany({
-      data: blueStations.map((s, i) => ({ lineId: blueLine.id, stationId: s.id, order: i })),
+      data: aiStations.map((s, i) => ({ lineId: aiLine.id, stationId: s.id, order: i })),
     })
     await tx.vehicle.createMany({
       data: [
-        { lineId: blueLine.id, capacity: 120, status: 'OPERATING', currentStationId: south.id },
-        { lineId: blueLine.id, capacity: 120, status: 'SPARE', isSpare: true },
+        { lineId: aiLine.id, capacity: 120, status: 'OPERATING', currentStationId: aiStations[0].id, headwayMinutes: 3 },
+        { lineId: aiLine.id, capacity: 120, status: 'SPARE', isSpare: true, headwayMinutes: 6, direction: -1 },
       ],
     })
 
@@ -103,7 +158,7 @@ export async function POST(req: NextRequest) {
         type: 'CONCERT',
         startsAtTick: 18,
         durationTicks: 18,
-        affectedStationId: park.id,
+        affectedStationId: stationByName.get(layout.concertStation)!.id,
         demandMultiplier: 2.5,
       },
     })
@@ -144,6 +199,7 @@ export async function GET(req: NextRequest) {
   const payload = cities.map((city) => ({
     id: city.id,
     name: city.name,
+    mapKey: city.mapKey,
     seasonDay: city.seasonDay,
     status: city.status,
     lineCount: city._count.lines,
