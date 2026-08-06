@@ -150,6 +150,7 @@ export function advanceCity(cityId: string) {
 
 export type CityAction =
   | { type: 'BUILD_STATION'; name: string; posX: number; posY: number }
+  | { type: 'RENAME_STATION'; stationId: string; name: string }
   | { type: 'BUILD_SEGMENT'; lineId: string; fromStationId: string; toStationId: string }
   | { type: 'SET_LINE_STATUS'; lineId: string; status: 'OPERATING' | 'SUSPENDED' }
   | { type: 'SET_VEHICLE_SERVICE'; lineId: string; vehicleId: string; inService: boolean }

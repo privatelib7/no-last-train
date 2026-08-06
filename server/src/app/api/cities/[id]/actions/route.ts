@@ -10,6 +10,11 @@ const ActionSchema = z.discriminatedUnion('type', [
     posY: z.number().min(4).max(92),
   }),
   z.object({
+    type: z.literal('RENAME_STATION'),
+    stationId: z.string(),
+    name: z.string().trim().min(1).max(12),
+  }),
+  z.object({
     type: z.literal('BUILD_SEGMENT'),
     lineId: z.string(),
     fromStationId: z.string(),
@@ -75,6 +80,17 @@ export async function POST(
       },
     })
     return NextResponse.json({ message: `${station.name}을 건설했습니다.`, station })
+  }
+
+  if (action.type === 'RENAME_STATION') {
+    const station = await db.station.findFirst({ where: { id: action.stationId, cityId: id } })
+    if (!station) return NextResponse.json({ error: '역을 찾을 수 없습니다.' }, { status: 404 })
+    const duplicate = await db.station.findFirst({
+      where: { cityId: id, name: action.name, id: { not: station.id } },
+    })
+    if (duplicate) return NextResponse.json({ error: '같은 이름의 역이 이미 있습니다.' }, { status: 409 })
+    const updated = await db.station.update({ where: { id: station.id }, data: { name: action.name } })
+    return NextResponse.json({ message: `${station.name}을 ${updated.name}(으)로 변경했습니다.`, station: updated })
   }
 
   const line = await db.line.findFirst({

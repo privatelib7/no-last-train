@@ -197,6 +197,8 @@ export default function GamePage({ cityId, onBack }: Props) {
   const [selectedVehicleId, setSelectedVehicleId] = useState('')
   const [stationBuildMode, setStationBuildMode] = useState(false)
   const [stationName, setStationName] = useState('')
+  const [selectedStationId, setSelectedStationId] = useState('')
+  const [renameValue, setRenameValue] = useState('')
   const [vehicleDrag, setVehicleDrag] = useState<VehicleDragState | null>(null)
   const [dragTarget, setDragTarget] = useState<DragTarget>(null)
   const [mapView, setMapView] = useState<MapView>(INITIAL_MAP_VIEW)
@@ -346,8 +348,12 @@ export default function GamePage({ cityId, onBack }: Props) {
     setError(null)
   }
 
-  const handleStationClick = (event: MouseEvent<SVGGElement>) => {
+  const handleStationClick = (event: MouseEvent<SVGGElement>, stationId: string) => {
     event.stopPropagation()
+    if (busy) return
+    const station = stationById.get(stationId)
+    setSelectedStationId(stationId)
+    setRenameValue(station?.name ?? '')
   }
 
   const handleMapClick = (event: MouseEvent<SVGSVGElement>) => {
@@ -545,6 +551,7 @@ export default function GamePage({ cityId, onBack }: Props) {
   const currentTick = state.city.currentTick
   // 확대해도 역·글씨·점이 화면 기준 크기를 유지하도록 counter-scale
   const mapScale = mapView.width / 100
+  const selectedStation = stationById.get(selectedStationId) ?? null
   const gameHour = (currentTick / 6) % 24
   const elapsedSeconds = currentTick * (LIVE_TICK_MS / 1000) + motionProgress * (LIVE_TICK_MS / 1000)
   const latestMetric = state.city.ticks[0]
@@ -647,6 +654,33 @@ export default function GamePage({ cityId, onBack }: Props) {
                 disabled={busy}
               >선택 차량 제거</button>
             )}
+          </section>
+        )}
+
+        {selectedStation && (
+          <section className={styles.controlSection}>
+            <div className={styles.sectionHeading}><span>03</span><h2>역 관리</h2></div>
+            <div className={styles.actionForm}>
+              <label htmlFor="station-rename">역 이름</label>
+              <div>
+                <input
+                  id="station-rename"
+                  className={styles.stationNameInput}
+                  value={renameValue}
+                  maxLength={12}
+                  onChange={event => setRenameValue(event.target.value)}
+                  aria-label={`${selectedStation.name} 이름 수정`}
+                />
+                <button
+                  onClick={() => void performAction({
+                    type: 'RENAME_STATION',
+                    stationId: selectedStation.id,
+                    name: renameValue.trim(),
+                  })}
+                  disabled={busy || !renameValue.trim() || renameValue.trim() === selectedStation.name}
+                >변경</button>
+              </div>
+            </div>
           </section>
         )}
 
@@ -798,13 +832,13 @@ export default function GamePage({ cityId, onBack }: Props) {
               const isInterchange = interchangeStationIds.has(station.id)
               const isCurrentVehicleStation = selectedVehicle?.currentStationId === station.id
               const isDropTarget = dragTarget?.kind === 'STATION' && dragTarget.id === station.id
-              const highlighted = isCurrentVehicleStation || isDropTarget
+              const highlighted = isCurrentVehicleStation || isDropTarget || station.id === selectedStationId
               return (
                 <g
                   key={station.id}
                   transform={`translate(${point.x} ${point.y}) scale(${mapScale})`}
                   className={styles.stationGroup}
-                  onClick={handleStationClick}
+                  onClick={event => handleStationClick(event, station.id)}
                   role="button"
                   tabIndex={0}
                   data-station-id={station.id}
