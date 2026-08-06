@@ -3,19 +3,19 @@ import { PrismaClient, LineColor } from '@prisma/client'
 const db = new PrismaClient()
 
 const BUSAN_LAYOUT = {
-  중앙역: { posX: 45, posY: 76 },
-  북항역: { posX: 43, posY: 82 },
-  서면역: { posX: 49, posY: 57 },
-  광안리역: { posX: 69, posY: 61 },
-  사상역: { posX: 26, posY: 50 },
-  해운대역: { posX: 86, posY: 56 },
-  동래역: { posX: 57, posY: 35 },
-  센텀역: { posX: 77, posY: 50 },
+  중앙역: { posX: 48, posY: 74 },
+  북항역: { posX: 46, posY: 80 },
+  서면역: { posX: 52, posY: 58 },
+  광안리역: { posX: 62, posY: 62 },
+  사상역: { posX: 38, posY: 52 },
+  해운대역: { posX: 74, posY: 50 },
+  동래역: { posX: 54, posY: 42 },
+  센텀역: { posX: 66, posY: 52 },
 } as const
 
 const LINE_LAYOUT = {
-  '1호선': { depotX: 61, depotY: 23, stations: ['북항역', '중앙역', '서면역', '동래역'] },
-  '2호선': { depotX: 18, depotY: 39, stations: ['사상역', '서면역', '광안리역', '센텀역', '해운대역'] },
+  '1호선': { depotX: 56, depotY: 30, stations: ['북항역', '중앙역', '서면역', '동래역'] },
+  '2호선': { depotX: 42, depotY: 46, stations: ['사상역', '서면역', '광안리역', '센텀역', '해운대역'] },
 } as const
 
 const SEOUL_LAYOUT = {
@@ -35,7 +35,7 @@ const SEOUL_LAYOUT = {
       stations: ['노원역', '청량리역', '시청역', '서울역', '영등포역'], isPlayer: true,
     },
     {
-      color: 'BLUE' as LineColor, name: '2호선', depotX: 14, depotY: 34,
+      color: 'BLUE' as LineColor, name: '2호선', depotX: 26, depotY: 44,
       stations: ['홍대입구역', '시청역', '강남역', '잠실역'], isPlayer: false,
     },
   ],
@@ -109,17 +109,25 @@ const BUS_LAYOUTS: Record<string, {
     depotX: 34, depotY: 48,
   },
   BUSAN: {
-    stop: { name: '광복정류장', posX: 40, posY: 79 },
+    stop: { name: '광복정류장', posX: 44, posY: 76 },
     route: ['사상역', '광복정류장', '중앙역'],
-    depotX: 32, depotY: 62,
+    depotX: 42, depotY: 70,
   },
 }
 
 async function ensureBusLine(cityId: string, mapKey: string) {
-  const existing = await db.line.findFirst({ where: { cityId, mode: 'BUS' } })
-  if (existing) return
   const layout = BUS_LAYOUTS[mapKey]
   if (!layout) return
+  const existing = await db.line.findFirst({ where: { cityId, mode: 'BUS' } })
+  if (existing) {
+    // 지형 개편 시 정류장·차고지 좌표를 최신 레이아웃으로 동기화
+    await db.line.update({ where: { id: existing.id }, data: { depotX: layout.depotX, depotY: layout.depotY } })
+    await db.station.updateMany({
+      where: { cityId, name: layout.stop.name },
+      data: { posX: layout.stop.posX, posY: layout.stop.posY },
+    })
+    return
+  }
 
   let stop = await db.station.findFirst({ where: { cityId, name: layout.stop.name } })
   if (!stop) {
@@ -205,6 +213,13 @@ async function main() {
       include: { vehicles: { orderBy: { id: 'asc' } } },
       orderBy: { name: 'asc' },
     })
+    // 지형 개편 시 차고지 좌표 동기화
+    for (const line of existingLines) {
+      const layout = LINE_LAYOUT[line.name as keyof typeof LINE_LAYOUT]
+      if (layout && (line.depotX !== layout.depotX || line.depotY !== layout.depotY)) {
+        await db.line.update({ where: { id: line.id }, data: { depotX: layout.depotX, depotY: layout.depotY } })
+      }
+    }
     if (existingLines.some(line => line.depotX === 0 && line.depotY === 0)) {
       for (const line of existingLines) {
         const layout = LINE_LAYOUT[line.name as keyof typeof LINE_LAYOUT]
