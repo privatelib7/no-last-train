@@ -843,6 +843,12 @@
   fill: #eeeae1;
 }
 
+.queueDot {
+  fill: #2b2418;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
 .zone_residential {
   fill: #55a96a;
   fill-opacity: 0.12;

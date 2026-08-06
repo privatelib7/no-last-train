@@ -8,7 +8,7 @@ import {
   type Station,
   type Vehicle,
 } from '../api/game'
-import { getCityMap, polyPath, type CityMapDef } from '../maps'
+import { getCityMap, pointInPolygon, polyPath, type CityMapDef, type ZoneKind } from '../maps'
 import styles from './GamePage.module.css'
 
 interface Props {
@@ -137,22 +137,77 @@ function randomUnit(seed: number, index: number, salt: number) {
   return (value >>> 0) / 4294967296
 }
 
-function createPeople(seed: number, waitingCount: number, stations: Station[], map: CityMapDef) {
+// 시간대별 구역 상주 인구 가중치 (index: 0 아침, 1 낮, 2 저녁, 3 밤)
+const AMBIENT_WEIGHT: Record<'WD' | 'WE', Array<Record<ZoneKind, number>>> = {
+  WD: [
+    { residential: 1.2, commercial: 0.8, industrial: 2.2 },
+    { residential: 0.6, commercial: 2.0, industrial: 1.4 },
+    { residential: 1.5, commercial: 2.0, industrial: 0.5 },
+    { residential: 2.5, commercial: 0.7, industrial: 0.15 },
+  ],
+  WE: [
+    { residential: 1.8, commercial: 1.0, industrial: 0.1 },
+    { residential: 1.0, commercial: 2.2, industrial: 0.1 },
+    { residential: 1.4, commercial: 1.8, industrial: 0.1 },
+    { residential: 2.4, commercial: 0.6, industrial: 0.1 },
+  ],
+}
+
+function periodIndexOfHour(hour: number) {
+  const h = Math.floor(hour)
+  if (h >= 6 && h <= 9) return 0
+  if (h >= 10 && h <= 15) return 1
+  if (h >= 16 && h <= 19) return 2
+  return 3
+}
+
+function zoneBBox(points: Array<[number, number]>) {
+  const xs = points.map(([x]) => x)
+  const ys = points.map(([, y]) => y)
+  const minX = Math.min(...xs)
+  const minY = Math.min(...ys)
+  const maxX = Math.max(...xs)
+  const maxY = Math.max(...ys)
+  return { minX, minY, width: maxX - minX, height: maxY - minY }
+}
+
+// 역이 없는 승객은 구역 안에 머무른다 — 시간대에 따라 구역별 인구가 이동
+function createPeople(seed: number, waitingCount: number, map: CityMapDef, periodIndex: number, weekend: boolean) {
   const count = Math.min(150, Math.max(45, Math.round(38 + Math.log10(waitingCount + 10) * 23)))
+  const weights = AMBIENT_WEIGHT[weekend ? 'WE' : 'WD'][periodIndex]
+  const zones = map.zones.map(zone => ({
+    zone,
+    bbox: zoneBBox(zone.points),
+  }))
+  const zoneWeights = zones.map(({ zone, bbox }) => weights[zone.kind] * bbox.width * bbox.height)
+  const totalWeight = zoneWeights.reduce((sum, w) => sum + w, 0)
+  // 시간대·요일이 salt에 들어가 시간대가 바뀔 때만 인구 배치가 이동한다
+  const salt = 400 + periodIndex * 2 + (weekend ? 1 : 0)
+
   return Array.from({ length: count }, (_, index) => {
-    let x = 0
-    let y = 0
-    if (stations.length > 0 && index % 3 !== 0) {
-      const station = stations[Math.floor(randomUnit(seed, index, 1) * stations.length)]
-      const angle = randomUnit(seed, index, 2) * Math.PI * 2
-      const distance = 1.8 + randomUnit(seed, index, 3) * 7.5
-      x = station.posX + Math.cos(angle) * distance
-      y = station.posY + Math.sin(angle) * distance
-    }
-    if (!map.isLand(x, y) || index % 3 === 0) {
+    let x = -1
+    let y = -1
+    if (totalWeight > 0 && index % 4 !== 0) {
+      let roll = randomUnit(seed, index, salt) * totalWeight
+      let picked = zones[zones.length - 1]
+      for (let z = 0; z < zones.length; z++) {
+        roll -= zoneWeights[z]
+        if (roll <= 0) { picked = zones[z]; break }
+      }
       for (let attempt = 0; attempt < 24; attempt++) {
-        const candidateX = randomUnit(seed, index, 10 + attempt * 2) * 100
-        const candidateY = randomUnit(seed, index, 11 + attempt * 2) * 96
+        const candidateX = picked.bbox.minX + randomUnit(seed, index, salt + 10 + attempt * 2) * picked.bbox.width
+        const candidateY = picked.bbox.minY + randomUnit(seed, index, salt + 11 + attempt * 2) * picked.bbox.height
+        if (pointInPolygon(candidateX, candidateY, picked.zone.points) && map.isLand(candidateX, candidateY)) {
+          x = candidateX
+          y = candidateY
+          break
+        }
+      }
+    }
+    if (x < 0) {
+      for (let attempt = 0; attempt < 24; attempt++) {
+        const candidateX = randomUnit(seed, index, salt + 60 + attempt * 2) * 100
+        const candidateY = randomUnit(seed, index, salt + 61 + attempt * 2) * 96
         if (map.isLand(candidateX, candidateY)) {
           x = candidateX
           y = candidateY
@@ -302,8 +357,19 @@ export default function GamePage({ cityId, onBack }: Props) {
   const people = useMemo(() => {
     if (!state) return []
     const waiting = state.stationStats.reduce((sum, station) => sum + station.waitingCount, 0)
-    return createPeople(state.city.seed, waiting, state.city.stations, getCityMap(state.city.mapKey))
+    const tick = state.city.currentTick
+    return createPeople(
+      state.city.seed,
+      waiting,
+      getCityMap(state.city.mapKey),
+      periodIndexOfHour((tick / 6) % 24),
+      Math.floor(tick / 144) % 7 >= 5,
+    )
   }, [state])
+  const waitingByStation = useMemo(
+    () => new Map(state?.stationStats.map(stat => [stat.stationId, stat.waitingCount]) ?? []),
+    [state],
+  )
 
   useEffect(() => {
     if (!selectedVehicleId || !state) return
@@ -910,6 +976,15 @@ export default function GamePage({ cityId, onBack }: Props) {
                       <circle r="1.4" className={styles.stationNode} />
                     </>
                   )}
+                  {Array.from({ length: Math.min(Math.ceil((waitingByStation.get(station.id) ?? 0) / 5), 12) }, (_, dotIndex) => (
+                    <circle
+                      key={dotIndex}
+                      cx={2.3 + (dotIndex % 6) * 0.75}
+                      cy={-0.4 + Math.floor(dotIndex / 6) * 0.85}
+                      r=".3"
+                      className={styles.queueDot}
+                    />
+                  ))}
                   <text y={station.name === '서면역' ? 4.9 : -3.15} textAnchor="middle" className={styles.stationLabel}>{station.name}</text>
                 </g>
               )
