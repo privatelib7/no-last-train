@@ -843,6 +843,33 @@
   fill: #eeeae1;
 }
 
+.zone_residential {
+  fill: #55a96a;
+  fill-opacity: 0.12;
+  stroke: #55a96a;
+  stroke-width: 0.2;
+  stroke-opacity: 0.25;
+  pointer-events: none;
+}
+
+.zone_commercial {
+  fill: #3f8edb;
+  fill-opacity: 0.1;
+  stroke: #3f8edb;
+  stroke-width: 0.2;
+  stroke-opacity: 0.25;
+  pointer-events: none;
+}
+
+.zone_industrial {
+  fill: #e1b735;
+  fill-opacity: 0.13;
+  stroke: #e1b735;
+  stroke-width: 0.2;
+  stroke-opacity: 0.25;
+  pointer-events: none;
+}
+
 .mapGrid {
   fill: url(#map-grid);
   pointer-events: none;

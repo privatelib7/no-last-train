@@ -1,5 +1,12 @@
 // 도시별 맵 지오메트리 (viewBox 0~100 기준)
 
+export type ZoneKind = 'residential' | 'commercial' | 'industrial'
+
+export type Zone = {
+  kind: ZoneKind
+  points: Array<[number, number]>
+}
+
 export type CityMapDef = {
   key: string
   name: string
@@ -8,7 +15,25 @@ export type CityMapDef = {
   rivers: Array<{ d: string; width: number; opacity: number }>
   mountainPaths: string[]
   districts: Array<{ x: number; y: number; label: string }>
+  zones: Zone[]
   isLand: (x: number, y: number) => boolean
+}
+
+export function polyPath(points: Array<[number, number]>) {
+  return `M${points.map(([x, y]) => `${x} ${y}`).join('L')}Z`
+}
+
+// ray-cast 점-폴리곤 내부 판정
+export function pointInPolygon(x: number, y: number, points: Array<[number, number]>) {
+  let inside = false
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const [xi, yi] = points[i]
+    const [xj, yj] = points[j]
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) {
+      inside = !inside
+    }
+  }
+  return inside
 }
 
 // ─── 부산 ───────────────────────────────────────────────────────────────
@@ -57,6 +82,17 @@ const BUSAN: CityMapDef = {
     { x: 84, y: 48, label: '해운대구' },
     { x: 43, y: 94, label: '영도' },
   ],
+  zones: [
+    // 주거: 사상/북구, 동래
+    { kind: 'residential', points: [[20, 42], [32, 44], [34, 56], [24, 58], [18, 50]] },
+    { kind: 'residential', points: [[50, 28], [62, 30], [64, 40], [54, 44], [48, 36]] },
+    // 상업: 서면, 남포/중앙
+    { kind: 'commercial', points: [[42, 50], [54, 52], [56, 62], [46, 64], [40, 58]] },
+    { kind: 'commercial', points: [[38, 68], [50, 70], [49, 80], [40, 80]] },
+    // 산업: 사상공단(낙동강변), 센텀
+    { kind: 'industrial', points: [[21, 58], [28, 58], [28, 72], [21, 74]] },
+    { kind: 'industrial', points: [[70, 44], [82, 46], [84, 54], [74, 56], [68, 50]] },
+  ],
   isLand(x, y) {
     const onMainland = x >= 0 && x <= 100 && y >= 0 && y <= busanCoastY(x)
     const onYeongdo = x >= 39 && x <= 53 && y >= 84 && y <= 97
@@ -85,11 +121,17 @@ function hanRiverY(x: number) {
   return 40
 }
 
+// 서울시 경계 (OSM 형태 단순화, 시계 방향)
+const SEOUL_BOUNDARY: Array<[number, number]> = [
+  [8, 38], [10, 26], [16, 18], [24, 12], [31, 14], [36, 8], [44, 4], [52, 2], [58, 6], [62, 3],
+  [70, 4], [78, 10], [84, 16], [90, 24], [96, 34], [97, 44], [93, 54], [95, 64], [88, 72], [80, 78],
+  [70, 82], [62, 90], [52, 94], [42, 96], [34, 90], [28, 94], [20, 88], [14, 78], [10, 68], [6, 56], [8, 46],
+]
+
 const SEOUL: CityMapDef = {
   key: 'SEOUL',
   name: '서울',
-  // 내륙 도시 — 맵 전체가 땅
-  landPath: 'M0 0H100V100H0Z',
+  landPath: polyPath(SEOUL_BOUNDARY),
   // 여의도
   islandPaths: ['M20 48C23 46.6 27 46.8 29 48.4C27.5 50.2 22.5 50.4 20 49.4Z'],
   rivers: [
@@ -118,8 +160,20 @@ const SEOUL: CityMapDef = {
     { x: 80, y: 58, label: '송파구' },
     { x: 25, y: 49, label: '여의도' },
   ],
+  zones: [
+    // 주거: 노원/도봉, 은평/서대문, 강서/영등포
+    { kind: 'residential', points: [[60, 6], [74, 6], [80, 14], [76, 24], [62, 22], [58, 14]] },
+    { kind: 'residential', points: [[12, 26], [24, 22], [30, 32], [26, 42], [14, 40]] },
+    { kind: 'residential', points: [[7, 42], [18, 44], [26, 56], [24, 66], [12, 66], [6, 54]] },
+    // 상업: 종로/중구 도심, 강남
+    { kind: 'commercial', points: [[36, 22], [50, 20], [54, 30], [50, 40], [38, 36]] },
+    { kind: 'commercial', points: [[54, 56], [68, 58], [70, 68], [58, 72], [52, 64]] },
+    // 산업·오피스: 구로/금천, 청량리/성수
+    { kind: 'industrial', points: [[14, 68], [26, 66], [30, 78], [22, 86], [12, 78]] },
+    { kind: 'industrial', points: [[58, 24], [72, 26], [74, 34], [64, 38], [56, 30]] },
+  ],
   isLand(x, y) {
-    if (x < 0 || x > 100 || y < 0 || y > 100) return false
+    if (!pointInPolygon(x, y, SEOUL_BOUNDARY)) return false
     const inRiver = Math.abs(y - hanRiverY(x)) < HAN_HALF_WIDTH
     const onYeouido = x >= 20 && x <= 29 && Math.abs(y - hanRiverY(x)) < 1.6
     return !inRiver || onYeouido

@@ -8,7 +8,7 @@ import {
   type Station,
   type Vehicle,
 } from '../api/game'
-import { getCityMap, type CityMapDef } from '../maps'
+import { getCityMap, polyPath, type CityMapDef } from '../maps'
 import styles from './GamePage.module.css'
 
 interface Props {
@@ -785,6 +785,11 @@ export default function GamePage({ cityId, onBack }: Props) {
             {mapDef.islandPaths.map((path, index) => (
               <path key={`island-${index}`} className={styles.yeongdo} d={path} />
             ))}
+            <g clipPath="url(#city-land-clip)" aria-label="도시 구역">
+              {mapDef.zones.map((zone, index) => (
+                <path key={`zone-${index}`} className={styles[`zone_${zone.kind}`]} d={polyPath(zone.points)} />
+              ))}
+            </g>
             <path className={styles.mapGrid} d="M0 0H100V100H0Z" />
             {mapDef.rivers.map((river, index) => (
               <path
