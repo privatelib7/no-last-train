@@ -36,13 +36,13 @@ const MAP_LAYOUTS: Record<string, {
       { name: '센텀역', type: 'INDUSTRIAL', posX: 66, posY: 52 },
       { name: '광복정류장', type: 'COMMERCIAL', posX: 44, posY: 76 },
     ],
-    playerLine: { stations: ['북항역', '중앙역', '서면역', '동래역'], depotX: 56, depotY: 30 },
+    playerLine: { stations: ['북항역', '중앙역', '서면역', '동래역'], depotX: 55, depotY: 37 },
     aiLine: {
       name: '2호선',
       stations: ['사상역', '서면역', '광안리역', '센텀역', '해운대역'],
-      depotX: 42, depotY: 46,
+      depotX: 79, depotY: 48,
     },
-    busLine: { stations: ['사상역', '광복정류장', '중앙역'], depotX: 42, depotY: 70 },
+    busLine: { stations: ['사상역', '광복정류장', '중앙역'], depotX: 52, depotY: 70 },
     concertStation: '해운대역',
   },
   SEOUL: {
@@ -57,13 +57,13 @@ const MAP_LAYOUTS: Record<string, {
       { name: '노원역', type: 'RESIDENTIAL', posX: 70, posY: 14 },
       { name: '이태원정류장', type: 'COMMERCIAL', posX: 48, posY: 44 },
     ],
-    playerLine: { stations: ['노원역', '청량리역', '시청역', '서울역', '영등포역'], depotX: 74, depotY: 10 },
+    playerLine: { stations: ['노원역', '청량리역', '시청역', '서울역', '영등포역'], depotX: 71, depotY: 9 },
     aiLine: {
       name: '2호선',
       stations: ['홍대입구역', '시청역', '강남역', '잠실역'],
-      depotX: 26, depotY: 44,
+      depotX: 82, depotY: 56,
     },
-    busLine: { stations: ['홍대입구역', '이태원정류장', '강남역'], depotX: 34, depotY: 48 },
+    busLine: { stations: ['홍대입구역', '이태원정류장', '강남역'], depotX: 63, depotY: 69 },
     concertStation: '잠실역',
   },
 }

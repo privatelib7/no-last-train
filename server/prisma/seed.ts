@@ -14,8 +14,8 @@ const BUSAN_LAYOUT = {
 } as const
 
 const LINE_LAYOUT = {
-  '1호선': { depotX: 56, depotY: 30, stations: ['북항역', '중앙역', '서면역', '동래역'] },
-  '2호선': { depotX: 42, depotY: 46, stations: ['사상역', '서면역', '광안리역', '센텀역', '해운대역'] },
+  '1호선': { depotX: 55, depotY: 37, stations: ['북항역', '중앙역', '서면역', '동래역'] },
+  '2호선': { depotX: 79, depotY: 48, stations: ['사상역', '서면역', '광안리역', '센텀역', '해운대역'] },
 } as const
 
 const SEOUL_LAYOUT = {
@@ -31,11 +31,11 @@ const SEOUL_LAYOUT = {
   ],
   lines: [
     {
-      color: 'RED' as LineColor, name: '1호선', depotX: 74, depotY: 10,
+      color: 'RED' as LineColor, name: '1호선', depotX: 71, depotY: 9,
       stations: ['노원역', '청량리역', '시청역', '서울역', '영등포역'], isPlayer: true,
     },
     {
-      color: 'BLUE' as LineColor, name: '2호선', depotX: 26, depotY: 44,
+      color: 'BLUE' as LineColor, name: '2호선', depotX: 82, depotY: 56,
       stations: ['홍대입구역', '시청역', '강남역', '잠실역'], isPlayer: false,
     },
   ],
@@ -45,6 +45,13 @@ const SEOUL_LAYOUT = {
 async function seedSeoul(playerId: string) {
   const existing = await db.city.findFirst({ where: { mapKey: 'SEOUL' } })
   if (existing) {
+    // 차고지 좌표를 최신 레이아웃으로 동기화
+    for (const lineDef of SEOUL_LAYOUT.lines) {
+      await db.line.updateMany({
+        where: { cityId: existing.id, name: lineDef.name },
+        data: { depotX: lineDef.depotX, depotY: lineDef.depotY },
+      })
+    }
     await ensureBusLine(existing.id, 'SEOUL')
     console.log('시드 스킵: 서울 도시가 이미 있습니다.', existing.id)
     return
@@ -106,12 +113,12 @@ const BUS_LAYOUTS: Record<string, {
   SEOUL: {
     stop: { name: '이태원정류장', posX: 48, posY: 44 },
     route: ['홍대입구역', '이태원정류장', '강남역'],
-    depotX: 34, depotY: 48,
+    depotX: 63, depotY: 69,
   },
   BUSAN: {
     stop: { name: '광복정류장', posX: 44, posY: 76 },
     route: ['사상역', '광복정류장', '중앙역'],
-    depotX: 42, depotY: 70,
+    depotX: 52, depotY: 70,
   },
 }
 

@@ -15,6 +15,16 @@ const ActionSchema = z.discriminatedUnion('type', [
     name: z.string().trim().min(1).max(12),
   }),
   z.object({
+    type: z.literal('MOVE_STATION'),
+    stationId: z.string(),
+    posX: z.number().min(4).max(96),
+    posY: z.number().min(4).max(92),
+  }),
+  z.object({
+    type: z.literal('REMOVE_STATION'),
+    stationId: z.string(),
+  }),
+  z.object({
     type: z.literal('BUILD_SEGMENT'),
     lineId: z.string(),
     fromStationId: z.string(),
@@ -80,6 +90,28 @@ export async function POST(
       },
     })
     return NextResponse.json({ message: `${station.name}을 건설했습니다.`, station })
+  }
+
+  if (action.type === 'MOVE_STATION') {
+    const station = await db.station.findFirst({ where: { id: action.stationId, cityId: id } })
+    if (!station) return NextResponse.json({ error: '역을 찾을 수 없습니다.' }, { status: 404 })
+    const updated = await db.station.update({
+      where: { id: station.id },
+      data: { posX: action.posX, posY: action.posY },
+    })
+    return NextResponse.json({ message: `${station.name}을 이동했습니다.`, station: updated })
+  }
+
+  if (action.type === 'REMOVE_STATION') {
+    const station = await db.station.findFirst({ where: { id: action.stationId, cityId: id } })
+    if (!station) return NextResponse.json({ error: '역을 찾을 수 없습니다.' }, { status: 404 })
+    // 이 역에 있던 운행 차량은 차고지 대기로 전환 (lineStations·대기 승객은 cascade 삭제)
+    await db.vehicle.updateMany({
+      where: { currentStationId: station.id },
+      data: { status: 'SPARE', isSpare: true, currentStationId: null, direction: 1 },
+    })
+    await db.station.delete({ where: { id: station.id } })
+    return NextResponse.json({ message: `${station.name}을 삭제했습니다.` })
   }
 
   if (action.type === 'RENAME_STATION') {

@@ -235,6 +235,7 @@ export default function GamePage({ cityId, onBack }: Props) {
   const [renameValue, setRenameValue] = useState('')
   const [linkMode, setLinkMode] = useState(false)
   const [linkFromId, setLinkFromId] = useState('')
+  const [moveStationMode, setMoveStationMode] = useState(false)
   const [vehicleDrag, setVehicleDrag] = useState<VehicleDragState | null>(null)
   const [dragTarget, setDragTarget] = useState<DragTarget>(null)
   const [mapView, setMapView] = useState<MapView>(INITIAL_MAP_VIEW)
@@ -445,7 +446,7 @@ export default function GamePage({ cityId, onBack }: Props) {
       suppressMapClick.current = false
       return
     }
-    if (busy || !stationBuildMode) return
+    if (busy || (!stationBuildMode && !moveStationMode)) return
     const svg = mapRef.current
     const matrix = svg?.getScreenCTM()
     if (!svg || !matrix) return
@@ -456,7 +457,14 @@ export default function GamePage({ cityId, onBack }: Props) {
     const posX = Math.round(Math.max(4, Math.min(96, mapPoint.x)) * 10) / 10
     const posY = Math.round(Math.max(4, Math.min(92, mapPoint.y)) * 10) / 10
     if (!mapDef.isLand(posX, posY)) {
-      setError('물 위에는 역을 지을 수 없습니다.')
+      setError(moveStationMode ? '물 위로는 역을 옮길 수 없습니다.' : '물 위에는 역을 지을 수 없습니다.')
+      return
+    }
+    if (moveStationMode) {
+      if (!selectedStationId) return
+      void performAction({ type: 'MOVE_STATION', stationId: selectedStationId, posX, posY }).then(next => {
+        if (next) setMoveStationMode(false)
+      })
       return
     }
     const name = stationName.trim() || `신설역 ${state!.city.stations.length + 1}`
@@ -484,7 +492,7 @@ export default function GamePage({ cityId, onBack }: Props) {
   }
 
   const handleMapPointerDown = (event: PointerEvent<SVGSVGElement>) => {
-    if (event.button !== 0 || stationBuildMode) return
+    if (event.button !== 0 || stationBuildMode || moveStationMode) return
     if ((event.target as Element).closest('[data-map-interactive]')) return
     event.currentTarget.setPointerCapture(event.pointerId)
     mapPanRef.current = {
@@ -767,6 +775,28 @@ export default function GamePage({ cityId, onBack }: Props) {
                 >변경</button>
               </div>
             </div>
+            <button
+              className={moveStationMode ? styles.reopenButton : styles.modeButton}
+              aria-pressed={moveStationMode}
+              onClick={() => {
+                setMoveStationMode(current => !current)
+                setStationBuildMode(false)
+                setLinkMode(false)
+                setLinkFromId('')
+                setError(null)
+              }}
+              disabled={busy}
+            >{moveStationMode ? '옮길 위치를 지도에서 클릭' : `${selectedStation.name} 위치 이동`}</button>
+            <button
+              className={styles.removeVehicleButton}
+              onClick={() => {
+                if (!window.confirm(`${selectedStation.name}을 삭제할까요? 연결된 노선에서도 제거됩니다.`)) return
+                void performAction({ type: 'REMOVE_STATION', stationId: selectedStation.id }).then(next => {
+                  if (next) setSelectedStationId('')
+                })
+              }}
+              disabled={busy}
+            >{selectedStation.name} 삭제</button>
           </section>
         )}
 
@@ -797,6 +827,7 @@ export default function GamePage({ cityId, onBack }: Props) {
                   setStationBuildMode(current => !current)
                   setLinkMode(false)
                   setLinkFromId('')
+                  setMoveStationMode(false)
                   setSelectedVehicleId('')
                   setError(null)
                 }}
@@ -808,6 +839,7 @@ export default function GamePage({ cityId, onBack }: Props) {
                   setLinkMode(current => !current)
                   setLinkFromId('')
                   setStationBuildMode(false)
+                  setMoveStationMode(false)
                   setSelectedVehicleId('')
                   setError(null)
                 }}
@@ -839,7 +871,7 @@ export default function GamePage({ cityId, onBack }: Props) {
           </div>
           <svg
             ref={mapRef}
-            className={`${styles.cityMap} ${stationBuildMode ? styles.stationBuildCursor : ''} ${isMapPanning ? styles.mapPanning : ''}`}
+            className={`${styles.cityMap} ${stationBuildMode || moveStationMode ? styles.stationBuildCursor : ''} ${isMapPanning ? styles.mapPanning : ''}`}
             viewBox={`${mapView.x} ${mapView.y} ${mapView.width} ${mapView.height}`}
             role="img"
             aria-label={`${mapDef.name} 지형과 일반역, 환승역, 노선 차고지`}
