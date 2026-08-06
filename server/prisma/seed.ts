@@ -45,6 +45,7 @@ const SEOUL_LAYOUT = {
 async function seedSeoul(playerId: string) {
   const existing = await db.city.findFirst({ where: { mapKey: 'SEOUL' } })
   if (existing) {
+    await ensureBusLine(existing.id, 'SEOUL')
     console.log('시드 스킵: 서울 도시가 이미 있습니다.', existing.id)
     return
   }
@@ -91,7 +92,67 @@ async function seedSeoul(playerId: string) {
       demandMultiplier: 2.5,
     },
   })
+  await ensureBusLine(city.id, 'SEOUL')
   console.log('서울 시드 완료:', city.id)
+}
+
+// 버스 노선이 없는 도시에 버스 전용 정류장 + 버스 A를 추가한다 (모든 시드 경로에서 호출)
+const BUS_LAYOUTS: Record<string, {
+  stop: { name: string; posX: number; posY: number }
+  route: string[]  // stop.name 포함, 순서대로
+  depotX: number
+  depotY: number
+}> = {
+  SEOUL: {
+    stop: { name: '이태원정류장', posX: 48, posY: 44 },
+    route: ['홍대입구역', '이태원정류장', '강남역'],
+    depotX: 34, depotY: 48,
+  },
+  BUSAN: {
+    stop: { name: '광복정류장', posX: 40, posY: 79 },
+    route: ['사상역', '광복정류장', '중앙역'],
+    depotX: 32, depotY: 62,
+  },
+}
+
+async function ensureBusLine(cityId: string, mapKey: string) {
+  const existing = await db.line.findFirst({ where: { cityId, mode: 'BUS' } })
+  if (existing) return
+  const layout = BUS_LAYOUTS[mapKey]
+  if (!layout) return
+
+  let stop = await db.station.findFirst({ where: { cityId, name: layout.stop.name } })
+  if (!stop) {
+    stop = await db.station.create({
+      data: { cityId, name: layout.stop.name, type: 'COMMERCIAL', capacity: 120, ...{ posX: layout.stop.posX, posY: layout.stop.posY } },
+    })
+  }
+
+  const stations = await db.station.findMany({ where: { cityId } })
+  const stationByName = new Map(stations.map(station => [station.name, station]))
+  const routeIds = layout.route
+    .map(name => stationByName.get(name)?.id)
+    .filter((id): id is string => Boolean(id))
+  if (routeIds.length < 2) return
+
+  const line = await db.line.create({
+    data: {
+      cityId,
+      color: 'GREEN',
+      mode: 'BUS',
+      name: 'A',
+      status: 'OPERATING',
+      depotX: layout.depotX,
+      depotY: layout.depotY,
+    },
+  })
+  await db.lineStation.createMany({
+    data: routeIds.map((stationId, order) => ({ lineId: line.id, stationId, order })),
+  })
+  await db.vehicle.create({
+    data: { lineId: line.id, capacity: 60, status: 'OPERATING', currentStationId: routeIds[0], headwayMinutes: 6 },
+  })
+  console.log(`버스 A 추가: ${mapKey}`)
 }
 
 async function main() {
@@ -186,6 +247,7 @@ async function main() {
         },
       })
     }
+    await ensureBusLine(existing.id, 'BUSAN')
     console.log('시드 스킵: 플레이 가능한 부산 도시가 이미 있습니다.', existing.id)
     return
   }
@@ -275,6 +337,7 @@ async function main() {
     },
   })
 
+  await ensureBusLine(city.id, 'BUSAN')
   console.log('시드 완료:', { cityId: city.id, playerToken: player.token, stations: stations.length })
 }
 

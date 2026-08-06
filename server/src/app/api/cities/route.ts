@@ -21,6 +21,7 @@ const MAP_LAYOUTS: Record<string, {
   stations: StationDef[]
   playerLine: { stations: string[]; depotX: number; depotY: number }
   aiLine: { name: string; stations: string[]; depotX: number; depotY: number }
+  busLine: { stations: string[]; depotX: number; depotY: number }
   concertStation: string
 }> = {
   BUSAN: {
@@ -33,13 +34,15 @@ const MAP_LAYOUTS: Record<string, {
       { name: '해운대역', type: 'TOURIST', posX: 86, posY: 56 },
       { name: '동래역', type: 'COMMERCIAL', posX: 57, posY: 35 },
       { name: '센텀역', type: 'INDUSTRIAL', posX: 77, posY: 50 },
+      { name: '광복정류장', type: 'COMMERCIAL', posX: 40, posY: 79 },
     ],
     playerLine: { stations: ['북항역', '중앙역', '서면역', '동래역'], depotX: 61, depotY: 23 },
     aiLine: {
-      name: 'AI 2호선',
+      name: '2호선',
       stations: ['사상역', '서면역', '광안리역', '센텀역', '해운대역'],
       depotX: 18, depotY: 39,
     },
+    busLine: { stations: ['사상역', '광복정류장', '중앙역'], depotX: 32, depotY: 62 },
     concertStation: '해운대역',
   },
   SEOUL: {
@@ -52,13 +55,15 @@ const MAP_LAYOUTS: Record<string, {
       { name: '잠실역', type: 'TOURIST', posX: 78, posY: 58 },
       { name: '청량리역', type: 'INDUSTRIAL', posX: 66, posY: 28 },
       { name: '노원역', type: 'RESIDENTIAL', posX: 70, posY: 14 },
+      { name: '이태원정류장', type: 'COMMERCIAL', posX: 48, posY: 44 },
     ],
     playerLine: { stations: ['노원역', '청량리역', '시청역', '서울역', '영등포역'], depotX: 74, depotY: 10 },
     aiLine: {
-      name: 'AI 2호선',
+      name: '2호선',
       stations: ['홍대입구역', '시청역', '강남역', '잠실역'],
       depotX: 14, depotY: 34,
     },
+    busLine: { stations: ['홍대입구역', '이태원정류장', '강남역'], depotX: 34, depotY: 48 },
     concertStation: '잠실역',
   },
 }
@@ -150,6 +155,24 @@ export async function POST(req: NextRequest) {
         { lineId: aiLine.id, capacity: 120, status: 'OPERATING', currentStationId: aiStations[0].id, headwayMinutes: 3 },
         { lineId: aiLine.id, capacity: 120, status: 'SPARE', isSpare: true, headwayMinutes: 6, direction: -1 },
       ],
+    })
+
+    const busStations = resolve(layout.busLine.stations)
+    const busLine = await tx.line.create({
+      data: {
+        cityId: city.id,
+        color: 'GREEN',
+        mode: 'BUS',
+        name: 'A',
+        depotX: layout.busLine.depotX,
+        depotY: layout.busLine.depotY,
+      },
+    })
+    await tx.lineStation.createMany({
+      data: busStations.map((s, i) => ({ lineId: busLine.id, stationId: s.id, order: i })),
+    })
+    await tx.vehicle.create({
+      data: { lineId: busLine.id, capacity: 60, status: 'OPERATING', currentStationId: busStations[0].id, headwayMinutes: 6 },
     })
 
     await tx.gameEvent.create({

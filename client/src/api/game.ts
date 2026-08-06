@@ -46,6 +46,7 @@ export type GameLine = {
   id: string
   playerId: string | null
   color: LineColor
+  mode: 'SUBWAY' | 'BUS'
   name: string
   status: 'OPERATING' | 'DEGRADED' | 'SUSPENDED'
   depotX: number

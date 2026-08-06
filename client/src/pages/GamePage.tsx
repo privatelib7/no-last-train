@@ -88,20 +88,22 @@ function lineHasStation(line: GameLine, stationId: string) {
   return line.lineStations.some(item => item.stationId === stationId)
 }
 
-function vehicleTiming(vehicleId: string) {
+// 서버 simulation.ts의 vehicleTiming과 동일해야 함
+function vehicleTiming(vehicleId: string, mode: string = 'SUBWAY') {
   let hash = 2166136261
   for (let index = 0; index < vehicleId.length; index++) {
     hash ^= vehicleId.charCodeAt(index)
     hash = Math.imul(hash, 16777619)
   }
   const unsigned = hash >>> 0
-  const interval = 1 + (unsigned % 3)
+  // 버스는 지하철보다 한 단계 느림 (2~4틱)
+  const interval = 1 + (unsigned % 3) + (mode === 'BUS' ? 1 : 0)
   const phase = Math.floor(unsigned / 3) % interval
   return { interval, phase }
 }
 
-function shouldVehicleMove(vehicleId: string, tick: number) {
-  const { interval, phase } = vehicleTiming(vehicleId)
+function shouldVehicleMove(vehicleId: string, tick: number, mode: string = 'SUBWAY') {
+  const { interval, phase } = vehicleTiming(vehicleId, mode)
   return tick % interval === phase
 }
 
@@ -284,6 +286,17 @@ export default function GamePage({ cityId, onBack }: Props) {
       }
     }
     return new Set([...memberships].filter(([, count]) => count > 1).map(([stationId]) => stationId))
+  }, [sortedLines])
+  // 소속 노선이 전부 버스인 역 = 버스 정류장 (사각 글리프)
+  const busOnlyStationIds = useMemo(() => {
+    const modes = new Map<string, Set<string>>()
+    for (const line of sortedLines) {
+      for (const item of line.lineStations) {
+        if (!modes.has(item.stationId)) modes.set(item.stationId, new Set())
+        modes.get(item.stationId)!.add(line.mode)
+      }
+    }
+    return new Set([...modes].filter(([, set]) => set.size === 1 && set.has('BUS')).map(([stationId]) => stationId))
   }, [sortedLines])
   const mapDef = getCityMap(state?.city.mapKey)
   const people = useMemo(() => {
@@ -617,7 +630,7 @@ export default function GamePage({ cityId, onBack }: Props) {
             <div className={styles.vehicleList}>
               {selectedLine.vehicles.map((vehicle, index) => {
                 const station = vehicle.currentStationId ? stationById.get(vehicle.currentStationId) : null
-                const intervalSeconds = vehicleTiming(vehicle.id).interval * (LIVE_TICK_MS / 1000)
+                const intervalSeconds = vehicleTiming(vehicle.id, selectedLine.mode).interval * (LIVE_TICK_MS / 1000)
                 return (
                   <div key={vehicle.id} className={styles.vehicleRow}>
                     <button
@@ -849,10 +862,10 @@ export default function GamePage({ cityId, onBack }: Props) {
                 aria-label={`${line.name} 선택`}
                 onClick={event => { event.stopPropagation(); selectLine(line.id) }}
               >
-                <polyline points={linePoints(line)} className={styles.lineShadow} />
+                {line.mode !== 'BUS' && <polyline points={linePoints(line)} className={styles.lineShadow} />}
                 <polyline
                   points={linePoints(line)}
-                  className={`${styles.linePath} ${line.id === selectedLineId ? styles.selectedLinePath : ''}`}
+                  className={`${styles.linePath} ${line.mode === 'BUS' ? styles.busPath : ''} ${line.id === selectedLineId ? styles.selectedLinePath : ''}`}
                   style={{ stroke: LINE_COLORS[line.color] }}
                 />
               </g>
@@ -861,6 +874,7 @@ export default function GamePage({ cityId, onBack }: Props) {
             {state.city.stations.map(station => {
               const point = stationPoint(station)
               const isInterchange = interchangeStationIds.has(station.id)
+              const isBusStop = busOnlyStationIds.has(station.id)
               const isCurrentVehicleStation = selectedVehicle?.currentStationId === station.id
               const isDropTarget = dragTarget?.kind === 'STATION' && dragTarget.id === station.id
               const highlighted = isCurrentVehicleStation || isDropTarget
@@ -875,11 +889,16 @@ export default function GamePage({ cityId, onBack }: Props) {
                   tabIndex={0}
                   data-station-id={station.id}
                   data-map-interactive="true"
-                  aria-label={`${station.name} ${isInterchange ? '환승역' : '일반역'} 선택`}
+                  aria-label={`${station.name} ${isBusStop ? '버스 정류장' : isInterchange ? '환승역' : '일반역'} 선택`}
                 >
-                  <title>{station.name} · {isInterchange ? '환승역' : '일반역'}</title>
+                  <title>{station.name} · {isBusStop ? '버스 정류장' : isInterchange ? '환승역' : '일반역'}</title>
                   {highlighted && <circle r="3.3" className={styles.stationSelection} />}
-                  {isInterchange ? (
+                  {isBusStop ? (
+                    <>
+                      <rect x="-1.7" y="-1.7" width="3.4" height="3.4" rx=".5" className={styles.stationHalo} />
+                      <rect x="-1.2" y="-1.2" width="2.4" height="2.4" rx=".4" className={styles.stationNode} />
+                    </>
+                  ) : isInterchange ? (
                     <>
                       <circle r="2.45" className={styles.stationHalo} />
                       <circle r="1.85" className={styles.stationNode} />
@@ -926,11 +945,11 @@ export default function GamePage({ cityId, onBack }: Props) {
               .map(vehicle => {
                 const station = stationById.get(vehicle.currentStationId!)
                 if (!station) return null
-                const scheduledToMove = line.status === 'OPERATING' && shouldVehicleMove(vehicle.id, currentTick + 1)
+                const scheduledToMove = line.status === 'OPERATING' && shouldVehicleMove(vehicle.id, currentTick + 1, line.mode)
                 const nextStation = scheduledToMove ? nextStationOnLine(line, vehicle) : null
                 const point = stationPoint(station)
                 const nextPoint = nextStation ? stationPoint(nextStation) : point
-                const lineNo = line.name.match(/\d+/)?.[0] ?? ''
+                const lineNo = line.name.match(/\d+/)?.[0] ?? line.name.slice(0, 1)
                 const progress = nextStation ? motionProgress : 0
                 const trainX = point.x + (nextPoint.x - point.x) * progress
                 const trainY = point.y + (nextPoint.y - point.y) * progress
@@ -956,7 +975,7 @@ export default function GamePage({ cityId, onBack }: Props) {
                     data-from-station={station.id}
                     data-to-station={nextStation?.id ?? station.id}
                     data-motion-progress={progress.toFixed(3)}
-                    data-move-interval={vehicleTiming(vehicle.id).interval}
+                    data-move-interval={vehicleTiming(vehicle.id, line.mode).interval}
                     data-map-interactive="true"
                   >
                     <rect x="-3.7" y="-2" width="7.4" height="4" rx="1.2" fill={LINE_COLORS[line.color]} className={styles.trainBody} />
@@ -985,6 +1004,7 @@ export default function GamePage({ cityId, onBack }: Props) {
           <div className={styles.stationLegend} aria-label="역 종류">
             <span><i className={styles.regularStationMark} />일반역</span>
             <span><i className={styles.interchangeStationMark} />환승역</span>
+            <span><i className={styles.busStopMark} />버스 정류장</span>
             <span><i className={styles.depotMark} />차고지</span>
           </div>
         </div>
