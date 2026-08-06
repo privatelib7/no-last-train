@@ -271,8 +271,9 @@ export default function GamePage({ cityId, onBack }: Props) {
         const firstLine = next.city.lines.slice().sort((a, b) => a.name.localeCompare(b.name, 'ko'))[0]
         setSelectedLineId(firstLine?.id ?? '')
       })
-      .catch(err => {
-        if (!cancelled) setError(err instanceof Error ? err.message : '도시를 불러오지 못했습니다.')
+      .catch(() => {
+        // 삭제된 도시 ID가 localStorage에 남은 경우 등 — 로비로 복귀
+        if (!cancelled) onBack()
       })
     return () => { cancelled = true }
   }, [cityId])
