@@ -845,7 +845,9 @@
 
 .queueDot {
   fill: #2b2418;
-  opacity: 0.85;
+  stroke: #fff;
+  stroke-width: 0.12;
+  opacity: 0.95;
   pointer-events: none;
 }
 
@@ -916,7 +918,7 @@
 
 .personDot,
 .personDotWarm {
-  fill: #3f5360;
+  fill: #33475c;
 }
 
 .personDotWarm {
@@ -1229,6 +1231,51 @@
   display: flex;
   align-items: center;
   gap: 5px;
+}
+
+.zoneLegend {
+  position: absolute;
+  top: 89px;
+  left: 14px;
+  display: flex;
+  gap: 11px;
+  padding: 6px 8px;
+  border: 1px solid rgba(67, 60, 54, 0.24);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #746c63;
+  font-size: 8px;
+  backdrop-filter: blur(8px);
+}
+
+.zoneLegend span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.zoneMarkResidential,
+.zoneMarkCommercial,
+.zoneMarkIndustrial {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.zoneMarkResidential {
+  background: rgba(85, 169, 106, 0.45);
+  border: 1px solid #55a96a;
+}
+
+.zoneMarkCommercial {
+  background: rgba(63, 142, 219, 0.4);
+  border: 1px solid #3f8edb;
+}
+
+.zoneMarkIndustrial {
+  background: rgba(225, 183, 53, 0.45);
+  border: 1px solid #c9a22e;
 }
 
 .regularStationMark,

@@ -218,8 +218,8 @@ function createPeople(seed: number, waitingCount: number, map: CityMapDef, perio
     return {
       x,
       y,
-      radius: 0.13 + randomUnit(seed, index, 90) * 0.12,
-      opacity: 0.34 + randomUnit(seed, index, 91) * 0.42,
+      radius: 0.24 + randomUnit(seed, index, 90) * 0.14,
+      opacity: 0.6 + randomUnit(seed, index, 91) * 0.3,
       warm: randomUnit(seed, index, 92) > 0.72,
     }
   })
@@ -980,9 +980,9 @@ export default function GamePage({ cityId, onBack }: Props) {
                   {Array.from({ length: Math.min(Math.ceil((waitingByStation.get(station.id) ?? 0) / 5), 12) }, (_, dotIndex) => (
                     <circle
                       key={dotIndex}
-                      cx={2.3 + (dotIndex % 6) * 0.75}
-                      cy={-0.4 + Math.floor(dotIndex / 6) * 0.85}
-                      r=".3"
+                      cx={2.5 + (dotIndex % 6) * 0.95}
+                      cy={-0.4 + Math.floor(dotIndex / 6) * 1.05}
+                      r=".42"
                       className={styles.queueDot}
                     />
                   ))}
@@ -1094,6 +1094,12 @@ export default function GamePage({ cityId, onBack }: Props) {
             <span><i className={styles.interchangeStationMark} />환승역</span>
             <span><i className={styles.busStopMark} />버스 정류장</span>
             <span><i className={styles.depotMark} />차고지</span>
+          </div>
+
+          <div className={styles.zoneLegend} aria-label="구역 종류">
+            <span><i className={styles.zoneMarkResidential} />주거 구역</span>
+            <span><i className={styles.zoneMarkCommercial} />상업 구역</span>
+            <span><i className={styles.zoneMarkIndustrial} />산업·오피스 구역</span>
           </div>
         </div>
       </main>
