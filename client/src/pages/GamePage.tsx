@@ -557,6 +557,8 @@ export default function GamePage({ cityId, onBack }: Props) {
   const mapScale = mapView.width / 100
   const selectedStation = stationById.get(selectedStationId) ?? null
   const gameHour = (currentTick / 6) % 24
+  // 서버 isWeekendTick과 동일 공식 (1게임일 = 144틱, 7일 주기 중 6·7일차)
+  const isWeekend = Math.floor(currentTick / 144) % 7 >= 5
   const elapsedSeconds = currentTick * (LIVE_TICK_MS / 1000) + motionProgress * (LIVE_TICK_MS / 1000)
   const latestMetric = state.city.ticks[0]
   const score = latestMetric?.serviceScore ?? 100
@@ -695,7 +697,7 @@ export default function GamePage({ cityId, onBack }: Props) {
         <header className={styles.hudTop}>
           <div className={styles.cityIdentity}>
             <span className={styles.cityName}>{state.city.name}</span>
-            <span>1일차 · {formatHour(gameHour)}</span>
+            <span>{Math.floor(currentTick / 144) + 1}일차{isWeekend ? ' · 주말' : ''} · {formatHour(gameHour)}</span>
           </div>
           <div className={styles.hudStats}>
             <span><small>점수</small><b>{Math.round(score)}</b></span>

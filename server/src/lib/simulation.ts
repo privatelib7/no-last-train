@@ -1,7 +1,7 @@
 import { db } from './db'
 import { evaluatePolicies } from './policy-engine'
-import { SIM, TIME_DEMAND_MULTIPLIER } from '@/types/game'
-import type { SimResult, TickHighlight, StationSnapshot } from '@/types/game'
+import { SIM, TIME_DEMAND_MULTIPLIER, ORIGIN_WEIGHT, DEST_WEIGHT, periodOfHour, isWeekendTick } from '@/types/game'
+import type { SimResult, TickHighlight, StationSnapshot, DayPeriod } from '@/types/game'
 import type { Passenger, Vehicle, Station, Line, GameEvent } from '@prisma/client'
 
 // ─── 결정론적 RNG (seeded) ───────────────────────────────────────────────
@@ -76,7 +76,11 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
   for (let i = 0; i < count; i++) {
     const tickNumber = city.currentTick + i + 1
     const gameTimeHour = (tickNumber / SIM.TICKS_PER_GAME_HOUR) % 24
-    const demandMult = TIME_DEMAND_MULTIPLIER[Math.floor(gameTimeHour)] ?? 1.0
+    const weekend = isWeekendTick(tickNumber)
+    const period = periodOfHour(gameTimeHour)
+    const baseDemand = TIME_DEMAND_MULTIPLIER[Math.floor(gameTimeHour)] ?? 1.0
+    // 주말엔 출퇴근 피크가 없음
+    const demandMult = weekend ? Math.min(baseDemand, 1.3) : baseDemand
 
     // 1. 사건 활성화
     const activeEvents = activateEvents(city.events, tickNumber)
@@ -94,7 +98,7 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
     }
 
     // 2. 승객 생성
-    const newPassengers = generatePassengers(city.stations, tickNumber, demandMult, activeEvents, rng)
+    const newPassengers = generatePassengers(city.stations, tickNumber, demandMult, period, weekend, activeEvents, rng)
     if (newPassengers.length > 0) {
       await db.passenger.createMany({ data: newPassengers })
     }
@@ -168,6 +172,8 @@ function generatePassengers(
   stations: Station[],
   tick: number,
   demandMult: number,
+  period: DayPeriod,
+  weekend: boolean,
   activeEvents: GameEvent[],
   rng: () => number,
 ): Array<{
@@ -176,9 +182,12 @@ function generatePassengers(
 }> {
   const passengers = []
   const eventStations = new Set(activeEvents.map(e => e.affectedStationId).filter(Boolean))
+  const dayKey = weekend ? 'WEEKEND' : 'WEEKDAY'
+  const originWeights = ORIGIN_WEIGHT[dayKey][period]
+  const destWeights = DEST_WEIGHT[dayKey][period]
 
   for (const station of stations) {
-    let rate = SIM.BASE_PASSENGER_RATE * demandMult * typeMultiplier(station.type, demandMult)
+    let rate = SIM.BASE_PASSENGER_RATE * demandMult * originWeights[station.type]
 
     if (eventStations.has(station.id)) {
       const ev = activeEvents.find(e => e.affectedStationId === station.id)
@@ -187,8 +196,8 @@ function generatePassengers(
 
     const count = Math.round(rate * (0.7 + rng() * 0.6))  // ±30% 랜덤
     for (let i = 0; i < count; i++) {
-      const dest = stations[Math.floor(rng() * stations.length)]
-      if (dest.id === station.id) continue
+      const dest = pickDestination(stations, station.id, destWeights, rng)
+      if (!dest) continue
       passengers.push({
         cityId: station.cityId,
         originStationId: station.id,
@@ -201,11 +210,25 @@ function generatePassengers(
   return passengers
 }
 
-function typeMultiplier(stationType: string, hourMult: number): number {
-  if (stationType === 'RESIDENTIAL') return hourMult > 1.5 ? 1.4 : 0.8
-  if (stationType === 'COMMERCIAL') return hourMult > 1.5 ? 0.9 : 1.2
-  if (stationType === 'TOURIST') return 1.1
-  return 1.0
+// 목적지 역 타입 가중 추첨 (출발역 제외)
+function pickDestination(
+  stations: Station[],
+  originId: string,
+  weights: Record<string, number>,
+  rng: () => number,
+): Station | null {
+  let total = 0
+  for (const station of stations) {
+    if (station.id !== originId) total += weights[station.type] ?? 1
+  }
+  if (total <= 0) return null
+  let roll = rng() * total
+  for (const station of stations) {
+    if (station.id === originId) continue
+    roll -= weights[station.type] ?? 1
+    if (roll <= 0) return station
+  }
+  return null
 }
 
 function pickPassengerType(
