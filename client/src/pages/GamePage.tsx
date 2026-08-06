@@ -199,6 +199,8 @@ export default function GamePage({ cityId, onBack }: Props) {
   const [stationName, setStationName] = useState('')
   const [selectedStationId, setSelectedStationId] = useState('')
   const [renameValue, setRenameValue] = useState('')
+  const [linkMode, setLinkMode] = useState(false)
+  const [linkFromId, setLinkFromId] = useState('')
   const [vehicleDrag, setVehicleDrag] = useState<VehicleDragState | null>(null)
   const [dragTarget, setDragTarget] = useState<DragTarget>(null)
   const [mapView, setMapView] = useState<MapView>(INITIAL_MAP_VIEW)
@@ -351,6 +353,30 @@ export default function GamePage({ cityId, onBack }: Props) {
   const handleStationClick = (event: MouseEvent<SVGGElement>, stationId: string) => {
     event.stopPropagation()
     if (busy) return
+    if (linkMode) {
+      if (!selectedLineId) {
+        setError('먼저 노선을 선택해주세요.')
+        return
+      }
+      if (!linkFromId) {
+        setLinkFromId(stationId)
+        return
+      }
+      if (linkFromId === stationId) {
+        setLinkFromId('')
+        return
+      }
+      void performAction({
+        type: 'BUILD_SEGMENT',
+        lineId: selectedLineId,
+        fromStationId: linkFromId,
+        toStationId: stationId,
+      }).then(next => {
+        // 연결 성공 시 방금 이은 역에서 이어서 연결 가능
+        setLinkFromId(next ? stationId : '')
+      })
+      return
+    }
     const station = stationById.get(stationId)
     setSelectedStationId(stationId)
     setRenameValue(station?.name ?? '')
@@ -709,10 +735,28 @@ export default function GamePage({ cityId, onBack }: Props) {
                 aria-pressed={stationBuildMode}
                 onClick={() => {
                   setStationBuildMode(current => !current)
+                  setLinkMode(false)
+                  setLinkFromId('')
                   setSelectedVehicleId('')
                   setError(null)
                 }}
               >＋ 역 짓기</button>
+              <button
+                className={linkMode ? styles.stationBuilderActive : ''}
+                aria-pressed={linkMode}
+                onClick={() => {
+                  setLinkMode(current => !current)
+                  setLinkFromId('')
+                  setStationBuildMode(false)
+                  setSelectedVehicleId('')
+                  setError(null)
+                }}
+              >⤳ 선로 잇기</button>
+              {linkMode && (
+                <div>
+                  <small>{linkFromId ? '연결할 다음 역 클릭' : `${selectedLine?.name ?? '노선'}에 이을 첫 역 클릭`}</small>
+                </div>
+              )}
               {stationBuildMode && (
                 <div>
                   <input
@@ -832,7 +876,8 @@ export default function GamePage({ cityId, onBack }: Props) {
               const isInterchange = interchangeStationIds.has(station.id)
               const isCurrentVehicleStation = selectedVehicle?.currentStationId === station.id
               const isDropTarget = dragTarget?.kind === 'STATION' && dragTarget.id === station.id
-              const highlighted = isCurrentVehicleStation || isDropTarget || station.id === selectedStationId
+              const highlighted = isCurrentVehicleStation || isDropTarget
+                || station.id === linkFromId || (!linkMode && station.id === selectedStationId)
               return (
                 <g
                   key={station.id}
