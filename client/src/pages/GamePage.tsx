@@ -866,14 +866,17 @@ export default function GamePage({ cityId, onBack }: Props) {
                 const progress = nextStation ? motionProgress : 0
                 const trainX = point.x + (nextPoint.x - point.x) * progress
                 const trainY = point.y + (nextPoint.y - point.y) * progress
-                const trainAngle = nextStation
+                const rawAngle = nextStation
                   ? Math.atan2(nextPoint.y - point.y, nextPoint.x - point.x) * 180 / Math.PI
                   : 0
+                // 왼쪽 방향 이동 시 180° 회전으로 뒤집히지 않게 좌우 반전으로 처리
+                const trainFlipped = Math.abs(rawAngle) > 90
+                const trainAngle = trainFlipped ? rawAngle - 180 * Math.sign(rawAngle) : rawAngle
                 const dragging = vehicleDrag?.active && vehicleDrag.vehicleId === vehicle.id
                 return (
                   <g
                     key={vehicle.id}
-                    transform={`translate(${trainX} ${trainY}) rotate(${trainAngle})`}
+                    transform={`translate(${trainX} ${trainY}) rotate(${trainAngle})${trainFlipped ? ' scale(-1,1)' : ''}`}
                     className={`${styles.trainIcon} ${vehicle.id === selectedVehicleId ? styles.selectedTrain : ''} ${dragging ? styles.trainDragging : ''}`}
                     onClick={event => { event.stopPropagation(); selectVehicle(line.id, vehicle.id) }}
                     onPointerDown={event => beginVehiclePointerDrag(event, line.id, vehicle.id)}
@@ -893,7 +896,7 @@ export default function GamePage({ cityId, onBack }: Props) {
                     <rect x="-.65" y="-1.2" width="1.55" height="1.25" rx=".28" className={styles.trainWindow} />
                     <circle cx="-2.15" cy="1.85" r=".56" className={styles.trainWheel} />
                     <circle cx="2.15" cy="1.85" r=".56" className={styles.trainWheel} />
-                    <text x="2.2" y=".55" textAnchor="middle" className={styles.trainNumber}>{lineNo}</text>
+                    <text x="2.2" y=".55" textAnchor="middle" className={styles.trainNumber} transform={trainFlipped ? 'scale(-1,1)' : undefined}>{lineNo}</text>
                   </g>
                 )
               }))}
