@@ -2,50 +2,202 @@ import { PrismaClient, LineColor } from '@prisma/client'
 
 const db = new PrismaClient()
 
-async function main() {
-  // 데모용 시드 — 로비에 보여줄 도시/노선
-  const existing = await db.city.findFirst({ where: { name: '부산' } })
-  if (existing) {
-    console.log('시드 스킵: 부산 도시가 이미 있습니다.', existing.id)
-    return
-  }
+const BUSAN_LAYOUT = {
+  중앙역: { posX: 45, posY: 76 },
+  북항역: { posX: 43, posY: 82 },
+  서면역: { posX: 49, posY: 57 },
+  광안리역: { posX: 69, posY: 61 },
+  사상역: { posX: 26, posY: 50 },
+  해운대역: { posX: 86, posY: 56 },
+  동래역: { posX: 57, posY: 35 },
+  센텀역: { posX: 77, posY: 50 },
+} as const
 
-  const player = await db.player.create({
-    data: {
+const LINE_LAYOUT = {
+  '1호선': { depotX: 61, depotY: 23, stations: ['북항역', '중앙역', '서면역', '동래역'] },
+  '2호선': { depotX: 18, depotY: 39, stations: ['사상역', '서면역', '광안리역', '센텀역', '해운대역'] },
+} as const
+
+async function main() {
+  const player = await db.player.upsert({
+    where: { token: '00000000-0000-4000-8000-000000000001' },
+    update: { nickname: '데모' },
+    create: {
       token: '00000000-0000-4000-8000-000000000001',
       nickname: '데모',
     },
   })
 
-  const city = await db.city.create({
-    data: {
-      name: '부산',
-      seed: 42,
-      seasonDay: 14,
-      status: 'ACTIVE',
-    },
+  const existing = await db.city.findFirst({
+    where: { name: '부산' },
+    include: { _count: { select: { stations: true, lines: true } } },
   })
 
-  const lineDefs: { color: LineColor; name: string; playerId?: string }[] = [
-    { color: 'RED', name: '빨강 노선', playerId: player.id },
-    { color: 'BLUE', name: '파랑 노선' },
-    { color: 'GREEN', name: '초록 노선' },
-    { color: 'YELLOW', name: '노랑 노선' },
+  if (existing && existing._count.stations >= 8 && existing._count.lines >= 2) {
+    await db.$transaction([
+      db.city.update({
+        where: { id: existing.id },
+        data: { status: 'ACTIVE', lastTickAt: new Date() },
+      }),
+      db.line.updateMany({ where: { cityId: existing.id, color: 'RED' }, data: { name: '1호선' } }),
+      db.line.updateMany({ where: { cityId: existing.id, color: 'BLUE' }, data: { name: '2호선' } }),
+      db.policy.updateMany({ where: { line: { cityId: existing.id } }, data: { isActive: false } }),
+      db.support.updateMany({
+        where: { fromLine: { cityId: existing.id }, status: 'ACTIVE' },
+        data: { status: 'CANCELLED' },
+      }),
+      db.vehicle.updateMany({
+        where: { line: { cityId: existing.id }, status: 'LOANED' },
+        data: { status: 'SPARE', isSpare: true, currentStationId: null, direction: 1 },
+      }),
+    ])
+
+    const existingStations = await db.station.findMany({ where: { cityId: existing.id } })
+    const existingStationByName = new Map(existingStations.map(station => [station.name, station]))
+    await Promise.all(Object.entries(BUSAN_LAYOUT).map(([name, position]) => {
+      const station = existingStationByName.get(name)
+      return station
+        ? db.station.update({ where: { id: station.id }, data: position })
+        : Promise.resolve(null)
+    }))
+
+    const existingLines = await db.line.findMany({
+      where: { cityId: existing.id },
+      include: { vehicles: { orderBy: { id: 'asc' } } },
+      orderBy: { name: 'asc' },
+    })
+    if (existingLines.some(line => line.depotX === 0 && line.depotY === 0)) {
+      for (const line of existingLines) {
+        const layout = LINE_LAYOUT[line.name as keyof typeof LINE_LAYOUT]
+        if (!layout) continue
+        const stationIds = layout.stations
+          .map(name => existingStationByName.get(name)?.id)
+          .filter((stationId): stationId is string => Boolean(stationId))
+        await db.$transaction([
+          db.lineStation.deleteMany({ where: { lineId: line.id } }),
+          db.lineStation.createMany({
+            data: stationIds.map((stationId, order) => ({ lineId: line.id, stationId, order })),
+          }),
+          db.line.update({
+            where: { id: line.id },
+            data: { depotX: layout.depotX, depotY: layout.depotY },
+          }),
+        ])
+        await Promise.all(line.vehicles.map((vehicle, index) => db.vehicle.update({
+          where: { id: vehicle.id },
+          data: {
+            direction: index % 2 === 0 ? 1 : -1,
+            headwayMinutes: 3 + (index % 3) * 3,
+            ...(vehicle.status === 'OPERATING'
+              ? { currentStationId: stationIds[Math.min(index, stationIds.length - 1)] }
+              : {}),
+          },
+        })))
+      }
+    }
+    for (const line of existingLines) {
+      if (line.vehicles.length > 0) continue
+      await db.vehicle.create({
+        data: {
+          lineId: line.id,
+          capacity: 120,
+          status: 'SPARE',
+          isSpare: true,
+          headwayMinutes: 6,
+          direction: 1,
+        },
+      })
+    }
+    console.log('시드 스킵: 플레이 가능한 부산 도시가 이미 있습니다.', existing.id)
+    return
+  }
+
+  const city = existing
+    ? await db.city.update({
+        where: { id: existing.id },
+        data: { seed: 42, seasonDay: 1, status: 'ACTIVE', currentTick: 0, lastTickAt: new Date() },
+      })
+    : await db.city.create({
+        data: { name: '부산', seed: 42, seasonDay: 1, status: 'ACTIVE' },
+      })
+
+  // 이전 와이어프레임용 빈 시드가 남아 있으면 데모 도시만 플레이 가능 상태로 보강한다.
+  if (existing) {
+    await db.$transaction([
+      db.passenger.deleteMany({ where: { cityId: city.id } }),
+      db.simTick.deleteMany({ where: { cityId: city.id } }),
+      db.gameEvent.deleteMany({ where: { cityId: city.id } }),
+      db.line.deleteMany({ where: { cityId: city.id } }),
+      db.station.deleteMany({ where: { cityId: city.id } }),
+    ])
+  }
+
+  const stations = await Promise.all([
+    { name: '중앙역', type: 'HUB' as const, capacity: 240, ...BUSAN_LAYOUT.중앙역 },
+    { name: '북항역', type: 'RESIDENTIAL' as const, capacity: 180, ...BUSAN_LAYOUT.북항역 },
+    { name: '서면역', type: 'COMMERCIAL' as const, capacity: 200, ...BUSAN_LAYOUT.서면역 },
+    { name: '광안리역', type: 'TOURIST' as const, capacity: 170, ...BUSAN_LAYOUT.광안리역 },
+    { name: '사상역', type: 'RESIDENTIAL' as const, capacity: 180, ...BUSAN_LAYOUT.사상역 },
+    { name: '해운대역', type: 'TOURIST' as const, capacity: 180, ...BUSAN_LAYOUT.해운대역 },
+    { name: '동래역', type: 'COMMERCIAL' as const, capacity: 190, ...BUSAN_LAYOUT.동래역 },
+    { name: '센텀역', type: 'INDUSTRIAL' as const, capacity: 190, ...BUSAN_LAYOUT.센텀역 },
+  ].map(station => db.station.create({ data: { ...station, cityId: city.id } })))
+
+  const [central, north, seomyeon, gwangan, sasang, haeundae, dongnae, centum] = stations
+  const lineDefs: Array<{
+    color: LineColor
+    name: string
+    playerId?: string
+    stations: typeof stations
+    depotX: number
+    depotY: number
+  }> = [
+    {
+      color: 'RED', name: '1호선', playerId: player.id,
+      stations: [north, central, seomyeon, dongnae],
+      depotX: LINE_LAYOUT['1호선'].depotX, depotY: LINE_LAYOUT['1호선'].depotY,
+    },
+    {
+      color: 'BLUE', name: '2호선', stations: [sasang, seomyeon, gwangan, centum, haeundae],
+      depotX: LINE_LAYOUT['2호선'].depotX, depotY: LINE_LAYOUT['2호선'].depotY,
+    },
   ]
 
-  for (const line of lineDefs) {
-    await db.line.create({
+  for (const lineDef of lineDefs) {
+    const line = await db.line.create({
       data: {
         cityId: city.id,
-        color: line.color,
-        name: line.name,
-        playerId: line.playerId,
+        color: lineDef.color,
+        name: lineDef.name,
+        playerId: lineDef.playerId,
         status: 'OPERATING',
+        depotX: lineDef.depotX,
+        depotY: lineDef.depotY,
       },
+    })
+    await db.lineStation.createMany({
+      data: lineDef.stations.map((station, order) => ({ lineId: line.id, stationId: station.id, order })),
+    })
+    await db.vehicle.createMany({
+      data: [
+        { lineId: line.id, capacity: 120, status: 'OPERATING', currentStationId: lineDef.stations[0].id, headwayMinutes: 3 },
+        { lineId: line.id, capacity: 120, status: 'SPARE', isSpare: true, headwayMinutes: 6, direction: -1 },
+      ],
     })
   }
 
-  console.log('시드 완료:', { cityId: city.id, playerToken: player.token })
+  await db.gameEvent.create({
+    data: {
+      cityId: city.id,
+      type: 'CONCERT',
+      startsAtTick: 18,
+      durationTicks: 18,
+      affectedStationId: haeundae.id,
+      demandMultiplier: 2.5,
+    },
+  })
+
+  console.log('시드 완료:', { cityId: city.id, playerToken: player.token, stations: stations.length })
 }
 
 main()

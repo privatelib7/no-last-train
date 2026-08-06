@@ -92,6 +92,7 @@ async function executeAction(
         where: { id: spare.id },
         data: { status: 'OPERATING' },
       })
+      spare.status = 'OPERATING'
       const description = `예비 차량 1대를 투입했습니다. 조건: ${conditionDescription}`
       await db.actionLog.create({
         data: {
@@ -125,7 +126,9 @@ async function executeAction(
           },
         }),
       ])
-      const description = `${targetLine.name ?? targetLine.color} 노선에 예비 차량 1대를 ${policy.resourceLimit * 2}시간 대여했습니다. 조건: ${conditionDescription}`
+      spare.status = 'LOANED'
+      const targetName = targetLine.name ?? `${targetLine.color} 노선`
+      const description = `${targetName}에 예비 차량 1대를 ${policy.resourceLimit * 2}시간 대여했습니다. 조건: ${conditionDescription}`
       await db.actionLog.create({
         data: {
           lineId: line.id,
@@ -145,6 +148,9 @@ async function executeAction(
         where: { lineId: line.id, status: 'OPERATING' },
         data: { headwayMinutes: newHeadway },
       })
+      for (const vehicle of line.vehicles) {
+        if (vehicle.status === 'OPERATING') vehicle.headwayMinutes = newHeadway
+      }
       const description = `배차 간격을 ${newHeadway}분으로 단축했습니다. 조건: ${conditionDescription}`
       await db.actionLog.create({
         data: {

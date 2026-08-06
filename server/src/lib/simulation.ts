@@ -17,7 +17,41 @@ function mulberry32(seed: number) {
 
 // ─── 메인 시뮬레이션 진입점 ──────────────────────────────────────────────
 
+const citySimulationQueues = new Map<string, Promise<unknown>>()
+
 export async function simulateTicks(cityId: string, count: number): Promise<SimResult> {
+  return enqueueCitySimulation(cityId, () => simulateTicksUnlocked(cityId, count))
+}
+
+export async function syncCityClock(cityId: string): Promise<SimResult | null> {
+  return enqueueCitySimulation(cityId, async () => {
+    const city = await db.city.findUnique({
+      where: { id: cityId },
+      select: { lastTickAt: true, status: true },
+    })
+    if (!city || city.status !== 'ACTIVE') return null
+
+    const elapsedMs = Date.now() - city.lastTickAt.getTime()
+    const pendingTicks = Math.min(Math.floor(elapsedMs / SIM.LIVE_TICK_MS), 12)
+    if (pendingTicks < 1) return null
+    return simulateTicksUnlocked(cityId, pendingTicks)
+  })
+}
+
+function enqueueCitySimulation<T>(cityId: string, task: () => Promise<T>): Promise<T> {
+  const previous = citySimulationQueues.get(cityId) ?? Promise.resolve()
+  const next = previous
+    .catch(() => undefined)
+    .then(task)
+
+  citySimulationQueues.set(cityId, next)
+
+  return next.finally(() => {
+    if (citySimulationQueues.get(cityId) === next) citySimulationQueues.delete(cityId)
+  })
+}
+
+async function simulateTicksUnlocked(cityId: string, count: number): Promise<SimResult> {
   const city = await db.city.findUniqueOrThrow({
     where: { id: cityId },
     include: {
@@ -46,6 +80,18 @@ export async function simulateTicks(cityId: string, count: number): Promise<SimR
 
     // 1. 사건 활성화
     const activeEvents = activateEvents(city.events, tickNumber)
+    for (const event of activeEvents) {
+      if (event.startsAtTick === tickNumber) {
+        const station = city.stations.find(item => item.id === event.affectedStationId)
+        highlights.push({
+          tickNumber,
+          gameTimeHour,
+          type: 'EVENT',
+          description: `${station?.name ?? '관광역'} 콘서트가 시작되어 승객 수요가 급증했습니다.`,
+          severity: 'WARNING',
+        })
+      }
+    }
 
     // 2. 승객 생성
     const newPassengers = generatePassengers(city.stations, tickNumber, demandMult, activeEvents, rng)
@@ -204,7 +250,7 @@ async function buildStationSnapshots(stations: Station[], cityId: string): Promi
 // ─── 차량 이동 및 승하차 ─────────────────────────────────────────────────
 
 async function moveVehiclesAndBoard(
-  lines: Array<{ id: string; lineStations: Array<{ station: Station; order: number }>; vehicles: Vehicle[] }>,
+  lines: Array<{ id: string; status: string; lineStations: Array<{ station: Station; order: number }>; vehicles: Vehicle[] }>,
   snapshots: StationSnapshot[],
   tick: number,
 ): Promise<number> {
@@ -212,22 +258,37 @@ async function moveVehiclesAndBoard(
   const snapshotMap = new Map(snapshots.map(s => [s.station.id, s]))
 
   for (const line of lines) {
+    if (line.status !== 'OPERATING') continue
     const stationOrder = line.lineStations.map(ls => ls.station)
     if (stationOrder.length < 2) continue
 
-    for (const vehicle of line.vehicles) {
+    const orderedVehicles = line.vehicles.slice().sort((a, b) => a.id.localeCompare(b.id))
+    for (const vehicle of orderedVehicles) {
       if (vehicle.status !== 'OPERATING' || vehicle.isSpare) continue
+      if (!shouldVehicleMove(vehicle.id, tick)) continue
 
-      // 간단한 순환 이동: tick 기반으로 현재 역 결정
-      const stationIndex = tick % stationOrder.length
-      const nextStation = stationOrder[stationIndex]
+      // 차량마다 3~9초의 서로 다른 운행 주기를 가지며, 끝역에서는 방향을 바꾼다.
+      const currentIndex = stationOrder.findIndex(station => station.id === vehicle.currentStationId)
+      let direction = vehicle.direction >= 0 ? 1 : -1
+      let nextIndex = currentIndex >= 0 ? currentIndex + direction : 0
+      if (nextIndex < 0 || nextIndex >= stationOrder.length) {
+        direction *= -1
+        nextIndex = Math.max(0, Math.min(stationOrder.length - 1, currentIndex + direction))
+      }
+      const nextStation = stationOrder[nextIndex]
 
       // 승하차 처리
       const snap = snapshotMap.get(nextStation.id)
       if (snap && snap.waitingCount > 0) {
         const boarding = Math.min(snap.waitingCount, vehicle.capacity)
-        await db.passenger.updateMany({
+        const boardingPassengers = await db.passenger.findMany({
           where: { originStationId: nextStation.id, boardedAtTick: null },
+          select: { id: true },
+          orderBy: [{ createdAtTick: 'asc' }, { id: 'asc' }],
+          take: boarding,
+        })
+        await db.passenger.updateMany({
+          where: { id: { in: boardingPassengers.map(passenger => passenger.id) } },
           data: { boardedAtTick: tick },
         })
         transported += boarding
@@ -235,11 +296,28 @@ async function moveVehiclesAndBoard(
 
       await db.vehicle.update({
         where: { id: vehicle.id },
-        data: { currentStationId: nextStation.id },
+        data: { currentStationId: nextStation.id, direction },
       })
     }
   }
   return transported
+}
+
+function vehicleTiming(vehicleId: string) {
+  let hash = 2166136261
+  for (let index = 0; index < vehicleId.length; index++) {
+    hash ^= vehicleId.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  const unsigned = hash >>> 0
+  const interval = 1 + (unsigned % 3)
+  const phase = Math.floor(unsigned / 3) % interval
+  return { interval, phase }
+}
+
+function shouldVehicleMove(vehicleId: string, tick: number) {
+  const { interval, phase } = vehicleTiming(vehicleId)
+  return tick % interval === phase
 }
 
 // ─── 서비스 점수 계산 ────────────────────────────────────────────────────
