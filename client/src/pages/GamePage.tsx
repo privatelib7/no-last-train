@@ -701,7 +701,7 @@ export default function GamePage({ cityId, onBack }: Props) {
 
         {selectedLine && (
           <section className={styles.controlSection}>
-            <div className={styles.sectionHeading}><span>02</span><h2>철도 차량</h2></div>
+            <div className={styles.sectionHeading}><span>02</span><h2>{selectedLine.mode === 'BUS' ? '차량' : '철도 차량'}</h2></div>
             <div className={styles.vehicleList}>
               {selectedLine.vehicles.map((vehicle, index) => {
                 const station = vehicle.currentStationId ? stationById.get(vehicle.currentStationId) : null
