@@ -1,0 +1,930 @@
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type WheelEvent } from 'react'
+import {
+  executeCityAction,
+  fetchCity,
+  type CityAction,
+  type CityState,
+  type GameLine,
+  type Station,
+  type Vehicle,
+} from '../api/game'
+import styles from './GamePage.module.css'
+
+interface Props {
+  cityId: string
+  onBack: () => void
+}
+
+type VehicleDragState = {
+  lineId: string
+  vehicleId: string
+  startX: number
+  startY: number
+  x: number
+  y: number
+  active: boolean
+}
+
+type DragTarget = { kind: 'DEPOT' | 'STATION'; id: string } | null
+
+type MapView = { x: number; y: number; width: number; height: number }
+
+type MapPanState = {
+  pointerId: number
+  startX: number
+  startY: number
+  startView: MapView
+  moved: boolean
+}
+
+const LIVE_TICK_MS = 3000
+const BUSAN_LAND_PATH = 'M0 0H100V35C98 41 99 46 95 50C92 54 94 59 90 63C86 66 83 63 79 67C75 71 70 67 66 72C62 76 57 73 53 79C49 85 44 80 39 84C34 88 29 83 23 87C15 92 8 87 0 89Z'
+const INITIAL_MAP_VIEW: MapView = { x: 0, y: 0, width: 100, height: 100 }
+
+const LINE_COLORS: Record<string, string> = {
+  RED: '#E9783C',
+  BLUE: '#3F8EDB',
+  GREEN: '#55A96A',
+  YELLOW: '#E1B735',
+  PURPLE: '#8E6CC1',
+}
+
+function formatHour(hour: number) {
+  const normalized = ((hour % 24) + 24) % 24
+  const h = Math.floor(normalized)
+  const m = Math.round((normalized - h) * 60)
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
+function formatElapsed(seconds: number) {
+  const total = Math.max(0, Math.floor(seconds))
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const secs = total % 60
+  return [hours, minutes, secs].map(value => String(value).padStart(2, '0')).join(':')
+}
+
+function stationPoint(station: Station) {
+  return { x: station.posX, y: station.posY }
+}
+
+function orderedStations(line: GameLine) {
+  return line.lineStations.slice().sort((a, b) => a.order - b.order).map(item => item.station)
+}
+
+function linePoints(line: GameLine) {
+  return orderedStations(line).map(station => `${station.posX},${station.posY}`).join(' ')
+}
+
+function trainStatus(vehicle: Vehicle) {
+  if (vehicle.status === 'OPERATING') return '운행 중'
+  if (vehicle.status === 'SPARE') return '차고지 대기'
+  if (vehicle.status === 'LOANED') return '지원 운행'
+  if (vehicle.status === 'MAINTENANCE') return '정비 중'
+  return '운행 불가'
+}
+
+function lineHasStation(line: GameLine, stationId: string) {
+  return line.lineStations.some(item => item.stationId === stationId)
+}
+
+function vehicleTiming(vehicleId: string) {
+  let hash = 2166136261
+  for (let index = 0; index < vehicleId.length; index++) {
+    hash ^= vehicleId.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  const unsigned = hash >>> 0
+  const interval = 1 + (unsigned % 3)
+  const phase = Math.floor(unsigned / 3) % interval
+  return { interval, phase }
+}
+
+function shouldVehicleMove(vehicleId: string, tick: number) {
+  const { interval, phase } = vehicleTiming(vehicleId)
+  return tick % interval === phase
+}
+
+function nextStationOnLine(line: GameLine, vehicle: Vehicle) {
+  const stations = orderedStations(line)
+  if (!vehicle.currentStationId || stations.length < 2) return null
+  const currentIndex = stations.findIndex(station => station.id === vehicle.currentStationId)
+  if (currentIndex < 0) return null
+  let direction = vehicle.direction >= 0 ? 1 : -1
+  let nextIndex = currentIndex + direction
+  if (nextIndex < 0 || nextIndex >= stations.length) {
+    direction *= -1
+    nextIndex = currentIndex + direction
+  }
+  return stations[nextIndex] ?? null
+}
+
+function nearestStationToDepot(line: GameLine) {
+  return orderedStations(line).reduce<Station | null>((nearest, station) => {
+    if (!nearest) return station
+    const currentDistance = Math.hypot(station.posX - line.depotX, station.posY - line.depotY)
+    const nearestDistance = Math.hypot(nearest.posX - line.depotX, nearest.posY - line.depotY)
+    return currentDistance < nearestDistance ? station : nearest
+  }, null)
+}
+
+function coastY(x: number) {
+  const coast = [
+    [0, 89], [15, 92], [23, 87], [29, 83], [34, 88], [39, 84], [44, 80],
+    [49, 85], [53, 79], [57, 73], [62, 76], [66, 72], [70, 67], [75, 71],
+    [79, 67], [83, 63], [86, 66], [90, 63], [92, 54], [95, 50], [98, 41], [100, 35],
+  ]
+  for (let index = 1; index < coast.length; index++) {
+    const [leftX, leftY] = coast[index - 1]
+    const [rightX, rightY] = coast[index]
+    if (x <= rightX) {
+      const ratio = (x - leftX) / (rightX - leftX)
+      return leftY + (rightY - leftY) * ratio
+    }
+  }
+  return 35
+}
+
+function isBusanLand(x: number, y: number) {
+  const onMainland = x >= 0 && x <= 100 && y >= 0 && y <= coastY(x)
+  const onYeongdo = x >= 39 && x <= 53 && y >= 84 && y <= 97
+  return onMainland || onYeongdo
+}
+
+function randomUnit(seed: number, index: number, salt: number) {
+  let value = Math.imul(seed + index * 374761393 + salt * 668265263, 1274126177)
+  value ^= value >>> 13
+  value = Math.imul(value, 2246822519)
+  return (value >>> 0) / 4294967296
+}
+
+function createPeople(seed: number, waitingCount: number, stations: Station[]) {
+  const count = Math.min(150, Math.max(45, Math.round(38 + Math.log10(waitingCount + 10) * 23)))
+  return Array.from({ length: count }, (_, index) => {
+    let x = 0
+    let y = 0
+    if (stations.length > 0 && index % 3 !== 0) {
+      const station = stations[Math.floor(randomUnit(seed, index, 1) * stations.length)]
+      const angle = randomUnit(seed, index, 2) * Math.PI * 2
+      const distance = 1.8 + randomUnit(seed, index, 3) * 7.5
+      x = station.posX + Math.cos(angle) * distance
+      y = station.posY + Math.sin(angle) * distance
+    }
+    if (!isBusanLand(x, y) || index % 3 === 0) {
+      for (let attempt = 0; attempt < 24; attempt++) {
+        const candidateX = randomUnit(seed, index, 10 + attempt * 2) * 100
+        const candidateY = randomUnit(seed, index, 11 + attempt * 2) * 96
+        if (isBusanLand(candidateX, candidateY)) {
+          x = candidateX
+          y = candidateY
+          break
+        }
+      }
+    }
+    return {
+      x,
+      y,
+      radius: 0.13 + randomUnit(seed, index, 90) * 0.12,
+      opacity: 0.34 + randomUnit(seed, index, 91) * 0.42,
+      warm: randomUnit(seed, index, 92) > 0.72,
+    }
+  })
+}
+
+export default function GamePage({ cityId, onBack }: Props) {
+  const [state, setState] = useState<CityState | null>(null)
+  const [selectedLineId, setSelectedLineId] = useState('')
+  const [selectedVehicleId, setSelectedVehicleId] = useState('')
+  const [stationBuildMode, setStationBuildMode] = useState(false)
+  const [stationName, setStationName] = useState('')
+  const [vehicleDrag, setVehicleDrag] = useState<VehicleDragState | null>(null)
+  const [dragTarget, setDragTarget] = useState<DragTarget>(null)
+  const [mapView, setMapView] = useState<MapView>(INITIAL_MAP_VIEW)
+  const [isMapPanning, setIsMapPanning] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [motionProgress, setMotionProgress] = useState(0)
+  const ticking = useRef(false)
+  const vehicleDragRef = useRef<VehicleDragState | null>(null)
+  const mapPanRef = useRef<MapPanState | null>(null)
+  const suppressMapClick = useRef(false)
+  const mapRef = useRef<SVGSVGElement | null>(null)
+  const stateRef = useRef<CityState | null>(null)
+  const performActionRef = useRef<((action: CityAction) => Promise<CityState | null>) | null>(null)
+
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
+
+  const loadCity = async () => {
+    const next = await fetchCity(cityId)
+    setState(next)
+    const firstLine = next.city.lines.slice().sort((a, b) => a.name.localeCompare(b.name, 'ko'))[0]
+    setSelectedLineId(current => current || firstLine?.id || '')
+    return next
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    fetchCity(cityId)
+      .then(next => {
+        if (cancelled) return
+        setState(next)
+        const firstLine = next.city.lines.slice().sort((a, b) => a.name.localeCompare(b.name, 'ko'))[0]
+        setSelectedLineId(firstLine?.id ?? '')
+      })
+      .catch(err => {
+        if (!cancelled) setError(err instanceof Error ? err.message : '도시를 불러오지 못했습니다.')
+      })
+    return () => { cancelled = true }
+  }, [cityId])
+
+  useEffect(() => {
+    let cancelled = false
+    const timer = window.setInterval(async () => {
+      if (ticking.current || busy) return
+      ticking.current = true
+      try {
+        const next = await fetchCity(cityId)
+        if (!cancelled) {
+          setState(next)
+        }
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : '자동 운행 연결 오류')
+      } finally {
+        ticking.current = false
+      }
+    }, 600)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [busy, cityId])
+
+  const motionTick = state?.city.currentTick ?? -1
+  useEffect(() => {
+    if (motionTick < 0) return
+    let animationFrame = 0
+    const startedAt = performance.now()
+    setMotionProgress(0)
+
+    const animate = (now: number) => {
+      const progress = Math.min((now - startedAt) / (LIVE_TICK_MS - 180), 1)
+      setMotionProgress(progress)
+      if (progress < 1) animationFrame = window.requestAnimationFrame(animate)
+    }
+
+    animationFrame = window.requestAnimationFrame(animate)
+    return () => window.cancelAnimationFrame(animationFrame)
+  }, [motionTick])
+
+  const sortedLines = useMemo(
+    () => state?.city.lines.slice().sort((a, b) => a.name.localeCompare(b.name, 'ko')) ?? [],
+    [state],
+  )
+  const selectedLine = useMemo(
+    () => sortedLines.find(line => line.id === selectedLineId) ?? null,
+    [selectedLineId, sortedLines],
+  )
+  const selectedVehicleLine = useMemo(
+    () => sortedLines.find(line => line.vehicles.some(vehicle => vehicle.id === selectedVehicleId)) ?? null,
+    [selectedVehicleId, sortedLines],
+  )
+  const selectedVehicle = selectedVehicleLine?.vehicles.find(vehicle => vehicle.id === selectedVehicleId) ?? null
+  const stationById = useMemo(
+    () => new Map(state?.city.stations.map(station => [station.id, station]) ?? []),
+    [state],
+  )
+  const interchangeStationIds = useMemo(() => {
+    const memberships = new Map<string, number>()
+    for (const line of sortedLines) {
+      for (const item of line.lineStations) {
+        memberships.set(item.stationId, (memberships.get(item.stationId) ?? 0) + 1)
+      }
+    }
+    return new Set([...memberships].filter(([, count]) => count > 1).map(([stationId]) => stationId))
+  }, [sortedLines])
+  const people = useMemo(() => {
+    if (!state) return []
+    const waiting = state.stationStats.reduce((sum, station) => sum + station.waitingCount, 0)
+    return createPeople(state.city.seed, waiting, state.city.stations)
+  }, [state])
+
+  useEffect(() => {
+    if (!selectedVehicleId || !state) return
+    const stillExists = state.city.lines.some(line => line.vehicles.some(vehicle => vehicle.id === selectedVehicleId))
+    if (!stillExists) setSelectedVehicleId('')
+  }, [selectedVehicleId, state])
+
+  const performAction = async (action: CityAction) => {
+    setBusy(true)
+    setError(null)
+    try {
+      await executeCityAction(cityId, action)
+      const next = await loadCity()
+      if (action.type === 'REMOVE_VEHICLE') setSelectedVehicleId('')
+      return next
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '작업 실행 오류')
+      return null
+    } finally {
+      setBusy(false)
+    }
+  }
+  performActionRef.current = performAction
+
+  const selectLine = (lineId: string) => {
+    setSelectedLineId(lineId)
+    setSelectedVehicleId('')
+    setError(null)
+  }
+
+  const selectVehicle = (lineId: string, vehicleId: string) => {
+    setSelectedLineId(lineId)
+    setSelectedVehicleId(vehicleId)
+    setStationBuildMode(false)
+    setError(null)
+  }
+
+  const handleStationClick = (event: MouseEvent<SVGGElement>) => {
+    event.stopPropagation()
+  }
+
+  const handleMapClick = (event: MouseEvent<SVGSVGElement>) => {
+    if (suppressMapClick.current) {
+      suppressMapClick.current = false
+      return
+    }
+    if (busy || !stationBuildMode) return
+    const svg = mapRef.current
+    const matrix = svg?.getScreenCTM()
+    if (!svg || !matrix) return
+    const point = svg.createSVGPoint()
+    point.x = event.clientX
+    point.y = event.clientY
+    const mapPoint = point.matrixTransform(matrix.inverse())
+    const posX = Math.round(Math.max(4, Math.min(96, mapPoint.x)) * 10) / 10
+    const posY = Math.round(Math.max(4, Math.min(92, mapPoint.y)) * 10) / 10
+    if (!isBusanLand(posX, posY)) {
+      setError('바다에는 역을 지을 수 없습니다.')
+      return
+    }
+    const name = stationName.trim() || `신설역 ${state!.city.stations.length + 1}`
+    void performAction({ type: 'BUILD_STATION', name, posX, posY }).then(next => {
+      if (!next) return
+      setStationName('')
+      setStationBuildMode(false)
+    })
+  }
+
+  const clampMapView = (view: MapView) => ({
+    ...view,
+    x: Math.max(-8, Math.min(108 - view.width, view.x)),
+    y: Math.max(-6, Math.min(106 - view.height, view.y)),
+  })
+
+  const zoomMap = (factor: number) => {
+    setMapView(current => {
+      const width = Math.max(34, Math.min(100, current.width * factor))
+      const height = Math.max(34, Math.min(100, current.height * factor))
+      const centerX = current.x + current.width / 2
+      const centerY = current.y + current.height / 2
+      return clampMapView({ x: centerX - width / 2, y: centerY - height / 2, width, height })
+    })
+  }
+
+  const handleMapPointerDown = (event: PointerEvent<SVGSVGElement>) => {
+    if (event.button !== 0 || stationBuildMode) return
+    if ((event.target as Element).closest('[data-map-interactive]')) return
+    event.currentTarget.setPointerCapture(event.pointerId)
+    mapPanRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startView: mapView,
+      moved: false,
+    }
+    setIsMapPanning(true)
+  }
+
+  const handleMapPointerMove = (event: PointerEvent<SVGSVGElement>) => {
+    const pan = mapPanRef.current
+    if (!pan || pan.pointerId !== event.pointerId) return
+    const rect = event.currentTarget.getBoundingClientRect()
+    const dx = (event.clientX - pan.startX) * pan.startView.width / rect.width
+    const dy = (event.clientY - pan.startY) * pan.startView.height / rect.height
+    pan.moved ||= Math.hypot(event.clientX - pan.startX, event.clientY - pan.startY) > 4
+    setMapView(clampMapView({ ...pan.startView, x: pan.startView.x - dx, y: pan.startView.y - dy }))
+  }
+
+  const endMapPan = (event: PointerEvent<SVGSVGElement>) => {
+    const pan = mapPanRef.current
+    if (!pan || pan.pointerId !== event.pointerId) return
+    suppressMapClick.current = pan.moved
+    if (pan.moved) window.setTimeout(() => { suppressMapClick.current = false }, 0)
+    mapPanRef.current = null
+    setIsMapPanning(false)
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
+  const handleMapWheel = (event: WheelEvent<SVGSVGElement>) => {
+    event.preventDefault()
+    zoomMap(event.deltaY > 0 ? 1.16 : 0.86)
+  }
+
+  const beginVehiclePointerDrag = (
+    event: PointerEvent<HTMLElement | SVGGElement>,
+    lineId: string,
+    vehicleId: string,
+  ) => {
+    if (event.button !== 0 || busy) return
+    event.preventDefault()
+    event.stopPropagation()
+    selectVehicle(lineId, vehicleId)
+    const nextDrag = {
+      lineId,
+      vehicleId,
+      startX: event.clientX,
+      startY: event.clientY,
+      x: event.clientX,
+      y: event.clientY,
+      active: false,
+    }
+    vehicleDragRef.current = nextDrag
+    setVehicleDrag(nextDrag)
+  }
+
+  const draggedVehicleId = vehicleDrag?.vehicleId
+  useEffect(() => {
+    if (!draggedVehicleId) return
+
+    const updateTarget = (x: number, y: number) => {
+      const element = document.elementFromPoint(x, y)
+      const depot = element?.closest('[data-depot-line-id]')
+      if (depot) {
+        setDragTarget({ kind: 'DEPOT', id: depot.getAttribute('data-depot-line-id') ?? '' })
+        return
+      }
+      const station = element?.closest('[data-station-id]')
+      if (station) {
+        setDragTarget({ kind: 'STATION', id: station.getAttribute('data-station-id') ?? '' })
+        return
+      }
+      setDragTarget(null)
+    }
+
+    const handlePointerMove = (event: globalThis.PointerEvent) => {
+      const current = vehicleDragRef.current
+      if (!current) return
+      const active = current.active || Math.hypot(event.clientX - current.startX, event.clientY - current.startY) > 5
+      const next = { ...current, x: event.clientX, y: event.clientY, active }
+      vehicleDragRef.current = next
+      setVehicleDrag(next)
+      if (active) updateTarget(event.clientX, event.clientY)
+    }
+
+    const handlePointerUp = (event: globalThis.PointerEvent) => {
+      const current = vehicleDragRef.current
+      vehicleDragRef.current = null
+      setVehicleDrag(null)
+      setDragTarget(null)
+      const currentState = stateRef.current
+      if (!current?.active || !currentState) return
+
+      const sourceLine = currentState.city.lines.find(line => line.id === current.lineId)
+      const vehicle = sourceLine?.vehicles.find(item => item.id === current.vehicleId)
+      const element = document.elementFromPoint(event.clientX, event.clientY)
+      const depotLineId = element?.closest('[data-depot-line-id]')?.getAttribute('data-depot-line-id')
+      const stationId = element?.closest('[data-station-id]')?.getAttribute('data-station-id')
+
+      if (sourceLine && vehicle && depotLineId && depotLineId !== sourceLine.id) {
+        const runAction = performActionRef.current
+        if (!runAction) return
+        void runAction({
+          type: 'TRANSFER_VEHICLE',
+          lineId: sourceLine.id,
+          vehicleId: vehicle.id,
+          targetLineId: depotLineId,
+        }).then(next => {
+          if (!next) return
+          setSelectedLineId(depotLineId)
+          setSelectedVehicleId(vehicle.id)
+        })
+        return
+      }
+
+      if (sourceLine && vehicle?.status === 'SPARE' && stationId && lineHasStation(sourceLine, stationId)) {
+        void performActionRef.current?.({
+          type: 'DEPLOY_VEHICLE',
+          lineId: sourceLine.id,
+          vehicleId: vehicle.id,
+          stationId,
+        })
+      }
+    }
+
+    document.addEventListener('pointermove', handlePointerMove)
+    document.addEventListener('pointerup', handlePointerUp, { once: true })
+    return () => {
+      document.removeEventListener('pointermove', handlePointerMove)
+      document.removeEventListener('pointerup', handlePointerUp)
+    }
+  }, [draggedVehicleId])
+
+  if (!state) {
+    return (
+      <div className={styles.loadingPage}>
+        <span className={styles.loadingDot} />
+        {error ?? '부산 로딩 중'}
+      </div>
+    )
+  }
+
+  const currentTick = state.city.currentTick
+  const gameHour = (currentTick / 6) % 24
+  const elapsedSeconds = currentTick * (LIVE_TICK_MS / 1000) + motionProgress * (LIVE_TICK_MS / 1000)
+  const latestMetric = state.city.ticks[0]
+  const score = latestMetric?.serviceScore ?? 100
+  const totalVehicles = state.city.lines.reduce((sum, line) => sum + line.vehicles.length, 0)
+  const waitingPassengers = state.stationStats.reduce((sum, station) => sum + station.waitingCount, 0)
+
+  return (
+    <div className={styles.page}>
+      <aside className={styles.controlRoom}>
+        <div className={styles.controlHeader}>
+          <button className={styles.backButton} onClick={onBack} aria-label="도시 선택으로 돌아가기">←</button>
+          <div>
+            <span>BUSAN CONTROL</span>
+            <h1>도시 운영실</h1>
+          </div>
+        </div>
+
+        <div className={styles.liveStatus}>
+          <span className={styles.liveDot} />
+          <b>실시간 자동 운행</b>
+        </div>
+
+        <section className={styles.controlSection}>
+          <div className={styles.sectionHeading}><span>01</span><h2>운영 노선</h2></div>
+          <div className={styles.lineTabs}>
+            {sortedLines.map(line => (
+              <button
+                key={line.id}
+                className={line.id === selectedLineId ? styles.lineTabActive : ''}
+                onClick={() => selectLine(line.id)}
+              >
+                <i style={{ background: LINE_COLORS[line.color] }} />
+                <span>{line.name}</span>
+                <small>{line.status === 'SUSPENDED' ? '폐쇄' : '운행'}</small>
+              </button>
+            ))}
+          </div>
+          {selectedLine && (
+            <button
+              className={selectedLine.status === 'SUSPENDED' ? styles.reopenButton : styles.closeButton}
+              onClick={() => void performAction({
+                type: 'SET_LINE_STATUS',
+                lineId: selectedLine.id,
+                status: selectedLine.status === 'SUSPENDED' ? 'OPERATING' : 'SUSPENDED',
+              })}
+              disabled={busy}
+            >
+              {selectedLine.status === 'SUSPENDED' ? `${selectedLine.name} 운행 재개` : `${selectedLine.name} 폐쇄`}
+            </button>
+          )}
+        </section>
+
+        {selectedLine && (
+          <section className={styles.controlSection}>
+            <div className={styles.sectionHeading}><span>02</span><h2>철도 차량</h2></div>
+            <div className={styles.vehicleList}>
+              {selectedLine.vehicles.map((vehicle, index) => {
+                const station = vehicle.currentStationId ? stationById.get(vehicle.currentStationId) : null
+                const intervalSeconds = vehicleTiming(vehicle.id).interval * (LIVE_TICK_MS / 1000)
+                return (
+                  <div key={vehicle.id} className={styles.vehicleRow}>
+                    <button
+                      className={`${styles.vehicleCard} ${vehicle.id === selectedVehicleId ? styles.vehicleSelected : ''}`}
+                      aria-pressed={vehicle.id === selectedVehicleId}
+                      onClick={() => selectVehicle(selectedLine.id, vehicle.id)}
+                      onPointerDown={event => beginVehiclePointerDrag(event, selectedLine.id, vehicle.id)}
+                    >
+                      <span className={styles.trainBadge} style={{ background: LINE_COLORS[selectedLine.color] }}>
+                        <i /><i /><b>{index + 1}</b>
+                      </span>
+                      <span>
+                        <b>{selectedLine.name} 차량 {index + 1}</b>
+                        <small>{station?.name ?? `${selectedLine.name} 차고지`} · {trainStatus(vehicle)} · {intervalSeconds}초</small>
+                      </span>
+                    </button>
+                    <button
+                      className={vehicle.status === 'OPERATING' ? styles.storeVehicleButton : styles.startVehicleButton}
+                      onClick={() => void performAction({
+                        type: 'SET_VEHICLE_SERVICE',
+                        lineId: selectedLine.id,
+                        vehicleId: vehicle.id,
+                        inService: vehicle.status !== 'OPERATING',
+                      })}
+                      disabled={busy || !['OPERATING', 'SPARE'].includes(vehicle.status)}
+                    >{vehicle.status === 'OPERATING' ? '입고' : '운행'}</button>
+                  </div>
+                )
+              })}
+            </div>
+
+            {selectedVehicle && (
+              <button
+                className={styles.removeVehicleButton}
+                onClick={() => void performAction({
+                  type: 'REMOVE_VEHICLE',
+                  lineId: selectedVehicleLine!.id,
+                  vehicleId: selectedVehicle.id,
+                })}
+                disabled={busy}
+              >선택 차량 제거</button>
+            )}
+          </section>
+        )}
+
+        {error && <div className={styles.operationError} role="alert">! {error}</div>}
+      </aside>
+
+      <main className={styles.gameStage}>
+        <header className={styles.hudTop}>
+          <div className={styles.cityIdentity}>
+            <span className={styles.cityName}>부산</span>
+            <span>1일차 · {formatHour(gameHour)}</span>
+          </div>
+          <div className={styles.hudStats}>
+            <span><small>점수</small><b>{Math.round(score)}</b></span>
+            <span><small>대기 승객</small><b>{waitingPassengers}명</b></span>
+            <span><small>차량</small><b>{totalVehicles}대</b></span>
+            <span className={styles.tickNumber}><small>흐른 시간</small><b>{formatElapsed(elapsedSeconds)}</b></span>
+          </div>
+        </header>
+
+        <div className={styles.mapCanvas} aria-label="부산 도시 노선도">
+          <div className={styles.mapControls}>
+            <div className={styles.stationBuilder}>
+              <button
+                className={stationBuildMode ? styles.stationBuilderActive : ''}
+                aria-pressed={stationBuildMode}
+                onClick={() => {
+                  setStationBuildMode(current => !current)
+                  setSelectedVehicleId('')
+                  setError(null)
+                }}
+              >＋ 역 짓기</button>
+              {stationBuildMode && (
+                <div>
+                  <input
+                    value={stationName}
+                    onChange={event => setStationName(event.target.value)}
+                    placeholder={`신설역 ${state.city.stations.length + 1}`}
+                    maxLength={12}
+                    aria-label="새 역 이름"
+                  />
+                  <small>지상 위치 클릭</small>
+                </div>
+              )}
+            </div>
+            <div className={styles.zoomControls} aria-label="지도 확대 축소">
+              <button onClick={() => zoomMap(0.78)} aria-label="지도 확대">＋</button>
+              <span>{(100 / mapView.width).toFixed(1)}×</span>
+              <button onClick={() => zoomMap(1.28)} aria-label="지도 축소">−</button>
+              <button onClick={() => setMapView(INITIAL_MAP_VIEW)} aria-label="지도 전체 보기">⌂</button>
+            </div>
+          </div>
+          <svg
+            ref={mapRef}
+            className={`${styles.cityMap} ${stationBuildMode ? styles.stationBuildCursor : ''} ${isMapPanning ? styles.mapPanning : ''}`}
+            viewBox={`${mapView.x} ${mapView.y} ${mapView.width} ${mapView.height}`}
+            role="img"
+            aria-label="부산 지형과 일반역, 환승역, 노선 차고지"
+            onClick={handleMapClick}
+            onPointerDown={handleMapPointerDown}
+            onPointerMove={handleMapPointerMove}
+            onPointerUp={endMapPan}
+            onPointerCancel={endMapPan}
+            onWheel={handleMapWheel}
+          >
+            <defs>
+              <pattern id="map-grid" width="5" height="5" patternUnits="userSpaceOnUse">
+                <path d="M 5 0 L 0 0 0 5" fill="none" stroke="rgba(26,22,19,.035)" strokeWidth=".18" />
+              </pattern>
+              <clipPath id="busan-land-clip">
+                <path d={BUSAN_LAND_PATH} />
+                <path d="M42 87C46 84 51 86 53 91C50 96 43 97 39 92Z" />
+              </clipPath>
+            </defs>
+            <rect width="100" height="100" className={styles.sea} />
+            <path
+              className={styles.busanLand}
+              d={BUSAN_LAND_PATH}
+            />
+            <path className={styles.yeongdo} d="M42 87C46 84 51 86 53 91C50 96 43 97 39 92Z" />
+            <path className={styles.mapGrid} d="M0 0H100V100H0Z" />
+            <path className={styles.nakdongRiver} d="M19 -4C17 15 23 27 20 42C17 57 22 70 17 90" />
+            <path className={styles.suyeongRiver} d="M72 28C70 40 74 49 70 61C68 68 71 73 70 78" />
+            <g className={styles.mountains}>
+              <path d="M28 17L35 6L41 18Z" />
+              <path d="M48 22L56 8L64 22Z" />
+              <path d="M70 20L77 9L84 22Z" />
+            </g>
+            <g className={styles.districtLabels}>
+              <text x="9" y="47">강서구</text>
+              <text x="29" y="41">사상구</text>
+              <text x="47" y="49">부산진구</text>
+              <text x="57" y="29">동래구</text>
+              <text x="72" y="45">수영구</text>
+              <text x="84" y="48">해운대구</text>
+              <text x="43" y="94">영도</text>
+            </g>
+
+            <g className={styles.peopleLayer} clipPath="url(#busan-land-clip)" aria-label="도시 인구">
+              {people.map((person, index) => (
+                <circle
+                  key={index}
+                  cx={person.x}
+                  cy={person.y}
+                  r={person.radius}
+                  opacity={person.opacity}
+                  className={person.warm ? styles.personDotWarm : styles.personDot}
+                />
+              ))}
+            </g>
+
+            {sortedLines.map(line => {
+              const nearest = nearestStationToDepot(line)
+              if (!nearest) return null
+              return (
+                <line
+                  key={`depot-spur-${line.id}`}
+                  x1={line.depotX}
+                  y1={line.depotY}
+                  x2={nearest.posX}
+                  y2={nearest.posY}
+                  className={styles.depotSpur}
+                  style={{ stroke: LINE_COLORS[line.color] }}
+                />
+              )
+            })}
+
+            {sortedLines.filter(line => line.lineStations.length > 1).map(line => (
+              <g
+                key={line.id}
+                className={line.status === 'SUSPENDED' ? styles.closedLine : ''}
+                data-map-interactive="true"
+                role="button"
+                tabIndex={0}
+                aria-label={`${line.name} 선택`}
+                onClick={event => { event.stopPropagation(); selectLine(line.id) }}
+              >
+                <polyline points={linePoints(line)} className={styles.lineShadow} />
+                <polyline
+                  points={linePoints(line)}
+                  className={`${styles.linePath} ${line.id === selectedLineId ? styles.selectedLinePath : ''}`}
+                  style={{ stroke: LINE_COLORS[line.color] }}
+                />
+              </g>
+            ))}
+
+            {state.city.stations.map(station => {
+              const point = stationPoint(station)
+              const isInterchange = interchangeStationIds.has(station.id)
+              const isCurrentVehicleStation = selectedVehicle?.currentStationId === station.id
+              const isDropTarget = dragTarget?.kind === 'STATION' && dragTarget.id === station.id
+              const highlighted = isCurrentVehicleStation || isDropTarget
+              return (
+                <g
+                  key={station.id}
+                  transform={`translate(${point.x} ${point.y})`}
+                  className={styles.stationGroup}
+                  onClick={handleStationClick}
+                  role="button"
+                  tabIndex={0}
+                  data-station-id={station.id}
+                  data-map-interactive="true"
+                  aria-label={`${station.name} ${isInterchange ? '환승역' : '일반역'} 선택`}
+                >
+                  <title>{station.name} · {isInterchange ? '환승역' : '일반역'}</title>
+                  {highlighted && <circle r="3.3" className={styles.stationSelection} />}
+                  {isInterchange ? (
+                    <>
+                      <circle r="2.45" className={styles.stationHalo} />
+                      <circle r="1.85" className={styles.stationNode} />
+                      <circle r=".75" className={styles.transferCore} />
+                    </>
+                  ) : (
+                    <>
+                      <circle r="2" className={styles.stationHalo} />
+                      <circle r="1.4" className={styles.stationNode} />
+                    </>
+                  )}
+                  <text y={station.name === '서면역' ? 4.9 : -3.15} textAnchor="middle" className={styles.stationLabel}>{station.name}</text>
+                </g>
+              )
+            })}
+
+            {sortedLines.map(line => {
+              const spareCount = line.vehicles.filter(vehicle => vehicle.status === 'SPARE').length
+              const isDropTarget = dragTarget?.kind === 'DEPOT' && dragTarget.id === line.id
+              return (
+                <g
+                  key={`depot-${line.id}`}
+                  transform={`translate(${line.depotX} ${line.depotY})`}
+                  className={`${styles.depot} ${isDropTarget ? styles.depotDropTarget : ''}`}
+                  data-depot-line-id={line.id}
+                  data-map-interactive="true"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${line.name} 차고지 · 예비 차량 ${spareCount}대`}
+                  onClick={event => { event.stopPropagation(); selectLine(line.id) }}
+                >
+                  <circle r="4.7" className={styles.depotHitArea} />
+                  <rect x="-3" y="-2.3" width="6" height="4.6" rx=".8" className={styles.depotBuilding} />
+                  <path d="M-2 2.3V4M0 2.3V4M2 2.3V4" className={styles.depotRails} />
+                  <rect x="-2.1" y="-1.05" width="4.2" height="1.85" rx=".45" fill={LINE_COLORS[line.color]} />
+                  <text y="-3.9" textAnchor="middle" className={styles.depotLabel}>{line.name} 차고지</text>
+                  {spareCount > 0 && <text x="3.4" y="3.7" textAnchor="middle" className={styles.depotCount}>{spareCount}</text>}
+                </g>
+              )
+            })}
+
+            {state.city.lines.flatMap(line => line.vehicles
+              .filter(vehicle => vehicle.status === 'OPERATING' && vehicle.currentStationId)
+              .map(vehicle => {
+                const station = stationById.get(vehicle.currentStationId!)
+                if (!station) return null
+                const scheduledToMove = line.status === 'OPERATING' && shouldVehicleMove(vehicle.id, currentTick + 1)
+                const nextStation = scheduledToMove ? nextStationOnLine(line, vehicle) : null
+                const point = stationPoint(station)
+                const nextPoint = nextStation ? stationPoint(nextStation) : point
+                const lineNo = line.name.match(/\d+/)?.[0] ?? ''
+                const progress = nextStation ? motionProgress : 0
+                const trainX = point.x + (nextPoint.x - point.x) * progress
+                const trainY = point.y + (nextPoint.y - point.y) * progress
+                const trainAngle = nextStation
+                  ? Math.atan2(nextPoint.y - point.y, nextPoint.x - point.x) * 180 / Math.PI
+                  : 0
+                const dragging = vehicleDrag?.active && vehicleDrag.vehicleId === vehicle.id
+                return (
+                  <g
+                    key={vehicle.id}
+                    transform={`translate(${trainX} ${trainY}) rotate(${trainAngle})`}
+                    className={`${styles.trainIcon} ${vehicle.id === selectedVehicleId ? styles.selectedTrain : ''} ${dragging ? styles.trainDragging : ''}`}
+                    onClick={event => { event.stopPropagation(); selectVehicle(line.id, vehicle.id) }}
+                    onPointerDown={event => beginVehiclePointerDrag(event, line.id, vehicle.id)}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${line.name} 차량 선택`}
+                    aria-pressed={vehicle.id === selectedVehicleId}
+                    data-vehicle-id={vehicle.id}
+                    data-from-station={station.id}
+                    data-to-station={nextStation?.id ?? station.id}
+                    data-motion-progress={progress.toFixed(3)}
+                    data-move-interval={vehicleTiming(vehicle.id).interval}
+                    data-map-interactive="true"
+                  >
+                    <rect x="-3.7" y="-2" width="7.4" height="4" rx="1.2" fill={LINE_COLORS[line.color]} className={styles.trainBody} />
+                    <rect x="-2.8" y="-1.2" width="1.55" height="1.25" rx=".28" className={styles.trainWindow} />
+                    <rect x="-.65" y="-1.2" width="1.55" height="1.25" rx=".28" className={styles.trainWindow} />
+                    <circle cx="-2.15" cy="1.85" r=".56" className={styles.trainWheel} />
+                    <circle cx="2.15" cy="1.85" r=".56" className={styles.trainWheel} />
+                    <text x="2.2" y=".55" textAnchor="middle" className={styles.trainNumber}>{lineNo}</text>
+                  </g>
+                )
+              }))}
+          </svg>
+
+          <div className={styles.mapLegend}>
+            {sortedLines.map(line => (
+              <button
+                key={line.id}
+                className={line.id === selectedLineId ? styles.mapLegendActive : ''}
+                onClick={() => selectLine(line.id)}
+              >
+                <i style={{ background: LINE_COLORS[line.color] }} />{line.name}{line.status === 'SUSPENDED' ? ' · 폐쇄' : ''}
+              </button>
+            ))}
+          </div>
+
+          <div className={styles.stationLegend} aria-label="역 종류">
+            <span><i className={styles.regularStationMark} />일반역</span>
+            <span><i className={styles.interchangeStationMark} />환승역</span>
+            <span><i className={styles.depotMark} />차고지</span>
+          </div>
+        </div>
+      </main>
+
+      {vehicleDrag?.active && (
+        <div className={styles.vehicleDragGhost} style={{ left: vehicleDrag.x, top: vehicleDrag.y }}>
+          <span style={{ background: LINE_COLORS[selectedVehicleLine?.color ?? 'RED'] }} />
+          {selectedVehicleLine?.name} 차량
+        </div>
+      )}
+    </div>
+  )
+}

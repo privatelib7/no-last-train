@@ -4,6 +4,7 @@ import styles from './LobbyPage.module.css'
 
 interface Props {
   onBack: () => void
+  onSelectCity: (cityId: string) => void
 }
 
 const PLAYER_LINES = [
@@ -35,7 +36,7 @@ function citySubtitle(city: LobbyCity) {
   return created ? `${day} · ${lines} · ${created}` : `${day} · ${lines}`
 }
 
-export default function LobbyPage({ onBack }: Props) {
+export default function LobbyPage({ onBack, onSelectCity }: Props) {
   const [cities, setCities] = useState<LobbyCity[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -106,6 +107,9 @@ export default function LobbyPage({ onBack }: Props) {
               <button
                 key={city.id}
                 className={`${styles.cityCard} ${active ? styles.cityCardActive : ''}`}
+                onClick={() => active && onSelectCity(city.id)}
+                disabled={!active}
+                aria-label={`${city.name} 도시 운영 시작`}
               >
                 <div className={styles.activeContent}>
                   <div className={styles.miniMap}>

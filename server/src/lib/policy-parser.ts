@@ -1,7 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { PolicyParseResult, ParsedPolicy } from '@/types/game'
 
-const client = new Anthropic()
+const apiKey = process.env.ANTHROPIC_API_KEY
+const client = apiKey && !apiKey.includes('...') ? new Anthropic({ apiKey }) : null
 
 const SYSTEM_PROMPT = `
 당신은 지하철 운영 게임의 AI 노선 관리자입니다.
@@ -41,6 +42,8 @@ export async function parsePolicy(
 `.trim()
 
   try {
+    if (!client) return buildFallback(rawInput)
+
     const message = await client.messages.create({
       model: 'claude-sonnet-4-5',
       max_tokens: 512,
@@ -125,6 +128,20 @@ function buildFallback(rawInput: string): PolicyParseResult {
         actionType: 'ADJUST_HEADWAY',
         resourceLimit: 1,
         parsedSummary: `혼잡도 ${threshold}% 초과 시 배차 간격 단축`,
+      },
+    }
+  }
+
+  if (lower.includes('우선') || lower.includes('먼저')) {
+    return {
+      ok: true,
+      policy: {
+        type: 'PASSENGER_PRIORITY',
+        conditionTimeStart: 7,
+        conditionTimeEnd: 10,
+        actionType: 'ADJUST_HEADWAY',
+        resourceLimit: 1,
+        parsedSummary: '출근 시간에 환승 승객을 우선 수송하고 배차 간격을 단축',
       },
     }
   }

@@ -21,8 +21,8 @@ export async function POST(
 
   // 도시 컨텍스트 (역 이름, 노선 색상) 수집
   const [stations, lines] = await Promise.all([
-    db.station.findMany({ where: { cityId: id }, select: { name: true } }),
-    db.line.findMany({ where: { cityId: id }, select: { color: true, name: true } }),
+    db.station.findMany({ where: { cityId: id }, select: { id: true, name: true, type: true } }),
+    db.line.findMany({ where: { cityId: id }, select: { id: true, color: true, name: true } }),
   ])
 
   if (!stations.length) {
@@ -34,5 +34,21 @@ export async function POST(
     lineColors: lines.map(l => l.name ?? l.color),
   })
 
-  return NextResponse.json(result)
+  if (!result.ok) return NextResponse.json(result)
+
+  const policy = { ...result.policy }
+  if (policy.type === 'CONGESTION_RESPONSE') {
+    const namedStation = stations.find(station => parsed.data.rawInput.includes(station.name))
+    const returnedStation = stations.find(station => station.id === policy.conditionStationId || station.name === policy.conditionStationId)
+    policy.conditionStationId = returnedStation?.id
+      ?? namedStation?.id
+      ?? stations.find(station => station.type === 'HUB')?.id
+      ?? stations[0].id
+  }
+  if (policy.actionType === 'LEND_VEHICLE') {
+    policy.actionTargetLineId = lines.find(line => line.color === 'BLUE')?.id
+      ?? lines.find(line => line.id !== policy.actionTargetLineId)?.id
+  }
+
+  return NextResponse.json({ ok: true, policy })
 }

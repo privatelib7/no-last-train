@@ -96,7 +96,7 @@ export interface RouteSegment {
 export const SIM = {
   TICKS_PER_GAME_HOUR: 6,       // 10분 실게임 = 1 게임시간
   GAME_HOURS_PER_DAY: 24,
-  DEMO_TICK_MS: 1000,            // 데모 모드: 1틱 = 1초
+  LIVE_TICK_MS: 3000,            // 실시간 웹 운행: 3초마다 1틱
   MAX_OFFLINE_HOURS: 12,         // 오프라인 보상 최대 12시간
   BASE_PASSENGER_RATE: 10,       // 기본 승객 생성 (틱당 역당)
   CONGESTION_DEPLOY_DEFAULT: 0.8, // 기본 혼잡 대응 임계값

@@ -76,6 +76,8 @@ model Line {
   color    LineColor
   name     String
   status   LineStatus @default(OPERATING)
+  depotX   Float      @default(0)
+  depotY   Float      @default(0)
 
   city     City    @relation(fields: [cityId], references: [id], onDelete: Cascade)
   player   Player? @relation(fields: [playerId], references: [id])
@@ -124,6 +126,7 @@ model Vehicle {
   isSpare          Boolean       @default(false)
   currentStationId String?
   headwayMinutes   Int           @default(5)   // 배차 간격
+  direction        Int           @default(1)   // 1 정방향, -1 역방향
 
   line           Line     @relation(fields: [lineId], references: [id], onDelete: Cascade)
   currentStation Station? @relation("CurrentStation", fields: [currentStationId], references: [id])
