@@ -183,6 +183,27 @@ export async function POST(
       })
     })
 
+    // 차고지는 노선 종점을 따라간다: 차고지와 가까운 쪽 종점의 연장선상으로 재배치
+    const ordered = await db.lineStation.findMany({
+      where: { lineId: line.id },
+      orderBy: { order: 'asc' },
+      include: { station: true },
+    })
+    if (ordered.length >= 2) {
+      const first = ordered[0].station
+      const last = ordered[ordered.length - 1].station
+      const distFirst = Math.hypot(line.depotX - first.posX, line.depotY - first.posY)
+      const distLast = Math.hypot(line.depotX - last.posX, line.depotY - last.posY)
+      const [terminus, inner] = distFirst <= distLast
+        ? [first, ordered[1].station]
+        : [last, ordered[ordered.length - 2].station]
+      const length = Math.hypot(terminus.posX - inner.posX, terminus.posY - inner.posY) || 1
+      // ponytail: 서버는 지형을 몰라 물 검사 없이 맵 범위로만 클램프
+      const depotX = Math.max(4, Math.min(96, terminus.posX + ((terminus.posX - inner.posX) / length) * 4.5))
+      const depotY = Math.max(4, Math.min(92, terminus.posY + ((terminus.posY - inner.posY) / length) * 4.5))
+      await db.line.update({ where: { id: line.id }, data: { depotX, depotY } })
+    }
+
     const [fromStation, toStation] = [action.fromStationId, action.toStationId]
       .map(stationId => stations.find(station => station.id === stationId)!)
     return NextResponse.json({ message: `${fromStation.name}–${toStation.name} 구간을 ${line.name}에 건설했습니다.` })
