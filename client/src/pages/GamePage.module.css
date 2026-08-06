@@ -1024,6 +1024,10 @@
   pointer-events: none;
 }
 
+.stationLabelLayer {
+  pointer-events: none;
+}
+
 .stationLabel {
   font-size: 1.7px;
   font-weight: 800;

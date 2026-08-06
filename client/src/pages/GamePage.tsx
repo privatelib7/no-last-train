@@ -986,7 +986,6 @@ export default function GamePage({ cityId, onBack }: Props) {
                       className={styles.queueDot}
                     />
                   ))}
-                  <text y={station.name === '서면역' ? 4.9 : -3.15} textAnchor="middle" className={styles.stationLabel}>{station.name}</text>
                 </g>
               )
             })}
@@ -1063,6 +1062,19 @@ export default function GamePage({ cityId, onBack }: Props) {
                   </g>
                 )
               }))}
+
+            {/* 역 이름은 항상 최상단 (SVG는 그리는 순서 = z-order) */}
+            <g className={styles.stationLabelLayer}>
+              {state.city.stations.map(station => (
+                <text
+                  key={`label-${station.id}`}
+                  transform={`translate(${station.posX} ${station.posY}) scale(${mapScale})`}
+                  y={station.name === '서면역' ? 4.9 : -3.15}
+                  textAnchor="middle"
+                  className={styles.stationLabel}
+                >{station.name}</text>
+              ))}
+            </g>
           </svg>
 
           <div className={styles.mapLegend}>
