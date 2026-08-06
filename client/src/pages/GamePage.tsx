@@ -543,6 +543,8 @@ export default function GamePage({ cityId, onBack }: Props) {
   }
 
   const currentTick = state.city.currentTick
+  // 확대해도 역·글씨·점이 화면 기준 크기를 유지하도록 counter-scale
+  const mapScale = mapView.width / 100
   const gameHour = (currentTick / 6) % 24
   const elapsedSeconds = currentTick * (LIVE_TICK_MS / 1000) + motionProgress * (LIVE_TICK_MS / 1000)
   const latestMetric = state.city.ticks[0]
@@ -749,7 +751,7 @@ export default function GamePage({ cityId, onBack }: Props) {
                   key={index}
                   cx={person.x}
                   cy={person.y}
-                  r={person.radius}
+                  r={person.radius * mapScale}
                   opacity={person.opacity}
                   className={person.warm ? styles.personDotWarm : styles.personDot}
                 />
@@ -800,7 +802,7 @@ export default function GamePage({ cityId, onBack }: Props) {
               return (
                 <g
                   key={station.id}
-                  transform={`translate(${point.x} ${point.y})`}
+                  transform={`translate(${point.x} ${point.y}) scale(${mapScale})`}
                   className={styles.stationGroup}
                   onClick={handleStationClick}
                   role="button"
@@ -834,7 +836,7 @@ export default function GamePage({ cityId, onBack }: Props) {
               return (
                 <g
                   key={`depot-${line.id}`}
-                  transform={`translate(${line.depotX} ${line.depotY})`}
+                  transform={`translate(${line.depotX} ${line.depotY}) scale(${mapScale})`}
                   className={`${styles.depot} ${isDropTarget ? styles.depotDropTarget : ''}`}
                   data-depot-line-id={line.id}
                   data-map-interactive="true"
