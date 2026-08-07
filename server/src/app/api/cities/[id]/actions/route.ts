@@ -29,6 +29,11 @@ const ActionSchema = z.discriminatedUnion('type', [
     mode: z.enum(['SUBWAY', 'BUS']),
   }),
   z.object({
+    type: z.literal('DETACH_STATION'),
+    lineId: z.string(),
+    stationId: z.string(),
+  }),
+  z.object({
     type: z.literal('REMOVE_LINE'),
     lineId: z.string(),
   }),
@@ -266,6 +271,20 @@ export async function POST(
     const [fromStation, toStation] = [action.fromStationId, action.toStationId]
       .map(stationId => stations.find(station => station.id === stationId)!)
     return NextResponse.json({ message: `${fromStation.name}–${toStation.name} 구간을 ${line.name}에 건설했습니다.` })
+  }
+
+  if (action.type === 'DETACH_STATION') {
+    const membership = line.lineStations.find(item => item.stationId === action.stationId)
+    if (!membership) return NextResponse.json({ error: '이 노선에 속하지 않은 역입니다.' }, { status: 400 })
+    await db.lineStation.delete({
+      where: { lineId_stationId: { lineId: line.id, stationId: action.stationId } },
+    })
+    // 제거된 역에 있던 이 노선의 차량은 차고지 대기로 전환
+    await db.vehicle.updateMany({
+      where: { lineId: line.id, currentStationId: action.stationId },
+      data: { status: 'SPARE', isSpare: true, currentStationId: null, direction: 1 },
+    })
+    return NextResponse.json({ message: `${membership.station.name}을 ${line.name}에서 제거했습니다.` })
   }
 
   if (action.type === 'REMOVE_LINE') {
