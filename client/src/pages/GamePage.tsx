@@ -1320,14 +1320,9 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             <button
               className={styles.removeVehicleButton}
               onClick={() => {
-                const stationId = selectedStation.id
-                requestConfirm(
-                  `${selectedStation.name}을 완전히 삭제할까요?\n모든 노선에서 제거됩니다.`,
-                  () => void performAction({ type: 'REMOVE_STATION', stationId }).then(next => {
-                    if (next) setSelectedStationId('')
-                  }),
-                  '삭제',
-                )
+                void performAction({ type: 'REMOVE_STATION', stationId: selectedStation.id }).then(next => {
+                  if (next) setSelectedStationId('')
+                })
               }}
               disabled={busy}
             >{selectedStation.name} 완전 삭제</button>
