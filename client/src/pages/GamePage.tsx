@@ -1045,7 +1045,7 @@ export default function GamePage({ cityId, onBack }: Props) {
             <span><small>점수</small><b>{Math.round(score)}</b></span>
             <span><small>대기 승객</small><b>{waitingPassengers}명</b></span>
             <span><small>차량</small><b>{totalVehicles}대</b></span>
-            <span className={styles.tickNumber}><small>흐른 시간</small><b>{formatElapsed(elapsedSeconds)}</b></span>
+            <span className={styles.tickNumber}><small>플레이 시간</small><b>{formatElapsed(elapsedSeconds)}</b></span>
           </div>
         </header>
 
