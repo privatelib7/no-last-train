@@ -187,7 +187,7 @@ function generatePassengers(
   const destWeights = DEST_WEIGHT[dayKey][period]
 
   for (const station of stations) {
-    let rate = SIM.BASE_PASSENGER_RATE * demandMult * originWeights[station.type]
+    let rate = SIM.BASE_PASSENGER_RATE * demandMult * (originWeights[station.type] ?? 1)
 
     if (eventStations.has(station.id)) {
       const ev = activeEvents.find(e => e.affectedStationId === station.id)

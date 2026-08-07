@@ -16,6 +16,7 @@ export type CityMapDef = {
   mountainPaths: string[]
   districts: Array<{ x: number; y: number; label: string }>
   zones: Zone[]
+  anchor: [number, number] // 반드시 땅인 좌표 — 랜덤 배치 실패 시 폴백
   isLand: (x: number, y: number) => boolean
 }
 
@@ -106,6 +107,7 @@ const BUSAN: CityMapDef = {
     { kind: 'industrial', points: [[14, 62], [22, 60], [24, 72], [16, 74]] },
     { kind: 'industrial', points: [[62, 46], [70, 48], [72, 54], [64, 56]] },
   ],
+  anchor: [52, 58],
   isLand(x, y) {
     const onYeongdo = pointInPolygon(x, y, YEONGDO_POLY)
     if (onYeongdo) return true
@@ -199,6 +201,7 @@ const SEOUL: CityMapDef = {
     { kind: 'industrial', points: [[22, 62], [32, 66], [33, 76], [27, 77], [22, 70]] },
     { kind: 'industrial', points: [[58, 24], [70, 26], [72, 34], [62, 38], [56, 30]] },
   ],
+  anchor: [44, 36],
   isLand(x, y) {
     if (!pointInPolygon(x, y, SEOUL_BOUNDARY)) return false
     const inRiver = Math.abs(y - hanRiverY(x)) < HAN_HALF_WIDTH

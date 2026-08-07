@@ -17,7 +17,7 @@ type StationDef = {
 }
 
 // 맵별 초기 역/노선 배치 (좌표는 클라이언트 viewBox 0~100 기준)
-const MAP_LAYOUTS: Record<string, {
+const MAP_LAYOUTS: Record<'BUSAN' | 'SEOUL', {
   stations: StationDef[]
   playerLine: { stations: string[]; depotX: number; depotY: number }
   aiLine: { name: string; stations: string[]; depotX: number; depotY: number }
@@ -158,10 +158,14 @@ export async function POST(req: NextRequest) {
     })
 
     const busStations = resolve(layout.busLine.stations)
+    // 플레이어·AI 노선과 겹치지 않는 색을 고른다
+    const usedColors = [parsed.data.lineColor, aiColor]
+    const busColor = (['GREEN', 'YELLOW', 'PURPLE', 'RED', 'BLUE'] as const)
+      .find(candidate => !usedColors.includes(candidate)) ?? 'GREEN'
     const busLine = await tx.line.create({
       data: {
         cityId: city.id,
-        color: 'GREEN',
+        color: busColor,
         mode: 'BUS',
         name: 'A',
         depotX: layout.busLine.depotX,

@@ -257,7 +257,7 @@ export async function POST(
         ? [first, ordered[1].station]
         : [last, ordered[ordered.length - 2].station]
       const length = Math.hypot(terminus.posX - inner.posX, terminus.posY - inner.posY) || 1
-      // ponytail: 서버는 지형을 몰라 물 검사 없이 맵 범위로만 클램프
+      // 지형(물) 검사는 클라이언트 전용이므로 서버는 맵 범위로만 클램프한다
       const depotX = Math.max(4, Math.min(96, terminus.posX + ((terminus.posX - inner.posX) / length) * 4.5))
       const depotY = Math.max(4, Math.min(92, terminus.posY + ((terminus.posY - inner.posY) / length) * 4.5))
       await db.line.update({ where: { id: line.id }, data: { depotX, depotY } })

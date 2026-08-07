@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEven
 import {
   executeCityAction,
   fetchCity,
+  TICKS_PER_DAY,
+  TICKS_PER_HOUR,
   type CityAction,
   type CityState,
   type GameLine,
@@ -215,6 +217,11 @@ function createPeople(seed: number, waitingCount: number, map: CityMapDef, perio
         }
       }
     }
+    if (x < 0) {
+      // 랜덤 배치가 모두 실패하면 맵의 안전 좌표 주변에 배치
+      x = map.anchor[0] + (randomUnit(seed, index, salt + 98) - 0.5) * 4
+      y = map.anchor[1] + (randomUnit(seed, index, salt + 99) - 0.5) * 4
+    }
     return {
       x,
       y,
@@ -361,11 +368,11 @@ export default function GamePage({ cityId, onBack }: Props) {
     return createPeople(
       state.city.seed,
       waiting,
-      getCityMap(state.city.mapKey),
-      periodIndexOfHour((tick / 6) % 24),
-      Math.floor(tick / 144) % 7 >= 5,
+      mapDef,
+      periodIndexOfHour((tick / TICKS_PER_HOUR) % 24),
+      Math.floor(tick / TICKS_PER_DAY) % 7 >= 5,
     )
-  }, [state])
+  }, [state, mapDef])
   const waitingByStation = useMemo(
     () => new Map(state?.stationStats.map(stat => [stat.stationId, stat.waitingCount]) ?? []),
     [state],
@@ -653,9 +660,9 @@ export default function GamePage({ cityId, onBack }: Props) {
   // 확대해도 역·글씨·점이 화면 기준 크기를 유지하도록 counter-scale
   const mapScale = mapView.width / 100
   const selectedStation = stationById.get(selectedStationId) ?? null
-  const gameHour = (currentTick / 6) % 24
+  const gameHour = (currentTick / TICKS_PER_HOUR) % 24
   // 서버 isWeekendTick과 동일 공식 (1게임일 = 144틱, 7일 주기 중 6·7일차)
-  const isWeekend = Math.floor(currentTick / 144) % 7 >= 5
+  const isWeekend = Math.floor(currentTick / TICKS_PER_DAY) % 7 >= 5
   const elapsedSeconds = currentTick * (LIVE_TICK_MS / 1000) + motionProgress * (LIVE_TICK_MS / 1000)
   const latestMetric = state.city.ticks[0]
   const score = latestMetric?.serviceScore ?? 100
@@ -833,7 +840,7 @@ export default function GamePage({ cityId, onBack }: Props) {
         <header className={styles.hudTop}>
           <div className={styles.cityIdentity}>
             <span className={styles.cityName}>{state.city.name}</span>
-            <span>{Math.floor(currentTick / 144) + 1}일차{isWeekend ? ' · 주말' : ''} · {formatHour(gameHour)}</span>
+            <span>{Math.floor(currentTick / TICKS_PER_DAY) + 1}일차{isWeekend ? ' · 주말' : ''} · {formatHour(gameHour)}</span>
           </div>
           <div className={styles.hudStats}>
             <span><small>점수</small><b>{Math.round(score)}</b></span>

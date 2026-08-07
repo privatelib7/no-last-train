@@ -127,6 +127,10 @@ export type SimResult = {
   highlights: TickHighlight[]
 }
 
+// 서버 SIM 상수(server/src/types/game.ts)와 반드시 일치해야 한다
+export const TICKS_PER_HOUR = 6
+export const TICKS_PER_DAY = TICKS_PER_HOUR * 24
+
 const API_BASE = import.meta.env.VITE_API_URL ?? ''
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
