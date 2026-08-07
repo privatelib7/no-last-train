@@ -30,6 +30,15 @@ type VehicleDragState = {
 
 type DragTarget = { kind: 'DEPOT' | 'STATION'; id: string } | null
 
+type StationLinkDrag = {
+  stationId: string
+  startX: number
+  startY: number
+  x: number
+  y: number
+  active: boolean
+}
+
 type MapView = { x: number; y: number; width: number; height: number }
 
 type MapPanState = {
@@ -242,6 +251,7 @@ export default function GamePage({ cityId, onBack }: Props) {
   const [renameValue, setRenameValue] = useState('')
   const [moveStationMode, setMoveStationMode] = useState(false)
   const [vehicleDrag, setVehicleDrag] = useState<VehicleDragState | null>(null)
+  const [stationDrag, setStationDrag] = useState<StationLinkDrag | null>(null)
   const [dragTarget, setDragTarget] = useState<DragTarget>(null)
   const [mapView, setMapView] = useState<MapView>(INITIAL_MAP_VIEW)
   const [isMapPanning, setIsMapPanning] = useState(false)
@@ -250,6 +260,8 @@ export default function GamePage({ cityId, onBack }: Props) {
   const [motionProgress, setMotionProgress] = useState(0)
   const ticking = useRef(false)
   const vehicleDragRef = useRef<VehicleDragState | null>(null)
+  const stationDragRef = useRef<StationLinkDrag | null>(null)
+  const suppressStationClick = useRef(false)
   const mapPanRef = useRef<MapPanState | null>(null)
   const suppressMapClick = useRef(false)
   const mapRef = useRef<SVGSVGElement | null>(null)
@@ -432,8 +444,27 @@ export default function GamePage({ cityId, onBack }: Props) {
     setError(null)
   }
 
+  const beginStationLinkDrag = (event: PointerEvent<SVGGElement>, stationId: string) => {
+    if (event.button !== 0 || busy || stationBuildMode || moveStationMode) return
+    event.stopPropagation()
+    const next: StationLinkDrag = {
+      stationId,
+      startX: event.clientX,
+      startY: event.clientY,
+      x: event.clientX,
+      y: event.clientY,
+      active: false,
+    }
+    stationDragRef.current = next
+    setStationDrag(next)
+  }
+
   const handleStationClick = (event: MouseEvent<SVGGElement>, stationId: string) => {
     event.stopPropagation()
+    if (suppressStationClick.current) {
+      suppressStationClick.current = false
+      return
+    }
     if (busy) return
     const station = stationById.get(stationId)
     const prevSelectedId = selectedStationId
@@ -647,6 +678,51 @@ export default function GamePage({ cityId, onBack }: Props) {
     }
   }, [draggedVehicleId])
 
+  // 역에서 다른 역으로 끌어당겨 선로 연결
+  const draggedStationId = stationDrag?.stationId
+  useEffect(() => {
+    if (!draggedStationId) return
+
+    const handlePointerMove = (event: globalThis.PointerEvent) => {
+      const current = stationDragRef.current
+      if (!current) return
+      const active = current.active || Math.hypot(event.clientX - current.startX, event.clientY - current.startY) > 6
+      const next = { ...current, x: event.clientX, y: event.clientY, active }
+      stationDragRef.current = next
+      setStationDrag(next)
+      if (!active) return
+      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-station-id]')
+      const targetId = target?.getAttribute('data-station-id')
+      setDragTarget(targetId && targetId !== current.stationId ? { kind: 'STATION', id: targetId } : null)
+    }
+
+    const handlePointerUp = (event: globalThis.PointerEvent) => {
+      const current = stationDragRef.current
+      stationDragRef.current = null
+      setStationDrag(null)
+      setDragTarget(null)
+      if (!current?.active) return
+      suppressStationClick.current = true
+      window.setTimeout(() => { suppressStationClick.current = false }, 0)
+      const targetId = document.elementFromPoint(event.clientX, event.clientY)
+        ?.closest('[data-station-id]')?.getAttribute('data-station-id')
+      if (!targetId || targetId === current.stationId || !selectedLineId) return
+      void performActionRef.current?.({
+        type: 'BUILD_SEGMENT',
+        lineId: selectedLineId,
+        fromStationId: current.stationId,
+        toStationId: targetId,
+      })
+    }
+
+    document.addEventListener('pointermove', handlePointerMove)
+    document.addEventListener('pointerup', handlePointerUp, { once: true })
+    return () => {
+      document.removeEventListener('pointermove', handlePointerMove)
+      document.removeEventListener('pointerup', handlePointerUp)
+    }
+  }, [draggedStationId, selectedLineId])
+
   if (!state) {
     return (
       <div className={styles.loadingPage}>
@@ -820,16 +896,36 @@ export default function GamePage({ cityId, onBack }: Props) {
               }}
               disabled={busy}
             >{moveStationMode ? '옮길 위치를 지도에서 클릭' : `${selectedStation.name} 위치 이동`}</button>
+            {(() => {
+              // 환승역은 특정 노선에서만 뺄 수 있는 선택지를 제공
+              const servingLines = sortedLines.filter(line => lineHasStation(line, selectedStation.id))
+              if (servingLines.length < 2) return null
+              return (
+                <div className={styles.newLineRow}>
+                  {servingLines.map(line => (
+                    <button
+                      key={line.id}
+                      onClick={() => void performAction({
+                        type: 'DETACH_STATION',
+                        lineId: line.id,
+                        stationId: selectedStation.id,
+                      })}
+                      disabled={busy}
+                    >{line.name}에서 제거</button>
+                  ))}
+                </div>
+              )
+            })()}
             <button
               className={styles.removeVehicleButton}
               onClick={() => {
-                if (!window.confirm(`${selectedStation.name}을 삭제할까요? 연결된 노선에서도 제거됩니다.`)) return
+                if (!window.confirm(`${selectedStation.name}을 완전히 삭제할까요? 모든 노선에서 제거됩니다.`)) return
                 void performAction({ type: 'REMOVE_STATION', stationId: selectedStation.id }).then(next => {
                   if (next) setSelectedStationId('')
                 })
               }}
               disabled={busy}
-            >{selectedStation.name} 삭제</button>
+            >{selectedStation.name} 완전 삭제</button>
           </section>
         )}
 
@@ -1001,6 +1097,27 @@ export default function GamePage({ cityId, onBack }: Props) {
               </g>
             ))}
 
+            {stationDrag?.active && (() => {
+              const matrix = mapRef.current?.getScreenCTM()
+              const source = stationById.get(stationDrag.stationId)
+              if (!matrix || !source) return null
+              const cursor = new DOMPoint(stationDrag.x, stationDrag.y).matrixTransform(matrix.inverse())
+              return (
+                <line
+                  x1={source.posX}
+                  y1={source.posY}
+                  x2={cursor.x}
+                  y2={cursor.y}
+                  className={styles.linkGhost}
+                  style={{
+                    stroke: LINE_COLORS[selectedLine?.color ?? 'RED'],
+                    strokeWidth: 2.25 * mapScale,
+                    strokeDasharray: `${2 * mapScale} ${1.5 * mapScale}`,
+                  }}
+                />
+              )
+            })()}
+
             {state.city.stations.map(station => {
               const point = stationPoint(station)
               const isInterchange = interchangeStationIds.has(station.id)
@@ -1014,6 +1131,7 @@ export default function GamePage({ cityId, onBack }: Props) {
                   transform={`translate(${point.x} ${point.y}) scale(${mapScale})`}
                   className={styles.stationGroup}
                   onClick={event => handleStationClick(event, station.id)}
+                  onPointerDown={event => beginStationLinkDrag(event, station.id)}
                   role="button"
                   tabIndex={0}
                   data-station-id={station.id}
