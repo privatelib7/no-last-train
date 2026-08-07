@@ -104,6 +104,9 @@ async function executeAction(
           resourceUsed: 1,
         },
       })
+      await db.activityLog.create({
+        data: { cityId: line.cityId, playerId: null, message: `[${line.name}] ${description}` },
+      })
       return { description, actionType: 'DEPLOY_SPARE' }
     }
 
@@ -139,6 +142,9 @@ async function executeAction(
           resourceUsed: 1,
         },
       })
+      await db.activityLog.create({
+        data: { cityId: line.cityId, playerId: null, message: `[${line.name}] ${description}` },
+      })
       return { description, actionType: 'LEND_VEHICLE' }
     }
 
@@ -161,6 +167,9 @@ async function executeAction(
           conditionMet: conditionDescription,
           resourceUsed: 0,
         },
+      })
+      await db.activityLog.create({
+        data: { cityId: line.cityId, playerId: null, message: `[${line.name}] ${description}` },
       })
       return { description, actionType: 'ADJUST_HEADWAY' }
     }
