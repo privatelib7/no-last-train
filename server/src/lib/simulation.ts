@@ -179,7 +179,7 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
         tickNumber,
         gameTimeHour,
         type: 'GOAL',
-        description: '첫 매출 목표를 달성해 운영 지원금 2천만 원을 받았습니다.',
+        description: '첫 매출 목표를 달성해 운영 지원금 ₵2,000을 받았습니다.',
         severity: 'INFO',
       })
     }
