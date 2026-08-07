@@ -938,13 +938,37 @@
   pointer-events: none;
 }
 
-.personDot,
-.personDotWarm {
+.personDot {
+  fill: #33475c;
+  stroke: rgba(255, 255, 255, 0.86);
+  stroke-width: 0.12;
+  filter: drop-shadow(0 0.28px 0.28px rgba(34, 30, 26, 0.28));
+}
+
+.personWalking {
   fill: #33475c;
 }
 
-.personDotWarm {
+.personWalking.personDotWarm {
   fill: #d46b3a;
+}
+
+.personWaiting {
+  fill: #efb63f;
+  stroke: #fff8e5;
+  stroke-width: 0.22;
+  animation: citizenWaitPulse 0.9s ease-in-out infinite alternate;
+}
+
+.personBoarding {
+  fill: #8b8177;
+  stroke: #fff;
+  stroke-width: 0.3;
+}
+
+@keyframes citizenWaitPulse {
+  from { opacity: 0.56; }
+  to { opacity: 1; }
 }
 
 .river {
@@ -1287,6 +1311,54 @@
   display: flex;
   align-items: center;
   gap: 5px;
+}
+
+.mobilityLegend {
+  position: absolute;
+  top: 123px;
+  left: 14px;
+  display: flex;
+  gap: 11px;
+  padding: 6px 8px;
+  border: 1px solid rgba(67, 60, 54, 0.24);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #746c63;
+  font-size: 8px;
+  backdrop-filter: blur(8px);
+}
+
+.mobilityLegend span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.walkingCitizenMark,
+.waitingCitizenMark,
+.boardingCitizenMark {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.walkingCitizenMark {
+  background: #33475c;
+  border: 1px solid #fff;
+  box-shadow: 0 0 0 1px rgba(51, 71, 92, 0.22);
+}
+
+.waitingCitizenMark {
+  background: #efb63f;
+  border: 1px solid #fff8e5;
+  box-shadow: 0 0 0 1px rgba(216, 144, 47, 0.45);
+}
+
+.boardingCitizenMark {
+  background: #8b8177;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(87, 78, 69, 0.35);
 }
 
 .zoneMarkResidential,

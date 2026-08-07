@@ -10,7 +10,8 @@ import {
   type Station,
   type Vehicle,
 } from '../api/game'
-import { getCityMap, pointInPolygon, polyPath, type CityMapDef, type ZoneKind } from '../maps'
+import { getCityMap, polyPath } from '../maps'
+import { createCitizenJourneys, locateCitizen, type CitizenTravelMode } from '../mobility'
 import styles from './GamePage.module.css'
 
 interface Props {
@@ -61,6 +62,7 @@ type MapPanState = {
 }
 
 const LIVE_TICK_MS = 3000
+const CITIZEN_TIME_SCALE = 0.72
 const INITIAL_MAP_VIEW: MapView = { x: 0, y: 0, width: 100, height: 100 }
 
 const LINE_COLORS: Record<string, string> = {
@@ -69,6 +71,18 @@ const LINE_COLORS: Record<string, string> = {
   GREEN: '#55A96A',
   YELLOW: '#E1B735',
   PURPLE: '#8E6CC1',
+}
+
+const CITIZEN_MODE_LABELS: Record<CitizenTravelMode, string> = {
+  WALK: '역으로 이동 중',
+  WAIT: '역에서 대기 중',
+  BOARDING: '차량 탑승 중',
+}
+
+const CITIZEN_MODE_CLASSES: Record<CitizenTravelMode, string> = {
+  WALK: styles.personWalking,
+  WAIT: styles.personWaiting,
+  BOARDING: styles.personBoarding,
 }
 
 function formatHour(hour: number) {
@@ -164,107 +178,6 @@ function pointSegmentDistance(px: number, py: number, ax: number, ay: number, bx
 function isAutoStationName(name: string) {
   return /^신설역 \d+$/.test(name)
 }
-
-function randomUnit(seed: number, index: number, salt: number) {
-  let value = Math.imul(seed + index * 374761393 + salt * 668265263, 1274126177)
-  value ^= value >>> 13
-  value = Math.imul(value, 2246822519)
-  return (value >>> 0) / 4294967296
-}
-
-// 시간대별 구역 상주 인구 가중치 (index: 0 아침, 1 낮, 2 저녁, 3 밤)
-const AMBIENT_WEIGHT: Record<'WD' | 'WE', Array<Record<ZoneKind, number>>> = {
-  WD: [
-    { residential: 1.2, commercial: 0.8, industrial: 2.2 },
-    { residential: 0.6, commercial: 2.0, industrial: 1.4 },
-    { residential: 1.5, commercial: 2.0, industrial: 0.5 },
-    { residential: 2.5, commercial: 0.7, industrial: 0.15 },
-  ],
-  WE: [
-    { residential: 1.8, commercial: 1.0, industrial: 0.1 },
-    { residential: 1.0, commercial: 2.2, industrial: 0.1 },
-    { residential: 1.4, commercial: 1.8, industrial: 0.1 },
-    { residential: 2.4, commercial: 0.6, industrial: 0.1 },
-  ],
-}
-
-function periodIndexOfHour(hour: number) {
-  const h = Math.floor(hour)
-  if (h >= 6 && h <= 9) return 0
-  if (h >= 10 && h <= 15) return 1
-  if (h >= 16 && h <= 19) return 2
-  return 3
-}
-
-function zoneBBox(points: Array<[number, number]>) {
-  const xs = points.map(([x]) => x)
-  const ys = points.map(([, y]) => y)
-  const minX = Math.min(...xs)
-  const minY = Math.min(...ys)
-  const maxX = Math.max(...xs)
-  const maxY = Math.max(...ys)
-  return { minX, minY, width: maxX - minX, height: maxY - minY }
-}
-
-// 역이 없는 승객은 구역 안에 머무른다 — 시간대에 따라 구역별 인구가 이동
-function createPeople(seed: number, waitingCount: number, map: CityMapDef, periodIndex: number, weekend: boolean) {
-  const count = Math.min(150, Math.max(45, Math.round(38 + Math.log10(waitingCount + 10) * 23)))
-  const weights = AMBIENT_WEIGHT[weekend ? 'WE' : 'WD'][periodIndex]
-  const zones = map.zones.map(zone => ({
-    zone,
-    bbox: zoneBBox(zone.points),
-  }))
-  const zoneWeights = zones.map(({ zone, bbox }) => weights[zone.kind] * bbox.width * bbox.height)
-  const totalWeight = zoneWeights.reduce((sum, w) => sum + w, 0)
-  // 시간대·요일이 salt에 들어가 시간대가 바뀔 때만 인구 배치가 이동한다
-  const salt = 400 + periodIndex * 2 + (weekend ? 1 : 0)
-
-  return Array.from({ length: count }, (_, index) => {
-    let x = -1
-    let y = -1
-    if (totalWeight > 0 && index % 4 !== 0) {
-      let roll = randomUnit(seed, index, salt) * totalWeight
-      let picked = zones[zones.length - 1]
-      for (let z = 0; z < zones.length; z++) {
-        roll -= zoneWeights[z]
-        if (roll <= 0) { picked = zones[z]; break }
-      }
-      for (let attempt = 0; attempt < 24; attempt++) {
-        const candidateX = picked.bbox.minX + randomUnit(seed, index, salt + 10 + attempt * 2) * picked.bbox.width
-        const candidateY = picked.bbox.minY + randomUnit(seed, index, salt + 11 + attempt * 2) * picked.bbox.height
-        if (pointInPolygon(candidateX, candidateY, picked.zone.points) && map.isLand(candidateX, candidateY)) {
-          x = candidateX
-          y = candidateY
-          break
-        }
-      }
-    }
-    if (x < 0) {
-      for (let attempt = 0; attempt < 24; attempt++) {
-        const candidateX = randomUnit(seed, index, salt + 60 + attempt * 2) * 100
-        const candidateY = randomUnit(seed, index, salt + 61 + attempt * 2) * 96
-        if (map.isLand(candidateX, candidateY)) {
-          x = candidateX
-          y = candidateY
-          break
-        }
-      }
-    }
-    if (x < 0) {
-      // 랜덤 배치가 모두 실패하면 맵의 안전 좌표 주변에 배치
-      x = map.anchor[0] + (randomUnit(seed, index, salt + 98) - 0.5) * 4
-      y = map.anchor[1] + (randomUnit(seed, index, salt + 99) - 0.5) * 4
-    }
-    return {
-      x,
-      y,
-      radius: 0.24 + randomUnit(seed, index, 90) * 0.14,
-      opacity: 0.6 + randomUnit(seed, index, 91) * 0.3,
-      warm: randomUnit(seed, index, 92) > 0.72,
-    }
-  })
-}
-
 export default function GamePage({ cityId, onBack }: Props) {
   const [state, setState] = useState<CityState | null>(null)
   const [selectedLineId, setSelectedLineId] = useState('')
@@ -321,7 +234,7 @@ export default function GamePage({ cityId, onBack }: Props) {
         if (!cancelled) onBack()
       })
     return () => { cancelled = true }
-  }, [cityId])
+  }, [cityId, onBack])
 
   useEffect(() => {
     let cancelled = false
@@ -400,17 +313,19 @@ export default function GamePage({ cityId, onBack }: Props) {
     return new Set([...modes].filter(([, set]) => set.size === 1 && set.has('BUS')).map(([stationId]) => stationId))
   }, [sortedLines])
   const mapDef = getCityMap(state?.city.mapKey)
-  const people = useMemo(() => {
+  const citizenJourneys = useMemo(() => {
     if (!state) return []
     const waiting = state.stationStats.reduce((sum, station) => sum + station.waitingCount, 0)
     const tick = state.city.currentTick
-    return createPeople(
-      state.city.seed,
-      waiting,
-      mapDef,
-      periodIndexOfHour((tick / TICKS_PER_HOUR) % 24),
-      Math.floor(tick / TICKS_PER_DAY) % 7 >= 5,
-    )
+    return createCitizenJourneys({
+      seed: state.city.seed,
+      waitingCount: waiting,
+      gameHour: (tick / TICKS_PER_HOUR) % 24,
+      weekend: Math.floor(tick / TICKS_PER_DAY) % 7 >= 5,
+      stations: state.city.stations,
+      lines: state.city.lines,
+      map: mapDef,
+    })
   }, [state, mapDef])
   const waitingByStation = useMemo(
     () => new Map(state?.stationStats.map(stat => [stat.stationId, stat.waitingCount]) ?? []),
@@ -843,6 +758,11 @@ export default function GamePage({ cityId, onBack }: Props) {
   // 서버 isWeekendTick과 동일 공식 (1게임일 = 144틱, 7일 주기 중 6·7일차)
   const isWeekend = Math.floor(currentTick / TICKS_PER_DAY) % 7 >= 5
   const elapsedSeconds = currentTick * (LIVE_TICK_MS / 1000) + motionProgress * (LIVE_TICK_MS / 1000)
+  const journeyTime = (currentTick + motionProgress) * CITIZEN_TIME_SCALE
+  const movingCitizens = citizenJourneys.map(journey => ({
+    ...journey,
+    position: locateCitizen(journey, journeyTime),
+  }))
   const latestMetric = state.city.ticks[0]
   const score = latestMetric?.serviceScore ?? 100
   const totalVehicles = state.city.lines.reduce((sum, line) => sum + line.vehicles.length, 0)
@@ -1135,17 +1055,33 @@ export default function GamePage({ cityId, onBack }: Props) {
               ))}
             </g>
 
-            <g className={styles.peopleLayer} clipPath="url(#city-land-clip)" aria-label="도시 인구">
-              {people.map((person, index) => (
-                <circle
-                  key={index}
-                  cx={person.x}
-                  cy={person.y}
-                  r={person.radius * mapScale}
-                  opacity={person.opacity}
-                  className={person.warm ? styles.personDotWarm : styles.personDot}
-                />
-              ))}
+            <g
+              className={styles.peopleLayer}
+              clipPath="url(#city-land-clip)"
+              aria-label={`외부에서 역과 정류장으로 이동하는 시민 ${movingCitizens.length}명`}
+              data-moving-citizen-count={movingCitizens.length}
+            >
+              {movingCitizens.map(citizen => {
+                const { position } = citizen
+                return (
+                  <circle
+                    key={citizen.id}
+                    cx={position.x}
+                    cy={position.y}
+                    r={citizen.radius * position.radiusScale * mapScale}
+                    opacity={citizen.opacity * position.opacityScale}
+                    className={`${styles.personDot} ${CITIZEN_MODE_CLASSES[position.mode]} ${citizen.warm ? styles.personDotWarm : ''}`}
+                    data-citizen-id={citizen.id}
+                    data-travel-mode={position.mode}
+                    data-target-station={citizen.targetStationId}
+                    data-access-mode={citizen.accessMode}
+                    data-land-safe={citizen.landSafe}
+                    data-leg-progress={position.progress.toFixed(3)}
+                  >
+                    <title>{citizen.targetStationName} · {CITIZEN_MODE_LABELS[position.mode]}</title>
+                  </circle>
+                )
+              })}
             </g>
 
             {sortedLines.map(line => {
@@ -1416,6 +1352,12 @@ export default function GamePage({ cityId, onBack }: Props) {
             <span><i className={styles.zoneMarkResidential} />주거 구역</span>
             <span><i className={styles.zoneMarkCommercial} />상업 구역</span>
             <span><i className={styles.zoneMarkIndustrial} />산업·오피스 구역</span>
+          </div>
+
+          <div className={styles.mobilityLegend} aria-label="시민 이동 상태">
+            <span><i className={styles.walkingCitizenMark} />도보</span>
+            <span><i className={styles.waitingCitizenMark} />역 대기</span>
+            <span><i className={styles.boardingCitizenMark} />탑승</span>
           </div>
         </div>
       </main>
