@@ -51,6 +51,7 @@ model City {
   id          String     @id @default(cuid())
   name        String                      // 맵/도시 이름 (랜덤 배정)
   roomTitle   String     @default("운영실") // 방제목 (관제장이 변경 가능)
+  mapKey      String     @default("BUSAN") // 맵 종류 (BUSAN | SEOUL)
   seed        Int                         // 결정론적 RNG 시드
   seasonDay   Int        @default(1)      // 1~3
   status      CityStatus @default(ACTIVE)
@@ -131,6 +132,7 @@ model Line {
   cityId   String
   playerId String?                    // null = AI 자동 운영
   color    LineColor
+  mode     LineMode   @default(SUBWAY)
   name     String
   status   LineStatus @default(OPERATING)
   depotX   Float      @default(0)
@@ -153,6 +155,11 @@ enum LineColor {
   GREEN
   YELLOW
   PURPLE
+}
+
+enum LineMode {
+  SUBWAY  // 지하철 — 노선명 "n호선"
+  BUS     // 버스 — 노선명 "A", "B", "C"
 }
 
 enum LineStatus {

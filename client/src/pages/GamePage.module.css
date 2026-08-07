@@ -594,6 +594,28 @@
   transform: translate(-1px, -1px);
 }
 
+.newLineRow {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.newLineRow button {
+  flex: 1;
+  min-height: 26px;
+  border: 1px dashed rgba(58, 52, 46, 0.4);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.6);
+  color: #504942;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.newLineRow button:hover:not(:disabled) {
+  border-style: solid;
+  background: #fff;
+}
+
 .lineTabs i {
   width: 8px;
   height: 8px;
@@ -1257,6 +1279,41 @@
   fill: var(--gp-land-alt);
 }
 
+.queueDot {
+  fill: #2b2418;
+  stroke: #fff;
+  stroke-width: 0.12;
+  opacity: 0.95;
+  pointer-events: none;
+}
+
+.zone_residential {
+  fill: #55a96a;
+  fill-opacity: 0.12;
+  stroke: #55a96a;
+  stroke-width: 0.2;
+  stroke-opacity: 0.25;
+  pointer-events: none;
+}
+
+.zone_commercial {
+  fill: #3f8edb;
+  fill-opacity: 0.1;
+  stroke: #3f8edb;
+  stroke-width: 0.2;
+  stroke-opacity: 0.25;
+  pointer-events: none;
+}
+
+.zone_industrial {
+  fill: #e1b735;
+  fill-opacity: 0.13;
+  stroke: #e1b735;
+  stroke-width: 0.2;
+  stroke-opacity: 0.25;
+  pointer-events: none;
+}
+
 .mapGrid {
   fill: url(#map-grid);
   pointer-events: none;
@@ -1336,6 +1393,16 @@
   filter: drop-shadow(0 1px 1px var(--gp-line-drop));
 }
 
+.busPath {
+  stroke-width: 1.25;
+  stroke-dasharray: 2 1.2;
+  filter: none;
+}
+
+.busPath.selectedLinePath {
+  stroke-width: 1.7;
+}
+
 .selectedLinePath {
   stroke-width: 2.9;
 }
@@ -1343,6 +1410,19 @@
 .closedLine {
   opacity: 0.32;
   stroke-dasharray: 3 2;
+}
+
+.linkGhost {
+  fill: none;
+  stroke-linecap: round;
+  opacity: 0.65;
+  pointer-events: none;
+}
+
+/* 지도 위 인터랙티브 요소 클릭 시 브라우저 기본 포커스 링(파란 박스) 제거 */
+.cityMap:focus,
+.cityMap [tabindex]:focus {
+  outline: none;
 }
 
 .stationGroup {
@@ -1392,6 +1472,10 @@
   font-size: 2.05px;
   font-weight: 900;
   fill: var(--gp-station-stroke);
+  pointer-events: none;
+}
+
+.stationLabelLayer {
   pointer-events: none;
 }
 
@@ -1598,14 +1682,64 @@
   gap: 5px;
 }
 
+.zoneLegend {
+  position: absolute;
+  top: 89px;
+  left: 14px;
+  display: flex;
+  gap: 11px;
+  padding: 6px 8px;
+  border: 1px solid rgba(67, 60, 54, 0.24);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #746c63;
+  font-size: 8px;
+  backdrop-filter: blur(8px);
+}
+
+.zoneLegend span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.zoneMarkResidential,
+.zoneMarkCommercial,
+.zoneMarkIndustrial {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.zoneMarkResidential {
+  background: rgba(85, 169, 106, 0.45);
+  border: 1px solid #55a96a;
+}
+
+.zoneMarkCommercial {
+  background: rgba(63, 142, 219, 0.4);
+  border: 1px solid #3f8edb;
+}
+
+.zoneMarkIndustrial {
+  background: rgba(225, 183, 53, 0.45);
+  border: 1px solid #c9a22e;
+}
+
 .regularStationMark,
-.interchangeStationMark {
+.interchangeStationMark,
+.busStopMark {
   display: inline-block;
   width: 10px;
   height: 10px;
   border: 2px solid var(--gp-station-stroke);
   border-radius: 50%;
   background: var(--gp-mark-bg);
+}
+
+.busStopMark {
+  border-radius: 3px;
 }
 
 .depotMark {

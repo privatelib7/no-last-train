@@ -11,6 +11,41 @@ const ActionSchema = z.discriminatedUnion('type', [
     posY: z.number().min(4).max(92),
   }),
   z.object({
+    type: z.literal('RENAME_STATION'),
+    stationId: z.string(),
+    name: z.string().trim().min(1).max(12),
+  }),
+  z.object({
+    type: z.literal('MOVE_STATION'),
+    stationId: z.string(),
+    posX: z.number().min(4).max(96),
+    posY: z.number().min(4).max(92),
+  }),
+  z.object({
+    type: z.literal('REMOVE_STATION'),
+    stationId: z.string(),
+  }),
+  z.object({
+    type: z.literal('CREATE_LINE'),
+    mode: z.enum(['SUBWAY', 'BUS']),
+  }),
+  z.object({
+    type: z.literal('DETACH_STATION'),
+    lineId: z.string(),
+    stationId: z.string(),
+  }),
+  z.object({
+    type: z.literal('INSERT_STATION'),
+    lineId: z.string(),
+    fromStationId: z.string(),
+    toStationId: z.string(),
+    stationId: z.string(),
+  }),
+  z.object({
+    type: z.literal('REMOVE_LINE'),
+    lineId: z.string(),
+  }),
+  z.object({
     type: z.literal('BUILD_SEGMENT'),
     lineId: z.string(),
     fromStationId: z.string(),
@@ -45,6 +80,31 @@ const ActionSchema = z.discriminatedUnion('type', [
     vehicleId: z.string(),
   }),
 ])
+
+// 차고지를 현재 차고지와 가까운 쪽 종점의 연장선상으로 재배치한다.
+// 노선 구성이 바뀌는 모든 액션(연장·역 제거·역 이동) 후에 호출할 것.
+async function repositionDepot(lineId: string) {
+  const line = await db.line.findUnique({ where: { id: lineId } })
+  if (!line) return
+  const ordered = await db.lineStation.findMany({
+    where: { lineId },
+    orderBy: { order: 'asc' },
+    include: { station: true },
+  })
+  if (ordered.length < 2) return
+  const first = ordered[0].station
+  const last = ordered[ordered.length - 1].station
+  const distFirst = Math.hypot(line.depotX - first.posX, line.depotY - first.posY)
+  const distLast = Math.hypot(line.depotX - last.posX, line.depotY - last.posY)
+  const [terminus, inner] = distFirst <= distLast
+    ? [first, ordered[1].station]
+    : [last, ordered[ordered.length - 2].station]
+  const length = Math.hypot(terminus.posX - inner.posX, terminus.posY - inner.posY) || 1
+  // 지형(물) 검사는 클라이언트 전용이므로 서버는 맵 범위로만 클램프한다
+  const depotX = Math.max(4, Math.min(96, terminus.posX + ((terminus.posX - inner.posX) / length) * 4.5))
+  const depotY = Math.max(4, Math.min(92, terminus.posY + ((terminus.posY - inner.posY) / length) * 4.5))
+  await db.line.update({ where: { id: lineId }, data: { depotX, depotY } })
+}
 
 export async function POST(
   req: NextRequest,
@@ -84,6 +144,87 @@ export async function POST(
     return NextResponse.json({ message, station })
   }
 
+  if (action.type === 'CREATE_LINE') {
+    const lines = await db.line.findMany({ where: { cityId: id } })
+    let name: string
+    if (action.mode === 'SUBWAY') {
+      // 네이밍 규칙: 지하철은 "n호선" — 기존 최대 번호 + 1
+      const maxNumber = lines.reduce((max, item) => {
+        const match = item.name.match(/^(\d+)호선$/)
+        return match ? Math.max(max, Number(match[1])) : max
+      }, 0)
+      name = `${maxNumber + 1}호선`
+    } else {
+      // 버스는 A, B, C…
+      const used = new Set(lines.filter(item => item.mode === 'BUS').map(item => item.name))
+      name = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].find(ch => !used.has(ch)) ?? `버스 ${lines.length + 1}`
+    }
+    // 색상: 도시 내 최소 사용 색 (동률이면 enum 순서 앞이 우선 → 미사용 색 먼저)
+    const COLORS = ['RED', 'BLUE', 'GREEN', 'YELLOW', 'PURPLE'] as const
+    const color = COLORS
+      .map(candidate => ({ candidate, count: lines.filter(item => item.color === candidate).length }))
+      .sort((a, b) => a.count - b.count)[0].candidate
+    const created = await db.line.create({
+      data: { cityId: id, mode: action.mode, name, color, depotX: 50, depotY: 50 },
+    })
+    await db.vehicle.create({
+      data: {
+        lineId: created.id,
+        capacity: action.mode === 'BUS' ? 60 : 120,
+        status: 'SPARE',
+        isSpare: true,
+        headwayMinutes: 6,
+      },
+    })
+    return NextResponse.json({
+      message: `${name} 노선을 만들었습니다. 역 두 개를 연달아 클릭해 선로를 부설하세요.`,
+      line: created,
+    })
+  }
+
+  if (action.type === 'MOVE_STATION') {
+    const station = await db.station.findFirst({ where: { id: action.stationId, cityId: id } })
+    if (!station) return NextResponse.json({ error: '역을 찾을 수 없습니다.' }, { status: 404 })
+    const updated = await db.station.update({
+      where: { id: station.id },
+      data: { posX: action.posX, posY: action.posY },
+    })
+    // 이 역이 종점인 노선의 차고지가 따라오도록 소속 노선 전부 재배치
+    const memberships = await db.lineStation.findMany({ where: { stationId: station.id } })
+    for (const membership of memberships) {
+      await repositionDepot(membership.lineId)
+    }
+    return NextResponse.json({ message: `${station.name}을 이동했습니다.`, station: updated })
+  }
+
+  if (action.type === 'REMOVE_STATION') {
+    const station = await db.station.findFirst({ where: { id: action.stationId, cityId: id } })
+    if (!station) return NextResponse.json({ error: '역을 찾을 수 없습니다.' }, { status: 404 })
+    // 이 역에 있던 운행 차량은 차고지 대기로 전환 (lineStations·대기 승객은 cascade 삭제)
+    await db.vehicle.updateMany({
+      where: { currentStationId: station.id },
+      data: { status: 'SPARE', isSpare: true, currentStationId: null, direction: 1 },
+    })
+    const memberships = await db.lineStation.findMany({ where: { stationId: station.id } })
+    await db.station.delete({ where: { id: station.id } })
+    // 종점이 사라진 노선의 차고지를 새 종점으로 이동
+    for (const membership of memberships) {
+      await repositionDepot(membership.lineId)
+    }
+    return NextResponse.json({ message: `${station.name}을 삭제했습니다.` })
+  }
+
+  if (action.type === 'RENAME_STATION') {
+    const station = await db.station.findFirst({ where: { id: action.stationId, cityId: id } })
+    if (!station) return NextResponse.json({ error: '역을 찾을 수 없습니다.' }, { status: 404 })
+    const duplicate = await db.station.findFirst({
+      where: { cityId: id, name: action.name, id: { not: station.id } },
+    })
+    if (duplicate) return NextResponse.json({ error: '같은 이름의 역이 이미 있습니다.' }, { status: 409 })
+    const updated = await db.station.update({ where: { id: station.id }, data: { name: action.name } })
+    return NextResponse.json({ message: `${station.name}을 ${updated.name}(으)로 변경했습니다.`, station: updated })
+  }
+
   const line = await db.line.findFirst({
     where: { id: action.lineId, cityId: id },
     include: {
@@ -112,41 +253,108 @@ export async function POST(
       )
     }
 
-    await db.$transaction(async tx => {
-      if (fromMembership) {
-        await tx.lineStation.updateMany({
-          where: { lineId: line.id, order: { gt: fromMembership.order } },
-          data: { order: { increment: 1 } },
-        })
-        await tx.lineStation.create({
-          data: { lineId: line.id, stationId: action.toStationId, order: fromMembership.order + 1 },
-        })
-        return
+    // 노선 중간 삽입은 폴리라인이 의도치 않게 우회하므로 종점 연장만 허용한다
+    const memberships = line.lineStations
+    const onLine = fromMembership ?? toMembership
+    const newStationId = fromMembership ? action.toStationId : action.fromStationId
+    if (memberships.length > 0) {
+      if (!onLine) {
+        return NextResponse.json(
+          { error: `${line.name}의 종점과 이어주세요. 노선에 없는 두 역끼리는 연결할 수 없습니다.` },
+          { status: 400 },
+        )
       }
-      if (toMembership) {
-        await tx.lineStation.updateMany({
-          where: { lineId: line.id, order: { gte: toMembership.order } },
-          data: { order: { increment: 1 } },
-        })
-        await tx.lineStation.create({
-          data: { lineId: line.id, stationId: action.fromStationId, order: toMembership.order },
-        })
-        return
+      const isFirst = onLine.stationId === memberships[0].stationId
+      const isLast = onLine.stationId === memberships[memberships.length - 1].stationId
+      if (!isFirst && !isLast) {
+        return NextResponse.json(
+          { error: '노선 중간에는 연결할 수 없습니다. 종점에서만 연장할 수 있습니다.' },
+          { status: 400 },
+        )
       }
-      const lastOrder = line.lineStations[line.lineStations.length - 1]?.order ?? -1
-      await tx.lineStation.createMany({
+      if (isLast) {
+        await db.lineStation.create({
+          data: { lineId: line.id, stationId: newStationId, order: memberships[memberships.length - 1].order + 1 },
+        })
+      } else {
+        await db.$transaction([
+          db.lineStation.updateMany({
+            where: { lineId: line.id },
+            data: { order: { increment: 1 } },
+          }),
+          db.lineStation.create({
+            data: { lineId: line.id, stationId: newStationId, order: memberships[0].order },
+          }),
+        ])
+      }
+    } else {
+      await db.lineStation.createMany({
         data: [
-          { lineId: line.id, stationId: action.fromStationId, order: lastOrder + 1 },
-          { lineId: line.id, stationId: action.toStationId, order: lastOrder + 2 },
+          { lineId: line.id, stationId: action.fromStationId, order: 0 },
+          { lineId: line.id, stationId: action.toStationId, order: 1 },
         ],
       })
-    })
+    }
+
+    // 차고지는 노선 종점을 따라간다
+    await repositionDepot(line.id)
 
     const [fromStation, toStation] = [action.fromStationId, action.toStationId]
       .map(stationId => stations.find(station => station.id === stationId)!)
     const message = `${fromStation.name}–${toStation.name} 구간을 ${line.name}에 건설했습니다.`
     await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
     return NextResponse.json({ message })
+  }
+
+  if (action.type === 'INSERT_STATION') {
+    // order 값에는 역 제거로 구멍이 있을 수 있으므로 정렬 순서(랭크) 기준으로 이웃 판정
+    const fromIndex = line.lineStations.findIndex(item => item.stationId === action.fromStationId)
+    const toIndex = line.lineStations.findIndex(item => item.stationId === action.toStationId)
+    if (fromIndex < 0 || toIndex < 0 || Math.abs(fromIndex - toIndex) !== 1) {
+      return NextResponse.json({ error: '이웃한 구간이 아닙니다.' }, { status: 400 })
+    }
+    const fromMembership = line.lineStations[fromIndex]
+    const toMembership = line.lineStations[toIndex]
+    if (line.lineStations.some(item => item.stationId === action.stationId)) {
+      return NextResponse.json({ error: '이미 이 노선에 있는 역입니다.' }, { status: 409 })
+    }
+    const station = await db.station.findFirst({ where: { id: action.stationId, cityId: id } })
+    if (!station) return NextResponse.json({ error: '역을 찾을 수 없습니다.' }, { status: 404 })
+    const insertAt = Math.min(fromMembership.order, toMembership.order) + 1
+    await db.$transaction([
+      db.lineStation.updateMany({
+        where: { lineId: line.id, order: { gte: insertAt } },
+        data: { order: { increment: 1 } },
+      }),
+      db.lineStation.create({
+        data: { lineId: line.id, stationId: action.stationId, order: insertAt },
+      }),
+    ])
+    return NextResponse.json({ message: `${line.name}이 ${station.name}을 경유하도록 변경했습니다.` })
+  }
+
+  if (action.type === 'DETACH_STATION') {
+    const membership = line.lineStations.find(item => item.stationId === action.stationId)
+    if (!membership) return NextResponse.json({ error: '이 노선에 속하지 않은 역입니다.' }, { status: 400 })
+    await db.lineStation.delete({
+      where: { lineId_stationId: { lineId: line.id, stationId: action.stationId } },
+    })
+    // 제거된 역에 있던 이 노선의 차량은 차고지 대기로 전환
+    await db.vehicle.updateMany({
+      where: { lineId: line.id, currentStationId: action.stationId },
+      data: { status: 'SPARE', isSpare: true, currentStationId: null, direction: 1 },
+    })
+    await repositionDepot(line.id)
+    return NextResponse.json({ message: `${membership.station.name}을 ${line.name}에서 제거했습니다.` })
+  }
+
+  if (action.type === 'REMOVE_LINE') {
+    // Support는 onDelete 제약이 없어 노선·차량 삭제를 막으므로 먼저 정리한다
+    await db.support.deleteMany({
+      where: { OR: [{ fromLineId: line.id }, { toLineId: line.id }] },
+    })
+    await db.line.delete({ where: { id: line.id } })
+    return NextResponse.json({ message: `${line.name} 노선을 삭제했습니다.` })
   }
 
   if (action.type === 'SET_LINE_STATUS') {

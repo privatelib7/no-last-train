@@ -2,6 +2,7 @@ export type LobbyCity = {
   id: string
   name: string
   roomTitle: string
+  mapKey: string
   seasonDay: number
   status: 'ACTIVE' | 'SEASON_ENDED'
   lineCount: number
