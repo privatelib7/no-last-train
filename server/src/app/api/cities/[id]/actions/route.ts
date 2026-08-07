@@ -25,6 +25,14 @@ const ActionSchema = z.discriminatedUnion('type', [
     stationId: z.string(),
   }),
   z.object({
+    type: z.literal('CREATE_LINE'),
+    mode: z.enum(['SUBWAY', 'BUS']),
+  }),
+  z.object({
+    type: z.literal('REMOVE_LINE'),
+    lineId: z.string(),
+  }),
+  z.object({
     type: z.literal('BUILD_SEGMENT'),
     lineId: z.string(),
     fromStationId: z.string(),
@@ -90,6 +98,44 @@ export async function POST(
       },
     })
     return NextResponse.json({ message: `${station.name}을 건설했습니다.`, station })
+  }
+
+  if (action.type === 'CREATE_LINE') {
+    const lines = await db.line.findMany({ where: { cityId: id } })
+    let name: string
+    if (action.mode === 'SUBWAY') {
+      // 네이밍 규칙: 지하철은 "n호선" — 기존 최대 번호 + 1
+      const maxNumber = lines.reduce((max, item) => {
+        const match = item.name.match(/^(\d+)호선$/)
+        return match ? Math.max(max, Number(match[1])) : max
+      }, 0)
+      name = `${maxNumber + 1}호선`
+    } else {
+      // 버스는 A, B, C…
+      const used = new Set(lines.filter(item => item.mode === 'BUS').map(item => item.name))
+      name = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].find(ch => !used.has(ch)) ?? `버스 ${lines.length + 1}`
+    }
+    // 색상: 도시 내 최소 사용 색 (동률이면 enum 순서 앞이 우선 → 미사용 색 먼저)
+    const COLORS = ['RED', 'BLUE', 'GREEN', 'YELLOW', 'PURPLE'] as const
+    const color = COLORS
+      .map(candidate => ({ candidate, count: lines.filter(item => item.color === candidate).length }))
+      .sort((a, b) => a.count - b.count)[0].candidate
+    const created = await db.line.create({
+      data: { cityId: id, mode: action.mode, name, color, depotX: 50, depotY: 50 },
+    })
+    await db.vehicle.create({
+      data: {
+        lineId: created.id,
+        capacity: action.mode === 'BUS' ? 60 : 120,
+        status: 'SPARE',
+        isSpare: true,
+        headwayMinutes: 6,
+      },
+    })
+    return NextResponse.json({
+      message: `${name} 노선을 만들었습니다. 역 두 개를 연달아 클릭해 선로를 부설하세요.`,
+      line: created,
+    })
   }
 
   if (action.type === 'MOVE_STATION') {
@@ -220,6 +266,15 @@ export async function POST(
     const [fromStation, toStation] = [action.fromStationId, action.toStationId]
       .map(stationId => stations.find(station => station.id === stationId)!)
     return NextResponse.json({ message: `${fromStation.name}–${toStation.name} 구간을 ${line.name}에 건설했습니다.` })
+  }
+
+  if (action.type === 'REMOVE_LINE') {
+    // Support는 onDelete 제약이 없어 노선·차량 삭제를 막으므로 먼저 정리한다
+    await db.support.deleteMany({
+      where: { OR: [{ fromLineId: line.id }, { toLineId: line.id }] },
+    })
+    await db.line.delete({ where: { id: line.id } })
+    return NextResponse.json({ message: `${line.name} 노선을 삭제했습니다.` })
   }
 
   if (action.type === 'SET_LINE_STATUS') {

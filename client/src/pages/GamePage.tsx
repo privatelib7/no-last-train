@@ -394,6 +394,24 @@ export default function GamePage({ cityId, onBack }: Props) {
   }
   performActionRef.current = performAction
 
+  const createLine = async (mode: 'SUBWAY' | 'BUS') => {
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await executeCityAction(cityId, { type: 'CREATE_LINE', mode })
+      await loadCity()
+      if (result.line?.id) {
+        setSelectedLineId(result.line.id)
+        setSelectedVehicleId('')
+        setSelectedStationId('')
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '노선 생성 오류')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const selectLine = (lineId: string) => {
     setSelectedLineId(lineId)
     setSelectedVehicleId('')
@@ -675,6 +693,10 @@ export default function GamePage({ cityId, onBack }: Props) {
               </button>
             ))}
           </div>
+          <div className={styles.newLineRow}>
+            <button onClick={() => void createLine('SUBWAY')} disabled={busy}>＋ 지하철 노선</button>
+            <button onClick={() => void createLine('BUS')} disabled={busy}>＋ 버스 노선</button>
+          </div>
           {selectedLine && (
             <button
               className={selectedLine.status === 'SUSPENDED' ? styles.reopenButton : styles.closeButton}
@@ -687,6 +709,21 @@ export default function GamePage({ cityId, onBack }: Props) {
             >
               {selectedLine.status === 'SUSPENDED' ? `${selectedLine.name} 운행 재개` : `${selectedLine.name} 폐쇄`}
             </button>
+          )}
+          {selectedLine && (
+            <button
+              className={styles.removeVehicleButton}
+              onClick={() => {
+                if (!window.confirm(`${selectedLine.name} 노선을 완전히 삭제할까요? 소속 차량도 함께 사라집니다.`)) return
+                void performAction({ type: 'REMOVE_LINE', lineId: selectedLine.id }).then(next => {
+                  if (!next) return
+                  const remaining = next.city.lines.slice().sort((a, b) => a.name.localeCompare(b.name, 'ko'))[0]
+                  setSelectedLineId(remaining?.id ?? '')
+                  setSelectedVehicleId('')
+                })
+              }}
+              disabled={busy}
+            >{selectedLine.name} 노선 삭제</button>
           )}
         </section>
 

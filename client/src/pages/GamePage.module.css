@@ -181,6 +181,28 @@
   transform: translate(-1px, -1px);
 }
 
+.newLineRow {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.newLineRow button {
+  flex: 1;
+  min-height: 26px;
+  border: 1px dashed rgba(58, 52, 46, 0.4);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.6);
+  color: #504942;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.newLineRow button:hover:not(:disabled) {
+  border-style: solid;
+  background: #fff;
+}
+
 .lineTabs i {
   width: 8px;
   height: 8px;

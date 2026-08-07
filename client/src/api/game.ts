@@ -155,6 +155,8 @@ export type CityAction =
   | { type: 'RENAME_STATION'; stationId: string; name: string }
   | { type: 'MOVE_STATION'; stationId: string; posX: number; posY: number }
   | { type: 'REMOVE_STATION'; stationId: string }
+  | { type: 'CREATE_LINE'; mode: 'SUBWAY' | 'BUS' }
+  | { type: 'REMOVE_LINE'; lineId: string }
   | { type: 'BUILD_SEGMENT'; lineId: string; fromStationId: string; toStationId: string }
   | { type: 'SET_LINE_STATUS'; lineId: string; status: 'OPERATING' | 'SUSPENDED' }
   | { type: 'SET_VEHICLE_SERVICE'; lineId: string; vehicleId: string; inService: boolean }
@@ -163,7 +165,7 @@ export type CityAction =
   | { type: 'REMOVE_VEHICLE'; lineId: string; vehicleId: string }
 
 export function executeCityAction(cityId: string, action: CityAction) {
-  return request<{ message: string }>(`/api/cities/${cityId}/actions`, {
+  return request<{ message: string; line?: GameLine }>(`/api/cities/${cityId}/actions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(action),
