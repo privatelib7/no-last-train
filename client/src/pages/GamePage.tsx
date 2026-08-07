@@ -203,7 +203,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const [renameValue, setRenameValue] = useState('')
   const [moveStationMode, setMoveStationMode] = useState(false)
   const [legendOpen, setLegendOpen] = useState(false)
-  const [pendingConfirm, setPendingConfirm] = useState<{ message: string; confirmLabel: string; run: () => void } | null>(null)
   const [vehicleDrag, setVehicleDrag] = useState<VehicleDragState | null>(null)
   const [stationDrag, setStationDrag] = useState<StationLinkDrag | null>(null)
   const [segmentDrag, setSegmentDrag] = useState<SegmentDrag | null>(null)
@@ -240,7 +239,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
-      setPendingConfirm(null)
       setSelectedStationId('')
       setStationBuildMode(false)
       setMoveStationMode(false)
@@ -493,17 +491,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   }
   performActionRef.current = performAction
 
-  const createLine = (mode: 'SUBWAY' | 'BUS') => {
-    const rules = stateRef.current?.economyRules.buildCosts
-    const cost = mode === 'BUS' ? rules?.busLine ?? 0 : rules?.subwayLine ?? 0
-    requestConfirm(
-      buildMessage(`${mode === 'BUS' ? '버스' : '지하철'} 노선 신설`, cost),
-      () => void performCreateLine(mode),
-      '신설',
-    )
-  }
-
-  const performCreateLine = async (mode: 'SUBWAY' | 'BUS') => {
+  const createLine = async (mode: 'SUBWAY' | 'BUS') => {
     setBusy(true)
     setError(null)
     try {
@@ -532,31 +520,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     setSelectedVehicleId(vehicleId)
     setStationBuildMode(false)
     setError(null)
-  }
-
-  // 건설/삭제 확인: 브라우저 confirm은 사용자가 차단할 수 있어 인앱 확인 카드를 쓴다
-  const requestConfirm = (message: string, run: () => void, confirmLabel = '진행') => {
-    setPendingConfirm({ message, confirmLabel, run })
-  }
-  const requestConfirmRef = useRef(requestConfirm)
-  requestConfirmRef.current = requestConfirm
-
-  const buildMessage = (label: string, cost: number) => {
-    const cash = stateRef.current?.city.cashBalance ?? 0
-    return `${label}\n비용 ${formatMoney(cost)} · 보유 자금 ${formatMoney(cash)}`
-  }
-  const buildMessageRef = useRef(buildMessage)
-  buildMessageRef.current = buildMessage
-
-  // 비용 계산은 서버 economy.ts와 동일
-  const segmentCost = (mode: string, from: Station, to: Station) => {
-    const rules = stateRef.current?.economyRules.buildCosts
-    if (!rules) return 0
-    const distance = Math.hypot(to.posX - from.posX, to.posY - from.posY)
-    const raw = mode === 'BUS'
-      ? rules.busSegmentBase + distance * rules.busSegmentPerMapUnit
-      : rules.subwaySegmentBase + distance * rules.subwaySegmentPerMapUnit
-    return Math.round(raw / 100_000) * 100_000
   }
 
   const beginSegmentDrag = (event: PointerEvent<SVGGElement>, line: GameLine) => {
@@ -619,22 +582,12 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     const fromOnLine = lineHasStation(selectedLine, prevSelectedId)
     const toOnLine = lineHasStation(selectedLine, stationId)
     if (fromOnLine && toOnLine) return // 둘 다 이미 노선 위 — 단순 재선택으로 취급
-    const fromStation = stationById.get(prevSelectedId)
-    if (!fromStation || !station) return
-    const lineId = selectedLine.id
-    requestConfirm(
-      buildMessage(
-        `${selectedLine.name} 선로 부설: ${fromStation.name} – ${station.name}`,
-        segmentCost(selectedLine.mode, fromStation, station),
-      ),
-      () => void performAction({
-        type: 'BUILD_SEGMENT',
-        lineId,
-        fromStationId: prevSelectedId,
-        toStationId: stationId,
-      }),
-      '부설',
-    )
+    void performAction({
+      type: 'BUILD_SEGMENT',
+      lineId: selectedLine.id,
+      fromStationId: prevSelectedId,
+      toStationId: stationId,
+    })
   }
 
   const handleMapClick = (event: MouseEvent<SVGSVGElement>) => {
@@ -668,16 +621,16 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
       })
       return
     }
-    const name = stationName.trim() || `신설역 ${state!.city.stations.length + 1}`
-    requestConfirm(
-      buildMessage(`${name} 건설`, stateRef.current?.economyRules.buildCosts.station ?? 0),
-      () => void performAction({ type: 'BUILD_STATION', name, posX, posY }).then(next => {
-        if (!next) return
-        setStationName('')
-        setStationBuildMode(false)
-      }),
-      '건설',
-    )
+    // 기본 이름은 비어 있는 신설역 번호를 찾는다 (삭제·중복으로 인한 충돌 방지)
+    const usedNames = new Set(state!.city.stations.map(item => item.name))
+    let nextNumber = state!.city.stations.length + 1
+    while (usedNames.has(`신설역 ${nextNumber}`)) nextNumber++
+    const name = stationName.trim() || `신설역 ${nextNumber}`
+    void performAction({ type: 'BUILD_STATION', name, posX, posY }).then(next => {
+      if (!next) return
+      setStationName('')
+      setStationBuildMode(false)
+    })
   }
 
   const clampMapView = (view: MapView) => ({
@@ -870,19 +823,12 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
       const fromStation = cityState?.city.stations.find(s => s.id === current.stationId)
       const toStation = cityState?.city.stations.find(s => s.id === targetId)
       if (!dragLine || !fromStation || !toStation) return
-      requestConfirmRef.current(
-        buildMessageRef.current(
-          `${dragLine.name} 선로 부설: ${fromStation.name} – ${toStation.name}`,
-          segmentCost(dragLine.mode, fromStation, toStation),
-        ),
-        () => void performActionRef.current?.({
-          type: 'BUILD_SEGMENT',
-          lineId: selectedLineId,
-          fromStationId: current.stationId,
-          toStationId: targetId,
-        }),
-        '부설',
-      )
+      void performActionRef.current?.({
+        type: 'BUILD_SEGMENT',
+        lineId: selectedLineId,
+        fromStationId: current.stationId,
+        toStationId: targetId,
+      })
     }
 
     document.addEventListener('pointermove', handlePointerMove)
@@ -923,23 +869,13 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
       const targetId = document.elementFromPoint(event.clientX, event.clientY)
         ?.closest('[data-station-id]')?.getAttribute('data-station-id')
       if (!targetId || targetId === current.fromStationId || targetId === current.toStationId) return
-      const cityState = stateRef.current
-      const dragLine = cityState?.city.lines.find(item => item.id === current.lineId)
-      const viaName = cityState?.city.stations.find(s => s.id === targetId)?.name ?? '역'
-      const insertCost = dragLine?.mode === 'BUS'
-        ? cityState?.economyRules.buildCosts.busInsert ?? 0
-        : cityState?.economyRules.buildCosts.subwayInsert ?? 0
-      requestConfirmRef.current(
-        buildMessageRef.current(`${dragLine?.name ?? '노선'} 경유 변경: ${viaName} 경유`, insertCost),
-        () => void performActionRef.current?.({
-          type: 'INSERT_STATION',
-          lineId: current.lineId,
-          fromStationId: current.fromStationId,
-          toStationId: current.toStationId,
-          stationId: targetId,
-        }),
-        '변경',
-      )
+      void performActionRef.current?.({
+        type: 'INSERT_STATION',
+        lineId: current.lineId,
+        fromStationId: current.fromStationId,
+        toStationId: current.toStationId,
+        stationId: targetId,
+      })
     }
 
     document.addEventListener('pointermove', handlePointerMove)
@@ -1180,17 +1116,12 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             <button
               className={styles.removeVehicleButton}
               onClick={() => {
-                const lineId = selectedLine.id
-                requestConfirm(
-                  `${selectedLine.name} 노선을 완전히 삭제할까요?\n소속 차량도 함께 사라집니다.`,
-                  () => void performAction({ type: 'REMOVE_LINE', lineId }).then(next => {
-                    if (!next) return
-                    const remaining = next.city.lines.slice().sort((a, b) => a.name.localeCompare(b.name, 'ko'))[0]
-                    setSelectedLineId(remaining?.id ?? '')
-                    setSelectedVehicleId('')
-                  }),
-                  '삭제',
-                )
+                void performAction({ type: 'REMOVE_LINE', lineId: selectedLine.id }).then(next => {
+                  if (!next) return
+                  const remaining = next.city.lines.slice().sort((a, b) => a.name.localeCompare(b.name, 'ko'))[0]
+                  setSelectedLineId(remaining?.id ?? '')
+                  setSelectedVehicleId('')
+                })
               }}
               disabled={busy}
             >{selectedLine.name} 노선 삭제</button>
@@ -1777,29 +1708,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
           </div>
         </div>
       </main>
-
-      {pendingConfirm && (
-        <div className={styles.confirmOverlay} role="dialog" aria-modal="true" aria-label="작업 확인">
-          <div className={styles.confirmCard}>
-            <p>
-              {pendingConfirm.message.split('\n').map((row, index) => (
-                <span key={index}>{row}</span>
-              ))}
-            </p>
-            <div className={styles.confirmActions}>
-              <button onClick={() => setPendingConfirm(null)}>취소</button>
-              <button
-                className={styles.confirmPrimary}
-                onClick={() => {
-                  const request = pendingConfirm
-                  setPendingConfirm(null)
-                  request.run()
-                }}
-              >{pendingConfirm.confirmLabel}</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {isGameOver && (
         <div className={styles.gameOverOverlay} role="dialog" aria-modal="true" aria-labelledby="game-over-title">
