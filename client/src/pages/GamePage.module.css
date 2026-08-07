@@ -733,6 +733,78 @@
   transform: translate(-1px, -1px);
 }
 
+.deselectButton {
+  margin-left: auto;
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgba(58, 52, 46, 0.3);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.8);
+  color: #6e665d;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.deselectButton:hover {
+  border-color: #37312b;
+  color: #37312b;
+}
+
+.busDoor {
+  fill: rgba(255, 255, 255, 0.82);
+  stroke: rgba(31, 26, 21, 0.35);
+  stroke-width: 0.14;
+}
+
+.busRoofSign {
+  fill: rgba(255, 255, 255, 0.9);
+  stroke: rgba(31, 26, 21, 0.3);
+  stroke-width: 0.12;
+}
+
+/* 사이드바 버스 배지: 둥근 차체 + 넓은 단일 창 */
+.busBadge {
+  border-radius: 14px 14px 8px 8px;
+}
+
+.busBadge i:first-child {
+  width: 16px;
+}
+
+.busBadge i:last-of-type {
+  width: 5px;
+}
+
+.warnRing {
+  fill: none;
+  stroke: #e8a13c;
+  stroke-width: 0.4;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.saturatedRing {
+  fill: none;
+  stroke: #d64541;
+  stroke-width: 0.55;
+  pointer-events: none;
+  animation: saturatedPulse 1s ease-in-out infinite;
+}
+
+@keyframes saturatedPulse {
+  0%, 100% { opacity: 0.95; }
+  50% { opacity: 0.3; }
+}
+
+.saturatedMark {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #d64541;
+  border-radius: 50%;
+}
+
 .newLineRow {
   display: flex;
   gap: 6px;
