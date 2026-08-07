@@ -1666,13 +1666,14 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                         <rect x="-3" y="-2.1" width="6" height="4.2" rx="1.6" fill={LINE_COLORS[line.color]} className={styles.trainBody} />
                         <rect x="-2.2" y="-1.35" width="2.7" height="1.35" rx=".3" className={styles.trainWindow} />
                         <rect x="1" y="-1.15" width="1.15" height="2.5" rx=".22" className={styles.busDoor} />
-                        <rect x="-.9" y="-2.55" width="1.8" height=".55" rx=".25" className={styles.busRoofSign} />
                         <circle cx="-1.6" cy="2.05" r=".56" className={styles.trainWheel} />
                         <circle cx="1.6" cy="2.05" r=".56" className={styles.trainWheel} />
                         <text x="-.6" y=".9" textAnchor="middle" className={styles.trainNumber} transform={trainFlipped ? 'scale(-1,1)' : undefined}>{lineNo}</text>
                       </>
                     ) : (
                       <>
+                        {/* 팬터그래프: 지붕 접이식 집전장치 + 가선 접촉봉 */}
+                        <path d="M-1.6 -2.9H1.6M-1.1 -2L0 -2.85L1.1 -2" className={styles.pantograph} />
                         <rect x="-3.7" y="-2" width="7.4" height="4" rx="1.2" fill={LINE_COLORS[line.color]} className={styles.trainBody} />
                         <rect x="-2.8" y="-1.2" width="1.55" height="1.25" rx=".28" className={styles.trainWindow} />
                         <rect x="-.65" y="-1.2" width="1.55" height="1.25" rx=".28" className={styles.trainWindow} />

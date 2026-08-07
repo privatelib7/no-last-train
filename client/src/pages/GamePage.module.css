@@ -757,10 +757,12 @@
   stroke-width: 0.14;
 }
 
-.busRoofSign {
-  fill: rgba(255, 255, 255, 0.9);
-  stroke: rgba(31, 26, 21, 0.3);
-  stroke-width: 0.12;
+.pantograph {
+  fill: none;
+  stroke: var(--gp-train-wheel);
+  stroke-width: 0.24;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* 사이드바 버스 배지: 둥근 차체 + 넓은 단일 창 */
