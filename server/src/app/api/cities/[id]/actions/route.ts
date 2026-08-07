@@ -298,11 +298,14 @@ export async function POST(
   }
 
   if (action.type === 'INSERT_STATION') {
-    const fromMembership = line.lineStations.find(item => item.stationId === action.fromStationId)
-    const toMembership = line.lineStations.find(item => item.stationId === action.toStationId)
-    if (!fromMembership || !toMembership || Math.abs(fromMembership.order - toMembership.order) !== 1) {
+    // order 값에는 역 제거로 구멍이 있을 수 있으므로 정렬 순서(랭크) 기준으로 이웃 판정
+    const fromIndex = line.lineStations.findIndex(item => item.stationId === action.fromStationId)
+    const toIndex = line.lineStations.findIndex(item => item.stationId === action.toStationId)
+    if (fromIndex < 0 || toIndex < 0 || Math.abs(fromIndex - toIndex) !== 1) {
       return NextResponse.json({ error: '이웃한 구간이 아닙니다.' }, { status: 400 })
     }
+    const fromMembership = line.lineStations[fromIndex]
+    const toMembership = line.lineStations[toIndex]
     if (line.lineStations.some(item => item.stationId === action.stationId)) {
       return NextResponse.json({ error: '이미 이 노선에 있는 역입니다.' }, { status: 409 })
     }
