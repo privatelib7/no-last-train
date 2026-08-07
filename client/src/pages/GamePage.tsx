@@ -916,7 +916,11 @@ export default function GamePage({ cityId, onBack }: Props) {
                   x2={nearest.posX}
                   y2={nearest.posY}
                   className={styles.depotSpur}
-                  style={{ stroke: LINE_COLORS[line.color] }}
+                  style={{
+                    stroke: LINE_COLORS[line.color],
+                    strokeWidth: 1.15 * mapScale,
+                    strokeDasharray: `${1.4 * mapScale} ${1.2 * mapScale}`,
+                  }}
                 />
               )
             })}
@@ -931,11 +935,24 @@ export default function GamePage({ cityId, onBack }: Props) {
                 aria-label={`${line.name} 선택`}
                 onClick={event => { event.stopPropagation(); selectLine(line.id) }}
               >
-                {line.mode !== 'BUS' && <polyline points={linePoints(line)} className={styles.lineShadow} />}
+                {line.mode !== 'BUS' && (
+                  <polyline
+                    points={linePoints(line)}
+                    className={styles.lineShadow}
+                    style={{ strokeWidth: 4.2 * mapScale }}
+                  />
+                )}
                 <polyline
                   points={linePoints(line)}
                   className={`${styles.linePath} ${line.mode === 'BUS' ? styles.busPath : ''} ${line.id === selectedLineId ? styles.selectedLinePath : ''}`}
-                  style={{ stroke: LINE_COLORS[line.color] }}
+                  style={{
+                    stroke: LINE_COLORS[line.color],
+                    // 줌과 무관하게 화면 기준 두께 유지
+                    strokeWidth: (line.mode === 'BUS'
+                      ? (line.id === selectedLineId ? 1.7 : 1.25)
+                      : (line.id === selectedLineId ? 2.9 : 2.25)) * mapScale,
+                    strokeDasharray: line.mode === 'BUS' ? `${2 * mapScale} ${1.2 * mapScale}` : undefined,
+                  }}
                 />
               </g>
             ))}
@@ -1042,7 +1059,7 @@ export default function GamePage({ cityId, onBack }: Props) {
                 return (
                   <g
                     key={vehicle.id}
-                    transform={`translate(${trainX} ${trainY}) rotate(${trainAngle})${trainFlipped ? ' scale(-1,1)' : ''}`}
+                    transform={`translate(${trainX} ${trainY}) rotate(${trainAngle})${trainFlipped ? ' scale(-1,1)' : ''} scale(${mapScale})`}
                     className={`${styles.trainIcon} ${vehicle.id === selectedVehicleId ? styles.selectedTrain : ''} ${dragging ? styles.trainDragging : ''}`}
                     onClick={event => { event.stopPropagation(); selectVehicle(line.id, vehicle.id) }}
                     onPointerDown={event => beginVehiclePointerDrag(event, line.id, vehicle.id)}

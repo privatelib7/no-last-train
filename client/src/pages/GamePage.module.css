@@ -976,6 +976,12 @@
   stroke-dasharray: 3 2;
 }
 
+/* 지도 위 인터랙티브 요소 클릭 시 브라우저 기본 포커스 링(파란 박스) 제거 */
+.cityMap:focus,
+.cityMap [tabindex]:focus {
+  outline: none;
+}
+
 .stationGroup {
   cursor: pointer;
   outline: none;
