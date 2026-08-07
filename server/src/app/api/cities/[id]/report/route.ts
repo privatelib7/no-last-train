@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { simulateTicks } from '@/lib/simulation'
 import { SIM } from '@/types/game'
 import type { ReturnReport } from '@/types/game'
+import { authorizeCityAccess } from '@/lib/access'
 
 // GET /api/cities/[id]/report — 복귀 리포트 (오프라인 시간 누적 + 요약)
 export async function GET(
@@ -10,7 +11,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params
-  const playerToken = req.headers.get('x-player-token')
+
+  const auth = await authorizeCityAccess(req, id)
+  if (auth.error) return auth.error
 
   const city = await db.city.findUnique({
     where: { id },
