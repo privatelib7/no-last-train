@@ -191,7 +191,8 @@ async function main() {
     await db.$transaction([
       db.city.update({
         where: { id: existing.id },
-        data: { status: 'ACTIVE', lastTickAt: new Date() },
+        // 개발 서버 재시작이 GAME OVER 상태를 임의로 되살리지 않도록 시계만 동기화한다.
+        data: { lastTickAt: new Date() },
       }),
       db.line.updateMany({ where: { cityId: existing.id, color: 'RED' }, data: { name: '1호선' } }),
       db.line.updateMany({ where: { cityId: existing.id, color: 'BLUE' }, data: { name: '2호선' } }),

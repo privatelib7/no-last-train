@@ -1,5 +1,6 @@
 import { db } from './db'
 import { evaluatePolicies } from './policy-engine'
+import { calculateTickEconomy } from './economy'
 import { SIM, TIME_DEMAND_MULTIPLIER, ORIGIN_WEIGHT, DEST_WEIGHT, periodOfHour, isWeekendTick } from '@/types/game'
 import type { SimResult, TickHighlight, StationSnapshot, DayPeriod } from '@/types/game'
 import type { Passenger, Vehicle, Station, Line, GameEvent } from '@prisma/client'
@@ -70,11 +71,22 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
   const rng = mulberry32(city.seed + city.currentTick)
   const highlights: TickHighlight[] = []
   let totalTransported = 0
+  let revenueEarned = 0
+  let operatingCost = 0
   let peakCongestion = 0
+  let ticksProcessed = 0
+  let cashBalance = city.cashBalance
+  let totalRevenue = city.totalRevenue
+  let happiness = city.happiness
+  let score = city.score
+  let insolvencyTicks = city.insolvencyTicks
+  let unhappyTicks = city.unhappyTicks
+  let goalReachedAtTick = city.goalReachedAtTick
+  let gameOverReason: 'BANKRUPT' | 'HAPPINESS' | null = null
   const allActionLogs: Awaited<ReturnType<typeof evaluatePolicies>> = []
 
   for (let i = 0; i < count; i++) {
-    const tickNumber = city.currentTick + i + 1
+    const tickNumber = city.currentTick + ticksProcessed + 1
     const gameTimeHour = (tickNumber / SIM.TICKS_PER_GAME_HOUR) % 24
     const weekend = isWeekendTick(tickNumber)
     const period = periodOfHour(gameTimeHour)
@@ -111,6 +123,32 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
     totalTransported += transported
 
     // 5. AI 정책 평가 및 실행
+    const serviceScore = calcServiceScore(stationSnapshots)
+    const economy = calculateTickEconomy({
+      transported,
+      serviceScore,
+      cashBalance,
+      totalRevenue,
+      revenueGoal: city.revenueGoal,
+      happiness,
+      score,
+      insolvencyTicks,
+      unhappyTicks,
+      goalReachedAtTick,
+      tickNumber,
+      lines: city.lines,
+    })
+    revenueEarned += economy.revenue
+    operatingCost += economy.operatingCost
+    cashBalance = economy.cashBalance
+    totalRevenue = economy.totalRevenue
+    happiness = economy.happiness
+    score = economy.score
+    insolvencyTicks = economy.insolvencyTicks
+    unhappyTicks = economy.unhappyTicks
+    goalReachedAtTick = economy.goalReachedAtTick
+    gameOverReason = economy.gameOverReason
+
     const tickRecord = await db.simTick.create({
       data: {
         cityId,
@@ -118,7 +156,12 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
         gameTimeHour,
         passengersTransported: transported,
         avgCongestion: avgOf(stationSnapshots.map(s => s.congestion)),
-        serviceScore: calcServiceScore(stationSnapshots),
+        serviceScore,
+        revenue: economy.revenue,
+        operatingCost: economy.operatingCost,
+        cashBalance,
+        happiness,
+        score,
       },
     })
 
@@ -131,12 +174,36 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
 
     // 7. 하이라이트 수집
     collectHighlights(highlights, stationSnapshots, policyActions, tickNumber, gameTimeHour)
+    if (economy.goalReachedNow) {
+      highlights.push({
+        tickNumber,
+        gameTimeHour,
+        type: 'GOAL',
+        description: '첫 매출 목표를 달성해 운영 지원금 2천만 원을 받았습니다.',
+        severity: 'INFO',
+      })
+    }
+
+    ticksProcessed += 1
+    if (gameOverReason) break
   }
 
   // 도시 틱 카운터 업데이트
   await db.city.update({
     where: { id: cityId },
-    data: { currentTick: city.currentTick + count, lastTickAt: new Date() },
+    data: {
+      currentTick: city.currentTick + ticksProcessed,
+      lastTickAt: new Date(),
+      cashBalance,
+      totalRevenue,
+      happiness,
+      score,
+      insolvencyTicks,
+      unhappyTicks,
+      goalReachedAtTick,
+      status: gameOverReason ? 'GAME_OVER' : city.status,
+      gameOverReason,
+    },
   })
 
   const lastTick = await db.simTick.findFirst({
@@ -145,10 +212,17 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
   })
 
   return {
-    ticksProcessed: count,
+    ticksProcessed,
     totalTransported,
+    revenueEarned,
+    operatingCost,
     peakCongestion,
     serviceScore: lastTick?.serviceScore ?? 100,
+    cashBalance,
+    happiness,
+    score,
+    goalReached: goalReachedAtTick !== null,
+    gameOverReason,
     actionsFired: allActionLogs,
     highlights: highlights.slice(0, 3),
   }

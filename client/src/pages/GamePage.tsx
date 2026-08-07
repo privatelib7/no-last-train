@@ -100,6 +100,17 @@ function formatElapsed(seconds: number) {
   return [hours, minutes, secs].map(value => String(value).padStart(2, '0')).join(':')
 }
 
+function formatMoney(value: number) {
+  const sign = value < 0 ? '-' : ''
+  const absolute = Math.abs(Math.round(value))
+  const eok = Math.floor(absolute / 100_000_000)
+  const man = Math.round((absolute % 100_000_000) / 10_000)
+  if (eok > 0 && man > 0) return `${sign}${eok}억 ${man.toLocaleString('ko-KR')}만 원`
+  if (eok > 0) return `${sign}${eok}억 원`
+  if (man > 0) return `${sign}${man.toLocaleString('ko-KR')}만 원`
+  return `${sign}${absolute.toLocaleString('ko-KR')}원`
+}
+
 function stationPoint(station: Station) {
   return { x: station.posX, y: station.posY }
 }
@@ -345,6 +356,12 @@ export default function GamePage({ cityId, onBack }: Props) {
       await executeCityAction(cityId, action)
       const next = await loadCity()
       if (action.type === 'REMOVE_VEHICLE') setSelectedVehicleId('')
+      if (action.type === 'RESET_CITY') {
+        setStationBuildMode(false)
+        setMoveStationMode(false)
+        setSelectedVehicleId('')
+        setSelectedStationId('')
+      }
       return next
     } catch (err) {
       setError(err instanceof Error ? err.message : '작업 실행 오류')
@@ -764,9 +781,17 @@ export default function GamePage({ cityId, onBack }: Props) {
     position: locateCitizen(journey, journeyTime),
   }))
   const latestMetric = state.city.ticks[0]
-  const score = latestMetric?.serviceScore ?? 100
+  const serviceScore = latestMetric?.serviceScore ?? 100
   const totalVehicles = state.city.lines.reduce((sum, line) => sum + line.vehicles.length, 0)
   const waitingPassengers = state.stationStats.reduce((sum, station) => sum + station.waitingCount, 0)
+  const goalProgress = Math.min(100, (state.city.totalRevenue / state.city.revenueGoal) * 100)
+  const goalReached = state.city.goalReachedAtTick !== null
+  const isGameOver = state.city.status === 'GAME_OVER'
+  const bankruptcyRisk = state.city.cashBalance <= state.economyRules.bankruptLimit
+  const happinessRisk = state.city.happiness <= state.economyRules.criticalHappiness
+  const riskTicks = bankruptcyRisk ? state.city.insolvencyTicks : happinessRisk ? state.city.unhappyTicks : 0
+  const graceRemaining = Math.max(0, state.economyRules.gameOverGraceTicks - riskTicks)
+  const graceHours = Math.ceil(graceRemaining / TICKS_PER_HOUR)
 
   return (
     <div className={styles.page}>
@@ -779,10 +804,36 @@ export default function GamePage({ cityId, onBack }: Props) {
           </div>
         </div>
 
-        <div className={styles.liveStatus}>
+        <div className={`${styles.liveStatus} ${goalReached ? styles.goalLiveStatus : ''} ${isGameOver ? styles.stoppedStatus : ''}`}>
           <span className={styles.liveDot} />
-          <b>실시간 자동 운행</b>
+          <b>{isGameOver ? '경영 종료' : goalReached ? '목표 달성 · 자동 운행 계속' : '실시간 자동 운행'}</b>
         </div>
+
+        <section className={`${styles.controlSection} ${styles.goalSection}`}>
+          <div className={styles.sectionHeading}><span>★</span><h2>이번 경영 목표</h2></div>
+          <div className={`${styles.goalCard} ${goalReached ? styles.goalCardReached : ''}`}>
+            <div className={styles.goalCardTop}>
+              <span>{goalReached ? '달성 완료' : '누적 매출'}</span>
+              <b>{formatMoney(state.city.totalRevenue)} <small>/ {formatMoney(state.city.revenueGoal)}</small></b>
+            </div>
+            <div className={styles.progressTrack} aria-label={`매출 목표 ${Math.round(goalProgress)}%`}>
+              <i style={{ width: `${goalProgress}%` }} />
+            </div>
+            <p>{goalReached ? '지원금 2,000만 원을 받았습니다. 이제 기록을 더 높여보세요.' : '목표 달성 시 운영 지원금 2,000만 원과 5,000점을 받습니다.'}</p>
+          </div>
+          <div className={styles.economyGrid}>
+            <span><small>운영 자금</small><b className={state.city.cashBalance < 0 ? styles.dangerValue : ''}>{formatMoney(state.city.cashBalance)}</b></span>
+            <span><small>시민 행복도</small><b className={happinessRisk ? styles.dangerValue : ''}>{Math.round(state.city.happiness)}%</b></span>
+          </div>
+          <div className={styles.happinessTrack} aria-label={`시민 행복도 ${Math.round(state.city.happiness)}%`}>
+            <i style={{ width: `${state.city.happiness}%` }} />
+          </div>
+          {(bankruptcyRisk || happinessRisk) && !isGameOver && (
+            <p className={styles.riskWarning} role="status">
+              {bankruptcyRisk ? '파산 위험' : '행복도 위험'} · 약 {graceHours}게임시간 안에 회복하세요
+            </p>
+          )}
+        </section>
 
         <section className={styles.controlSection}>
           <div className={styles.sectionHeading}><span>01</span><h2>운영 노선</h2></div>
@@ -800,8 +851,8 @@ export default function GamePage({ cityId, onBack }: Props) {
             ))}
           </div>
           <div className={styles.newLineRow}>
-            <button onClick={() => void createLine('SUBWAY')} disabled={busy}>＋ 지하철 노선</button>
-            <button onClick={() => void createLine('BUS')} disabled={busy}>＋ 버스 노선</button>
+            <button onClick={() => void createLine('SUBWAY')} disabled={busy || isGameOver}>＋ 지하철 · 2,000만</button>
+            <button onClick={() => void createLine('BUS')} disabled={busy || isGameOver}>＋ 버스 · 600만</button>
           </div>
           {selectedLine && (
             <button
@@ -962,9 +1013,11 @@ export default function GamePage({ cityId, onBack }: Props) {
             <span>{Math.floor(currentTick / TICKS_PER_DAY) + 1}일차{isWeekend ? ' · 주말' : ''} · {formatHour(gameHour)}</span>
           </div>
           <div className={styles.hudStats}>
-            <span><small>점수</small><b>{Math.round(score)}</b></span>
+            <span><small>경영 점수</small><b>{state.city.score.toLocaleString('ko-KR')}</b></span>
+            <span><small>운영 자금</small><b className={state.city.cashBalance < 0 ? styles.dangerValue : ''}>{formatMoney(state.city.cashBalance)}</b></span>
+            <span><small>행복도</small><b>{Math.round(state.city.happiness)}%</b></span>
             <span><small>대기 승객</small><b>{waitingPassengers}명</b></span>
-            <span><small>차량</small><b>{totalVehicles}대</b></span>
+            <span><small>서비스 · 차량</small><b>{Math.round(serviceScore)} · {totalVehicles}대</b></span>
             <span className={styles.tickNumber}><small>플레이 시간</small><b>{formatElapsed(elapsedSeconds)}</b></span>
           </div>
         </header>
@@ -981,7 +1034,8 @@ export default function GamePage({ cityId, onBack }: Props) {
                   setSelectedVehicleId('')
                   setError(null)
                 }}
-              >＋ 역 짓기</button>
+                disabled={isGameOver}
+              >＋ 역 짓기 · 800만</button>
               {stationBuildMode && (
                 <div>
                   <input
@@ -1361,6 +1415,34 @@ export default function GamePage({ cityId, onBack }: Props) {
           </div>
         </div>
       </main>
+
+      {isGameOver && (
+        <div className={styles.gameOverOverlay} role="dialog" aria-modal="true" aria-labelledby="game-over-title">
+          <div className={styles.gameOverCard}>
+            <span className={styles.gameOverEyebrow}>CITY OPERATIONS REPORT</span>
+            <h2 id="game-over-title">GAME OVER</h2>
+            <p className={styles.gameOverReason}>
+              {state.city.gameOverReason === 'BANKRUPT'
+                ? '운영 적자가 장기간 이어져 더는 대중교통을 유지할 수 없습니다.'
+                : '시민 행복도가 장기간 바닥에 머물러 운영 권한을 잃었습니다.'}
+            </p>
+            <div className={styles.gameOverStats}>
+              <span><small>최종 점수</small><b>{state.city.score.toLocaleString('ko-KR')}</b></span>
+              <span><small>누적 매출</small><b>{formatMoney(state.city.totalRevenue)}</b></span>
+              <span><small>최종 행복도</small><b>{Math.round(state.city.happiness)}%</b></span>
+            </div>
+            <p className={styles.restartHint}>현재 도시와 건설한 노선은 유지하고, 자금·매출·행복도만 초기화합니다.</p>
+            <div className={styles.gameOverActions}>
+              <button onClick={onBack}>도시 선택</button>
+              <button
+                className={styles.restartButton}
+                onClick={() => void performAction({ type: 'RESET_CITY' })}
+                disabled={busy}
+              >{busy ? '준비 중…' : '같은 도시로 다시 시작'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {vehicleDrag?.active && (
         <div className={styles.vehicleDragGhost} style={{ left: vehicleDrag.x, top: vehicleDrag.y }}>

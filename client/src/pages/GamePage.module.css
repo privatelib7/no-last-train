@@ -1,6 +1,6 @@
 .page {
   display: grid;
-  grid-template-columns: minmax(292px, 324px) minmax(0, 1fr);
+  grid-template-columns: minmax(344px, 380px) minmax(0, 1fr);
   width: 100%;
   height: 100%;
   min-height: 100svh;
@@ -80,7 +80,7 @@
 .controlHeader span {
   display: block;
   color: #d86c36;
-  font-size: 8px;
+  font-size: 12px;
   font-weight: 900;
   letter-spacing: 0.16em;
 }
@@ -88,7 +88,7 @@
 .controlHeader h1 {
   margin-top: 2px;
   color: #27221e;
-  font-size: 20px;
+  font-size: 28px;
   letter-spacing: -0.04em;
 }
 
@@ -113,9 +113,34 @@
 
 .liveStatus b {
   color: #3e764a;
-  font-size: 11px;
+  font-size: 15px;
   font-weight: 900;
 }
+
+.goalLiveStatus {
+  border-color: rgba(210, 145, 38, 0.48);
+  background: rgba(243, 184, 61, 0.1);
+}
+
+.goalLiveStatus .liveDot {
+  background: #dc9b27;
+  box-shadow: 0 0 0 3px rgba(220, 155, 39, 0.15);
+}
+
+.goalLiveStatus b { color: #986413; }
+
+.stoppedStatus {
+  border-color: rgba(179, 74, 56, 0.45);
+  background: rgba(179, 74, 56, 0.08);
+}
+
+.stoppedStatus .liveDot {
+  background: #b34a38;
+  box-shadow: none;
+  animation: none;
+}
+
+.stoppedStatus b { color: #9f3e2f; }
 
 .controlSection {
   margin-top: 17px;
@@ -129,6 +154,120 @@
   border-top: 0;
 }
 
+.goalSection {
+  padding-bottom: 2px;
+}
+
+.goalCard {
+  padding: 11px;
+  border: 1px solid #d8cec1;
+  border-radius: 8px;
+  background: linear-gradient(145deg, #fff 0%, #f7f1e8 100%);
+}
+
+.goalCardReached {
+  border-color: rgba(210, 145, 38, 0.5);
+  background: linear-gradient(145deg, #fffaf0 0%, #f8e8c8 100%);
+}
+
+.goalCardTop {
+  display: grid;
+  gap: 3px;
+}
+
+.goalCardTop > span {
+  color: #d36e39;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+}
+
+.goalCardTop b {
+  color: #332d28;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.goalCardTop small {
+  color: #8c8278;
+  font-size: 11px;
+}
+
+.progressTrack,
+.happinessTrack {
+  height: 6px;
+  margin-top: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e4ddd3;
+}
+
+.progressTrack i,
+.happinessTrack i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #e9783c, #efb240);
+  transition: width 0.4s ease;
+}
+
+.goalCardReached .progressTrack i { background: #d69a2d; }
+
+.goalCard p {
+  margin-top: 7px;
+  color: #7b7167;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.economyGrid {
+  display: grid;
+  grid-template-columns: 1.35fr 0.65fr;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.economyGrid > span {
+  display: grid;
+  gap: 3px;
+  padding: 8px 9px;
+  border: 1px solid #ded6cc;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.economyGrid small {
+  color: #91877d;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.economyGrid b {
+  color: #3a342e;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.happinessTrack {
+  height: 4px;
+  margin-top: 6px;
+}
+
+.happinessTrack i { background: linear-gradient(90deg, #d7a132, #5a9a67); }
+
+.dangerValue { color: #b34a38 !important; }
+
+.riskWarning {
+  margin-top: 7px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  background: rgba(179, 74, 56, 0.09);
+  color: #a24334;
+  font-size: 11px;
+  font-weight: 900;
+}
+
 .sectionHeading {
   display: flex;
   align-items: center;
@@ -139,18 +278,18 @@
 .sectionHeading > span {
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   background: #eee9e1;
   color: #d96f3a;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 900;
 }
 
 .sectionHeading h2 {
   color: #4d463f;
-  font-size: 11px;
+  font-size: 16px;
   letter-spacing: 0.02em;
 }
 
@@ -189,12 +328,12 @@
 
 .newLineRow button {
   flex: 1;
-  min-height: 26px;
+  min-height: 32px;
   border: 1px dashed rgba(58, 52, 46, 0.4);
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.6);
   color: #504942;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 800;
 }
 
@@ -210,14 +349,14 @@
 }
 
 .lineTabs span {
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 900;
 }
 
 .lineTabs small {
   grid-column: 2;
   color: #968e84;
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .closeButton,
@@ -229,7 +368,7 @@
   border-radius: 6px;
   background: #fff;
   color: #b34a38;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 800;
 }
 
@@ -253,7 +392,7 @@
   border-radius: 6px;
   background: #fff;
   color: #665f57;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 800;
 }
 
@@ -292,7 +431,7 @@
   display: block;
   margin-bottom: 6px;
   color: #8a8278;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 800;
 }
 
@@ -312,7 +451,7 @@
   outline: none;
   background: #fff;
   color: #403a34;
-  font: 500 9px var(--font);
+  font: 500 12px var(--font);
 }
 
 .actionForm button,
@@ -321,7 +460,7 @@
   border-radius: 5px;
   background: #fff;
   color: #39332e;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 800;
 }
 
@@ -341,7 +480,7 @@
   display: block;
   margin-top: 6px;
   color: #9b9389;
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .vehicleList {
@@ -389,7 +528,7 @@
   outline: none;
   background: #fff;
   color: #3e3832;
-  font: 700 10px var(--font);
+  font: 700 13px var(--font);
 }
 
 .stationNameInput:focus {
@@ -410,7 +549,7 @@
   border-radius: 6px;
   background: #fff;
   color: #665f57;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 800;
 }
 
@@ -432,7 +571,7 @@
   border-radius: 5px;
   background: #f1ece4;
   color: #756d64;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 800;
 }
 
@@ -493,13 +632,13 @@
 
 .vehicleCard > span:nth-child(2) b {
   color: #3c3630;
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .vehicleCard > span:nth-child(2) small {
   margin-top: 3px;
   color: #948c82;
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .startVehicleButton,
@@ -509,7 +648,7 @@
   border-radius: 7px;
   background: rgba(79, 142, 92, 0.08);
   color: #39754a;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 900;
 }
 
@@ -551,14 +690,14 @@
   border-radius: 6px;
   background: #fff;
   color: #b34836;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 800;
 }
 
 .depotHeading {
   margin-top: 14px;
   color: #7f776e;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 800;
 }
 
@@ -578,7 +717,7 @@
   border-radius: 7px;
   padding: 8px 10px;
   color: #a59b91;
-  font-size: 8px;
+  font-size: 11px;
   transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
 
@@ -595,13 +734,13 @@
 
 .vehicleDepot b {
   color: #4f4841;
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .vehicleDepot small {
   margin-top: 2px;
   color: #9a9187;
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .vehicleDepotReady {
@@ -626,7 +765,7 @@
   border-radius: 7px;
   background: rgba(79, 142, 92, 0.06);
   color: #4d7455;
-  font-size: 8px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -650,7 +789,7 @@
   border-color: rgba(181, 70, 50, 0.3);
   background: rgba(181, 70, 50, 0.06);
   color: #a04434;
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -666,12 +805,12 @@
 }
 
 .hudTop {
-  min-height: 58px;
+  min-height: 72px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 10px 18px;
+  padding: 12px 20px;
   border-bottom: 1px solid #3c3630;
   background: rgba(255, 255, 255, 0.92);
 }
@@ -686,7 +825,7 @@
 
 .cityIdentity .cityName {
   color: #28231f;
-  font-size: 19px;
+  font-size: 23px;
   font-weight: 900;
   letter-spacing: -0.04em;
 }
@@ -707,19 +846,19 @@
 
 .hudStats small {
   color: #958c82;
-  font-size: 8px;
+  font-size: 12px;
   font-weight: 700;
 }
 
 .hudStats b {
   color: #3b3530;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 900;
 }
 
 .tickNumber {
-  min-width: 112px;
-  padding: 6px 10px;
+  min-width: 124px;
+  padding: 8px 11px;
   border: 1px solid #bcb2a7;
   border-radius: 6px;
   background: #f7f3ed;
@@ -727,7 +866,7 @@
 
 .tickNumber b {
   color: #29241f;
-  font: 900 15px/1 monospace;
+  font: 900 17px/1 monospace;
 }
 
 .mapCanvas {
@@ -756,13 +895,13 @@
 
 .stationBuilder > button,
 .zoomControls button {
-  min-height: 30px;
-  padding: 0 9px;
+  min-height: 36px;
+  padding: 0 12px;
   border: 1px solid rgba(58, 52, 46, 0.36);
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.9);
   color: #504942;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 900;
   backdrop-filter: blur(8px);
 }
@@ -776,8 +915,8 @@
 .stationBuilder > div {
   display: grid;
   gap: 3px;
-  width: 118px;
-  padding: 6px;
+  width: 148px;
+  padding: 8px;
   border: 1px solid rgba(58, 52, 46, 0.28);
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.92);
@@ -787,25 +926,25 @@
 .stationBuilder input {
   min-width: 0;
   width: 100%;
-  height: 25px;
+  height: 30px;
   padding: 0 7px;
   border: 1px solid #c9c0b6;
   border-radius: 4px;
   outline: none;
   color: #403a34;
-  font: 700 9px var(--font);
+  font: 700 11px var(--font);
 }
 
 .stationBuilder small {
   color: #827a71;
-  font-size: 7px;
+  font-size: 9px;
   font-weight: 800;
 }
 
 .zoomControls {
   display: flex;
   align-items: center;
-  height: 30px;
+  height: 36px;
   overflow: hidden;
   border: 1px solid rgba(58, 52, 46, 0.36);
   border-radius: 6px;
@@ -814,12 +953,12 @@
 }
 
 .zoomControls button {
-  min-width: 30px;
+  min-width: 36px;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
-  font-size: 14px;
+  font-size: 18px;
 }
 
 .zoomControls button:hover {
@@ -827,9 +966,9 @@
 }
 
 .zoomControls span {
-  min-width: 40px;
+  min-width: 48px;
   color: #6d655d;
-  font: 800 8px/1 monospace;
+  font: 800 10px/1 monospace;
   text-align: center;
 }
 
@@ -1250,12 +1389,12 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 6px 8px;
+  padding: 8px 10px;
   border: 1px solid rgba(67, 60, 54, 0.32);
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.86);
   color: #665f57;
-  font-size: 9px;
+  font-size: 11px;
   backdrop-filter: blur(8px);
   cursor: pointer;
 }
@@ -1273,16 +1412,16 @@
 
 .stationLegend {
   position: absolute;
-  top: 55px;
+  top: 60px;
   left: 14px;
   display: flex;
   gap: 11px;
-  padding: 6px 8px;
+  padding: 8px 10px;
   border: 1px solid rgba(67, 60, 54, 0.24);
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.82);
   color: #746c63;
-  font-size: 8px;
+  font-size: 12px;
   backdrop-filter: blur(8px);
 }
 
@@ -1294,16 +1433,16 @@
 
 .zoneLegend {
   position: absolute;
-  top: 89px;
+  top: 100px;
   left: 14px;
   display: flex;
   gap: 11px;
-  padding: 6px 8px;
+  padding: 8px 10px;
   border: 1px solid rgba(67, 60, 54, 0.24);
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.82);
   color: #746c63;
-  font-size: 8px;
+  font-size: 10px;
   backdrop-filter: blur(8px);
 }
 
@@ -1414,9 +1553,113 @@
   box-shadow: inset 0 0 0 2px #fff, inset 0 0 0 4px #2b2722;
 }
 
+.gameOverOverlay {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(31, 27, 23, 0.68);
+  backdrop-filter: blur(6px);
+}
+
+.gameOverCard {
+  width: min(470px, 100%);
+  padding: 30px;
+  border: 1px solid #2d2823;
+  border-radius: 14px;
+  background: #fcfaf6;
+  box-shadow: 12px 12px 0 rgba(25, 21, 18, 0.28);
+  text-align: center;
+}
+
+.gameOverEyebrow {
+  color: #ba543b;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+}
+
+.gameOverCard h2 {
+  margin-top: 7px;
+  color: #2b2520;
+  font: 900 34px/1 var(--font);
+  letter-spacing: -0.04em;
+}
+
+.gameOverReason {
+  max-width: 350px;
+  margin: 14px auto 0;
+  color: #6c6259;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.65;
+}
+
+.gameOverStats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 21px;
+}
+
+.gameOverStats span {
+  display: grid;
+  gap: 5px;
+  padding: 12px 8px;
+  border: 1px solid #ddd3c8;
+  border-radius: 8px;
+  background: #f5f0e9;
+}
+
+.gameOverStats small {
+  color: #94887d;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.gameOverStats b {
+  color: #332d28;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.restartHint {
+  margin-top: 15px;
+  color: #8a8076;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.gameOverActions {
+  display: grid;
+  grid-template-columns: 0.7fr 1.3fr;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.gameOverActions button {
+  min-height: 42px;
+  border: 1px solid #8c8278;
+  border-radius: 7px;
+  background: #fff;
+  color: #574f48;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.gameOverActions .restartButton {
+  border-color: #322c27;
+  background: #e9783c;
+  color: #2a241f;
+}
+
+.gameOverActions button:disabled { opacity: 0.55; }
+
 @media (max-width: 900px) {
   .page {
-    grid-template-columns: 276px minmax(0, 1fr);
+    grid-template-columns: 320px minmax(0, 1fr);
   }
 
   .controlRoom {
@@ -1434,6 +1677,7 @@
     justify-content: space-between;
     gap: 6px;
     font-size: 11px;
+    flex-wrap: wrap;
   }
 }
 
@@ -1481,8 +1725,14 @@
 @media (max-width: 420px) {
   .hudStats {
     display: grid;
-    grid-template-columns: repeat(3, auto) minmax(112px, auto);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .tickNumber { min-width: 0; }
+
+  .gameOverCard { padding: 24px 16px; }
+
+  .gameOverStats { grid-template-columns: 1fr; }
 
   .vehicleList {
     grid-template-columns: 1fr;
