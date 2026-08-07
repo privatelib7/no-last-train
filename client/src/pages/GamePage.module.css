@@ -1385,13 +1385,13 @@
 
 .stationBuilder > button,
 .zoomControls button {
-  min-height: 36px;
-  padding: 0 11px;
+  min-height: 38px;
+  padding: 0 12px;
   border: 0;
   border-radius: 8px 0 0 8px;
   background: transparent;
   color: var(--gp-text-builder);
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 900;
 }
 
@@ -1893,13 +1893,13 @@
 .mapPanelLines button {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 5px 8px;
+  gap: 6px;
+  padding: 6px 10px;
   border: 1px solid transparent;
   border-radius: 5px;
   background: transparent;
   color: var(--gp-text-button);
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 800;
   cursor: pointer;
 }
@@ -1909,8 +1909,8 @@
 }
 
 .mapPanelLines i {
-  width: 14px;
-  height: 3px;
+  width: 17px;
+  height: 3.5px;
   border-radius: 99px;
 }
 
@@ -1929,11 +1929,11 @@
 
 .legendBody {
   display: grid;
-  gap: 5px;
-  padding: 7px 4px 3px;
+  gap: 6px;
+  padding: 8px 5px 4px;
   border-top: 1px solid var(--gp-border-legend-soft);
   color: var(--gp-text-legend);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .legendRow {
@@ -1944,9 +1944,9 @@
 }
 
 .legendRow > b {
-  min-width: 24px;
+  min-width: 30px;
   color: var(--gp-text-label);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.06em;
 }
 
