@@ -73,6 +73,31 @@ const ActionSchema = z.discriminatedUnion('type', [
   }),
 ])
 
+// 차고지를 현재 차고지와 가까운 쪽 종점의 연장선상으로 재배치한다.
+// 노선 구성이 바뀌는 모든 액션(연장·역 제거·역 이동) 후에 호출할 것.
+async function repositionDepot(lineId: string) {
+  const line = await db.line.findUnique({ where: { id: lineId } })
+  if (!line) return
+  const ordered = await db.lineStation.findMany({
+    where: { lineId },
+    orderBy: { order: 'asc' },
+    include: { station: true },
+  })
+  if (ordered.length < 2) return
+  const first = ordered[0].station
+  const last = ordered[ordered.length - 1].station
+  const distFirst = Math.hypot(line.depotX - first.posX, line.depotY - first.posY)
+  const distLast = Math.hypot(line.depotX - last.posX, line.depotY - last.posY)
+  const [terminus, inner] = distFirst <= distLast
+    ? [first, ordered[1].station]
+    : [last, ordered[ordered.length - 2].station]
+  const length = Math.hypot(terminus.posX - inner.posX, terminus.posY - inner.posY) || 1
+  // 지형(물) 검사는 클라이언트 전용이므로 서버는 맵 범위로만 클램프한다
+  const depotX = Math.max(4, Math.min(96, terminus.posX + ((terminus.posX - inner.posX) / length) * 4.5))
+  const depotY = Math.max(4, Math.min(92, terminus.posY + ((terminus.posY - inner.posY) / length) * 4.5))
+  await db.line.update({ where: { id: lineId }, data: { depotX, depotY } })
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -150,6 +175,11 @@ export async function POST(
       where: { id: station.id },
       data: { posX: action.posX, posY: action.posY },
     })
+    // 이 역이 종점인 노선의 차고지가 따라오도록 소속 노선 전부 재배치
+    const memberships = await db.lineStation.findMany({ where: { stationId: station.id } })
+    for (const membership of memberships) {
+      await repositionDepot(membership.lineId)
+    }
     return NextResponse.json({ message: `${station.name}을 이동했습니다.`, station: updated })
   }
 
@@ -161,7 +191,12 @@ export async function POST(
       where: { currentStationId: station.id },
       data: { status: 'SPARE', isSpare: true, currentStationId: null, direction: 1 },
     })
+    const memberships = await db.lineStation.findMany({ where: { stationId: station.id } })
     await db.station.delete({ where: { id: station.id } })
+    // 종점이 사라진 노선의 차고지를 새 종점으로 이동
+    for (const membership of memberships) {
+      await repositionDepot(membership.lineId)
+    }
     return NextResponse.json({ message: `${station.name}을 삭제했습니다.` })
   }
 
@@ -247,26 +282,8 @@ export async function POST(
       })
     }
 
-    // 차고지는 노선 종점을 따라간다: 차고지와 가까운 쪽 종점의 연장선상으로 재배치
-    const ordered = await db.lineStation.findMany({
-      where: { lineId: line.id },
-      orderBy: { order: 'asc' },
-      include: { station: true },
-    })
-    if (ordered.length >= 2) {
-      const first = ordered[0].station
-      const last = ordered[ordered.length - 1].station
-      const distFirst = Math.hypot(line.depotX - first.posX, line.depotY - first.posY)
-      const distLast = Math.hypot(line.depotX - last.posX, line.depotY - last.posY)
-      const [terminus, inner] = distFirst <= distLast
-        ? [first, ordered[1].station]
-        : [last, ordered[ordered.length - 2].station]
-      const length = Math.hypot(terminus.posX - inner.posX, terminus.posY - inner.posY) || 1
-      // 지형(물) 검사는 클라이언트 전용이므로 서버는 맵 범위로만 클램프한다
-      const depotX = Math.max(4, Math.min(96, terminus.posX + ((terminus.posX - inner.posX) / length) * 4.5))
-      const depotY = Math.max(4, Math.min(92, terminus.posY + ((terminus.posY - inner.posY) / length) * 4.5))
-      await db.line.update({ where: { id: line.id }, data: { depotX, depotY } })
-    }
+    // 차고지는 노선 종점을 따라간다
+    await repositionDepot(line.id)
 
     const [fromStation, toStation] = [action.fromStationId, action.toStationId]
       .map(stationId => stations.find(station => station.id === stationId)!)
@@ -284,6 +301,7 @@ export async function POST(
       where: { lineId: line.id, currentStationId: action.stationId },
       data: { status: 'SPARE', isSpare: true, currentStationId: null, direction: 1 },
     })
+    await repositionDepot(line.id)
     return NextResponse.json({ message: `${membership.station.name}을 ${line.name}에서 제거했습니다.` })
   }
 

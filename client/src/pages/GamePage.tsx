@@ -1171,6 +1171,8 @@ export default function GamePage({ cityId, onBack }: Props) {
             })}
 
             {sortedLines.map(line => {
+              // 아직 역이 없는 신설 노선은 차고지를 그리지 않는다 (첫 구간 부설 시 종점 옆에 등장)
+              if (line.lineStations.length === 0) return null
               const spareCount = line.vehicles.filter(vehicle => vehicle.status === 'SPARE').length
               const isDropTarget = dragTarget?.kind === 'DEPOT' && dragTarget.id === line.id
               return (
