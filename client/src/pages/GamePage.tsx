@@ -1022,15 +1022,18 @@ export default function GamePage({ cityId, onBack }: Props) {
                 const station = stationById.get(vehicle.currentStationId!)
                 if (!station) return null
                 const scheduledToMove = line.status === 'OPERATING' && shouldVehicleMove(vehicle.id, currentTick + 1, line.mode)
-                const nextStation = scheduledToMove ? nextStationOnLine(line, vehicle) : null
+                // 정차 중에도 다음에 갈 방향으로 기수를 유지한다
+                const headingStation = nextStationOnLine(line, vehicle)
+                const nextStation = scheduledToMove ? headingStation : null
                 const point = stationPoint(station)
                 const nextPoint = nextStation ? stationPoint(nextStation) : point
+                const headingPoint = headingStation ? stationPoint(headingStation) : point
                 const lineNo = line.name.match(/\d+/)?.[0] ?? line.name.slice(0, 1)
                 const progress = nextStation ? motionProgress : 0
                 const trainX = point.x + (nextPoint.x - point.x) * progress
                 const trainY = point.y + (nextPoint.y - point.y) * progress
-                const rawAngle = nextStation
-                  ? Math.atan2(nextPoint.y - point.y, nextPoint.x - point.x) * 180 / Math.PI
+                const rawAngle = headingStation
+                  ? Math.atan2(headingPoint.y - point.y, headingPoint.x - point.x) * 180 / Math.PI
                   : 0
                 // 왼쪽 방향 이동 시 180° 회전으로 뒤집히지 않게 좌우 반전으로 처리
                 const trainFlipped = Math.abs(rawAngle) > 90
