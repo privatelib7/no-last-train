@@ -162,6 +162,7 @@ export type CityAction =
   | { type: 'CREATE_LINE'; mode: 'SUBWAY' | 'BUS' }
   | { type: 'REMOVE_LINE'; lineId: string }
   | { type: 'DETACH_STATION'; lineId: string; stationId: string }
+  | { type: 'INSERT_STATION'; lineId: string; fromStationId: string; toStationId: string; stationId: string }
   | { type: 'BUILD_SEGMENT'; lineId: string; fromStationId: string; toStationId: string }
   | { type: 'SET_LINE_STATUS'; lineId: string; status: 'OPERATING' | 'SUSPENDED' }
   | { type: 'SET_VEHICLE_SERVICE'; lineId: string; vehicleId: string; inService: boolean }

@@ -34,6 +34,13 @@ const ActionSchema = z.discriminatedUnion('type', [
     stationId: z.string(),
   }),
   z.object({
+    type: z.literal('INSERT_STATION'),
+    lineId: z.string(),
+    fromStationId: z.string(),
+    toStationId: z.string(),
+    stationId: z.string(),
+  }),
+  z.object({
     type: z.literal('REMOVE_LINE'),
     lineId: z.string(),
   }),
@@ -288,6 +295,30 @@ export async function POST(
     const [fromStation, toStation] = [action.fromStationId, action.toStationId]
       .map(stationId => stations.find(station => station.id === stationId)!)
     return NextResponse.json({ message: `${fromStation.name}–${toStation.name} 구간을 ${line.name}에 건설했습니다.` })
+  }
+
+  if (action.type === 'INSERT_STATION') {
+    const fromMembership = line.lineStations.find(item => item.stationId === action.fromStationId)
+    const toMembership = line.lineStations.find(item => item.stationId === action.toStationId)
+    if (!fromMembership || !toMembership || Math.abs(fromMembership.order - toMembership.order) !== 1) {
+      return NextResponse.json({ error: '이웃한 구간이 아닙니다.' }, { status: 400 })
+    }
+    if (line.lineStations.some(item => item.stationId === action.stationId)) {
+      return NextResponse.json({ error: '이미 이 노선에 있는 역입니다.' }, { status: 409 })
+    }
+    const station = await db.station.findFirst({ where: { id: action.stationId, cityId: id } })
+    if (!station) return NextResponse.json({ error: '역을 찾을 수 없습니다.' }, { status: 404 })
+    const insertAt = Math.min(fromMembership.order, toMembership.order) + 1
+    await db.$transaction([
+      db.lineStation.updateMany({
+        where: { lineId: line.id, order: { gte: insertAt } },
+        data: { order: { increment: 1 } },
+      }),
+      db.lineStation.create({
+        data: { lineId: line.id, stationId: action.stationId, order: insertAt },
+      }),
+    ])
+    return NextResponse.json({ message: `${line.name}이 ${station.name}을 경유하도록 변경했습니다.` })
   }
 
   if (action.type === 'DETACH_STATION') {

@@ -39,6 +39,17 @@ type StationLinkDrag = {
   active: boolean
 }
 
+type SegmentDrag = {
+  lineId: string
+  fromStationId: string
+  toStationId: string
+  startX: number
+  startY: number
+  x: number
+  y: number
+  active: boolean
+}
+
 type MapView = { x: number; y: number; width: number; height: number }
 
 type MapPanState = {
@@ -139,6 +150,19 @@ function nearestStationToDepot(line: GameLine) {
     const nearestDistance = Math.hypot(nearest.posX - line.depotX, nearest.posY - line.depotY)
     return currentDistance < nearestDistance ? station : nearest
   }, null)
+}
+
+function pointSegmentDistance(px: number, py: number, ax: number, ay: number, bx: number, by: number) {
+  const dx = bx - ax
+  const dy = by - ay
+  const lengthSq = dx * dx + dy * dy
+  const t = lengthSq === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lengthSq))
+  return Math.hypot(px - (ax + dx * t), py - (ay + dy * t))
+}
+
+// 자동 생성 이름(신설역 N)은 라벨을 표시하지 않는다 — 사용자가 이름을 지으면 표시
+function isAutoStationName(name: string) {
+  return /^신설역 \d+$/.test(name)
 }
 
 function randomUnit(seed: number, index: number, salt: number) {
@@ -252,6 +276,7 @@ export default function GamePage({ cityId, onBack }: Props) {
   const [moveStationMode, setMoveStationMode] = useState(false)
   const [vehicleDrag, setVehicleDrag] = useState<VehicleDragState | null>(null)
   const [stationDrag, setStationDrag] = useState<StationLinkDrag | null>(null)
+  const [segmentDrag, setSegmentDrag] = useState<SegmentDrag | null>(null)
   const [dragTarget, setDragTarget] = useState<DragTarget>(null)
   const [mapView, setMapView] = useState<MapView>(INITIAL_MAP_VIEW)
   const [isMapPanning, setIsMapPanning] = useState(false)
@@ -261,7 +286,9 @@ export default function GamePage({ cityId, onBack }: Props) {
   const ticking = useRef(false)
   const vehicleDragRef = useRef<VehicleDragState | null>(null)
   const stationDragRef = useRef<StationLinkDrag | null>(null)
+  const segmentDragRef = useRef<SegmentDrag | null>(null)
   const suppressStationClick = useRef(false)
+  const suppressLineClick = useRef(false)
   const mapPanRef = useRef<MapPanState | null>(null)
   const suppressMapClick = useRef(false)
   const mapRef = useRef<SVGSVGElement | null>(null)
@@ -442,6 +469,35 @@ export default function GamePage({ cityId, onBack }: Props) {
     setSelectedVehicleId(vehicleId)
     setStationBuildMode(false)
     setError(null)
+  }
+
+  const beginSegmentDrag = (event: PointerEvent<SVGGElement>, line: GameLine) => {
+    if (event.button !== 0 || busy || stationBuildMode || moveStationMode) return
+    const matrix = mapRef.current?.getScreenCTM()
+    if (!matrix) return
+    const pointer = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse())
+    const stations = orderedStations(line)
+    let best: { fromStationId: string; toStationId: string; dist: number } | null = null
+    for (let index = 0; index < stations.length - 1; index++) {
+      const a = stations[index]
+      const b = stations[index + 1]
+      const dist = pointSegmentDistance(pointer.x, pointer.y, a.posX, a.posY, b.posX, b.posY)
+      if (!best || dist < best.dist) best = { fromStationId: a.id, toStationId: b.id, dist }
+    }
+    if (!best) return
+    event.stopPropagation()
+    const next: SegmentDrag = {
+      lineId: line.id,
+      fromStationId: best.fromStationId,
+      toStationId: best.toStationId,
+      startX: event.clientX,
+      startY: event.clientY,
+      x: event.clientX,
+      y: event.clientY,
+      active: false,
+    }
+    segmentDragRef.current = next
+    setSegmentDrag(next)
   }
 
   const beginStationLinkDrag = (event: PointerEvent<SVGGElement>, stationId: string) => {
@@ -722,6 +778,53 @@ export default function GamePage({ cityId, onBack }: Props) {
       document.removeEventListener('pointerup', handlePointerUp)
     }
   }, [draggedStationId, selectedLineId])
+
+  // 선로 구간을 끌어 다른 역을 경유하도록 삽입
+  const draggedSegmentKey = segmentDrag ? `${segmentDrag.lineId}:${segmentDrag.fromStationId}` : null
+  useEffect(() => {
+    if (!draggedSegmentKey) return
+
+    const handlePointerMove = (event: globalThis.PointerEvent) => {
+      const current = segmentDragRef.current
+      if (!current) return
+      const active = current.active || Math.hypot(event.clientX - current.startX, event.clientY - current.startY) > 6
+      const next = { ...current, x: event.clientX, y: event.clientY, active }
+      segmentDragRef.current = next
+      setSegmentDrag(next)
+      if (!active) return
+      const targetId = document.elementFromPoint(event.clientX, event.clientY)
+        ?.closest('[data-station-id]')?.getAttribute('data-station-id')
+      const valid = targetId && targetId !== current.fromStationId && targetId !== current.toStationId
+      setDragTarget(valid ? { kind: 'STATION', id: targetId } : null)
+    }
+
+    const handlePointerUp = (event: globalThis.PointerEvent) => {
+      const current = segmentDragRef.current
+      segmentDragRef.current = null
+      setSegmentDrag(null)
+      setDragTarget(null)
+      if (!current?.active) return
+      suppressLineClick.current = true
+      window.setTimeout(() => { suppressLineClick.current = false }, 0)
+      const targetId = document.elementFromPoint(event.clientX, event.clientY)
+        ?.closest('[data-station-id]')?.getAttribute('data-station-id')
+      if (!targetId || targetId === current.fromStationId || targetId === current.toStationId) return
+      void performActionRef.current?.({
+        type: 'INSERT_STATION',
+        lineId: current.lineId,
+        fromStationId: current.fromStationId,
+        toStationId: current.toStationId,
+        stationId: targetId,
+      })
+    }
+
+    document.addEventListener('pointermove', handlePointerMove)
+    document.addEventListener('pointerup', handlePointerUp, { once: true })
+    return () => {
+      document.removeEventListener('pointermove', handlePointerMove)
+      document.removeEventListener('pointerup', handlePointerUp)
+    }
+  }, [draggedSegmentKey])
 
   if (!state) {
     return (
@@ -1073,7 +1176,15 @@ export default function GamePage({ cityId, onBack }: Props) {
                 role="button"
                 tabIndex={0}
                 aria-label={`${line.name} 선택`}
-                onClick={event => { event.stopPropagation(); selectLine(line.id) }}
+                onClick={event => {
+                  event.stopPropagation()
+                  if (suppressLineClick.current) {
+                    suppressLineClick.current = false
+                    return
+                  }
+                  selectLine(line.id)
+                }}
+                onPointerDown={event => beginSegmentDrag(event, line)}
               >
                 {line.mode !== 'BUS' && (
                   <polyline
@@ -1096,6 +1207,26 @@ export default function GamePage({ cityId, onBack }: Props) {
                 />
               </g>
             ))}
+
+            {segmentDrag?.active && (() => {
+              const matrix = mapRef.current?.getScreenCTM()
+              const from = stationById.get(segmentDrag.fromStationId)
+              const to = stationById.get(segmentDrag.toStationId)
+              const line = sortedLines.find(item => item.id === segmentDrag.lineId)
+              if (!matrix || !from || !to) return null
+              const cursor = new DOMPoint(segmentDrag.x, segmentDrag.y).matrixTransform(matrix.inverse())
+              const ghostStyle = {
+                stroke: LINE_COLORS[line?.color ?? 'RED'],
+                strokeWidth: 2.25 * mapScale,
+                strokeDasharray: `${2 * mapScale} ${1.5 * mapScale}`,
+              }
+              return (
+                <>
+                  <line x1={from.posX} y1={from.posY} x2={cursor.x} y2={cursor.y} className={styles.linkGhost} style={ghostStyle} />
+                  <line x1={cursor.x} y1={cursor.y} x2={to.posX} y2={to.posY} className={styles.linkGhost} style={ghostStyle} />
+                </>
+              )
+            })()}
 
             {stationDrag?.active && (() => {
               const matrix = mapRef.current?.getScreenCTM()
@@ -1250,7 +1381,7 @@ export default function GamePage({ cityId, onBack }: Props) {
 
             {/* 역 이름은 항상 최상단 (SVG는 그리는 순서 = z-order) */}
             <g className={styles.stationLabelLayer}>
-              {state.city.stations.map(station => (
+              {state.city.stations.filter(station => !isAutoStationName(station.name)).map(station => (
                 <text
                   key={`label-${station.id}`}
                   transform={`translate(${station.posX} ${station.posY}) scale(${mapScale})`}
