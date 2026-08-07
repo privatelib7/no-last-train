@@ -37,7 +37,11 @@ async function main() {
     await db.$transaction([
       db.city.update({
         where: { id: existing.id },
-        data: { status: 'ACTIVE', lastTickAt: new Date() },
+        data: {
+          status: 'ACTIVE',
+          lastTickAt: new Date(),
+          roomTitle: existing.roomTitle === '운영실' ? '데모 운영실' : existing.roomTitle,
+        },
       }),
       db.line.updateMany({ where: { cityId: existing.id, color: 'RED' }, data: { name: '1호선' } }),
       db.line.updateMany({ where: { cityId: existing.id, color: 'BLUE' }, data: { name: '2호선' } }),
@@ -51,6 +55,21 @@ async function main() {
         data: { status: 'SPARE', isSpare: true, currentStationId: null, direction: 1 },
       }),
     ])
+
+    // 예전에 만들어진 방은 기본 방제목만 있으면 도시명 기준으로 구분 가능하게 채운다.
+    const untitled = await db.city.findMany({
+      where: { roomTitle: '운영실', NOT: { id: existing.id } },
+      select: { id: true, name: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    })
+    await Promise.all(
+      untitled.map((city, index) =>
+        db.city.update({
+          where: { id: city.id },
+          data: { roomTitle: `${city.name} 운영실 ${index + 1}` },
+        }),
+      ),
+    )
 
     const existingStations = await db.station.findMany({ where: { cityId: existing.id } })
     const existingStationByName = new Map(existingStations.map(station => [station.name, station]))
@@ -118,7 +137,7 @@ async function main() {
         data: { seed: 42, seasonDay: 1, status: 'ACTIVE', currentTick: 0, lastTickAt: new Date() },
       })
     : await db.city.create({
-        data: { name: '부산', seed: 42, seasonDay: 1, status: 'ACTIVE' },
+        data: { name: '부산', roomTitle: '데모 운영실', seed: 42, seasonDay: 1, status: 'ACTIVE' },
       })
 
   // 이전 와이어프레임용 빈 시드가 남아 있으면 데모 도시만 플레이 가능 상태로 보강한다.

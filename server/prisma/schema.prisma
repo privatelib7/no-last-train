@@ -10,19 +10,47 @@ datasource db {
 // ─── 플레이어 ───────────────────────────────────────────────────────────────
 
 model Player {
+  id              String    @id @default(cuid())
+  token           String    @unique          // 세션 토큰
+  username        String?   @unique          // 로그인 아이디 (익명 플레이어는 null)
+  passwordHash    String?                     // salt:hash (scrypt)
+  email           String?   @unique
+  emailVerifiedAt DateTime?
+  nickname        String?
+  createdAt       DateTime  @default(now())
+
+  lines               Line[]
+  verificationTokens  EmailVerificationToken[]
+  passwordResetTokens PasswordResetToken[]
+  activityLogs        ActivityLog[]
+}
+
+model EmailVerificationToken {
   id        String   @id @default(cuid())
-  token     String   @unique           // 익명 세션 토큰
-  nickname  String?
+  playerId  String
+  token     String   @unique
+  expiresAt DateTime
   createdAt DateTime @default(now())
 
-  lines Line[]
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  playerId  String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
 }
 
 // ─── 도시 (게임 세션) ─────────────────────────────────────────────────────
 
 model City {
   id          String     @id @default(cuid())
-  name        String
+  name        String                      // 맵/도시 이름 (랜덤 배정)
+  roomTitle   String     @default("운영실") // 방제목 (관제장이 변경 가능)
   seed        Int                         // 결정론적 RNG 시드
   seasonDay   Int        @default(1)      // 1~3
   status      CityStatus @default(ACTIVE)
@@ -30,10 +58,39 @@ model City {
   lastTickAt  DateTime   @default(now())  // 마지막 시뮬레이션 시각
   createdAt   DateTime   @default(now())
 
-  lines    Line[]
-  stations Station[]
-  events   GameEvent[]
-  ticks    SimTick[]
+  lines        Line[]
+  stations     Station[]
+  events       GameEvent[]
+  ticks        SimTick[]
+  invites      CityInvite[]
+  activityLogs ActivityLog[]
+}
+
+// 로비 "최근 활동" 피드용 — 플레이어 버튼 액션 + AI 정책 액션을 방(City) 단위로 합쳐서 기록한다.
+model ActivityLog {
+  id        String   @id @default(cuid())
+  cityId    String
+  playerId  String?                     // 트리거한 플레이어 (AI 행동이면 null)
+  message   String
+  createdAt DateTime @default(now())
+
+  city   City    @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  player Player? @relation(fields: [playerId], references: [id], onDelete: SetNull)
+
+  @@index([cityId, createdAt])
+}
+
+// 구글 독스 공유처럼, 이 이메일로 로그인한 플레이어만 도시에 접근할 수 있다.
+model CityInvite {
+  id        String   @id @default(cuid())
+  cityId    String
+  email     String
+  createdAt DateTime @default(now())
+
+  city City @relation(fields: [cityId], references: [id], onDelete: Cascade)
+
+  @@unique([cityId, email])
+  @@index([email])
 }
 
 enum CityStatus {
