@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { authorizeCityAccess } from '@/lib/access'
 import { ECONOMY, lineBuildCost, segmentBuildCost, stationInsertCost, vehiclePurchaseCost } from '@/lib/economy'
 import type { Prisma } from '@prisma/client'
 import { z } from 'zod'
@@ -136,6 +137,10 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params
+
+  const auth = await authorizeCityAccess(req, id)
+  if (auth.error) return auth.error
+
   const body = await req.json().catch(() => null)
   const parsed = ActionSchema.safeParse(body)
   if (!parsed.success) {
@@ -193,7 +198,9 @@ export async function POST(
         posY: action.posY,
       },
     }))
-    return NextResponse.json({ message: `${station.name}을 건설했습니다. (800만 원)`, station })
+    const message = `${station.name}을 건설했습니다. (800만 원)`
+    await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
+    return NextResponse.json({ message, station })
   }
 
   if (action.type === 'CREATE_LINE') {
@@ -359,9 +366,9 @@ export async function POST(
     // 차고지는 노선 종점을 따라간다
     await repositionDepot(line.id)
 
-    return NextResponse.json({
-      message: `${fromStation.name}–${toStation.name} 구간을 ${line.name}에 건설했습니다. (${formatWon(cost)})`,
-    })
+    const message = `${fromStation.name}–${toStation.name} 구간을 ${line.name}에 건설했습니다. (${formatWon(cost)})`
+    await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
+    return NextResponse.json({ message })
   }
 
   if (action.type === 'INSERT_STATION') {
@@ -418,11 +425,11 @@ export async function POST(
 
   if (action.type === 'SET_LINE_STATUS') {
     await db.line.update({ where: { id: line.id }, data: { status: action.status } })
-    return NextResponse.json({
-      message: action.status === 'OPERATING'
-        ? `${line.name} 운행을 재개했습니다.`
-        : `${line.name} 운행을 폐쇄했습니다.`,
-    })
+    const message = action.status === 'OPERATING'
+      ? `${line.name} 운행을 재개했습니다.`
+      : `${line.name} 운행을 폐쇄했습니다.`
+    await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
+    return NextResponse.json({ message })
   }
 
   if (action.type === 'DEPLOY_VEHICLE') {
@@ -450,7 +457,9 @@ export async function POST(
           },
         }))
     const station = await db.station.findUniqueOrThrow({ where: { id: stationId } })
-    return NextResponse.json({ message: `${line.name} 차량을 ${station.name}에 배치했습니다.`, vehicle })
+    const message = `${line.name} 차량을 ${station.name}에 배치했습니다.`
+    await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
+    return NextResponse.json({ message, vehicle })
   }
 
   const vehicle = line.vehicles.find(item => item.id === action.vehicleId)
@@ -462,7 +471,9 @@ export async function POST(
         where: { id: vehicle.id },
         data: { status: 'SPARE', isSpare: true, currentStationId: null },
       })
-      return NextResponse.json({ message: `${line.name} 차량을 차고지에 입고했습니다.`, vehicle: updatedVehicle })
+      const message = `${line.name} 차량을 차고지에 입고했습니다.`
+      await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
+      return NextResponse.json({ message, vehicle: updatedVehicle })
     }
     if (line.lineStations.length === 0) {
       return NextResponse.json({ error: '차량을 투입할 역이 없습니다.' }, { status: 400 })
@@ -483,7 +494,9 @@ export async function POST(
         direction,
       },
     })
-    return NextResponse.json({ message: `${line.name} 차량 운행을 시작했습니다.`, vehicle: updatedVehicle })
+    const message = `${line.name} 차량 운행을 시작했습니다.`
+    await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
+    return NextResponse.json({ message, vehicle: updatedVehicle })
   }
 
   if (action.type === 'TRANSFER_VEHICLE') {
@@ -502,14 +515,15 @@ export async function POST(
         direction: 1,
       },
     })
-    return NextResponse.json({
-      message: `차량을 ${targetLine.name} 차고지로 이동했습니다.`,
-      vehicle: updatedVehicle,
-    })
+    const message = `차량을 ${targetLine.name} 차고지로 이동했습니다.`
+    await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
+    return NextResponse.json({ message, vehicle: updatedVehicle })
   }
 
   await db.vehicle.delete({ where: { id: vehicle.id } })
-  return NextResponse.json({ message: `${line.name} 차량 1대를 제거했습니다.` })
+  const message = `${line.name} 차량 1대를 제거했습니다.`
+  await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
+  return NextResponse.json({ message })
   } catch (error) {
     if (error instanceof ConstructionFundsError) {
       return NextResponse.json({ error: error.message }, { status: 409 })

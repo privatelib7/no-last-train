@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { authorizeCityAccess } from '@/lib/access'
 import { z } from 'zod'
 
 const CreatePolicySchema = z.object({
@@ -18,10 +19,14 @@ const CreatePolicySchema = z.object({
 
 // GET /api/cities/[id]/policies — 도시 내 모든 활성 정책 조회
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params
+
+  const auth = await authorizeCityAccess(req, id)
+  if (auth.error) return auth.error
+
   const policies = await db.policy.findMany({
     where: { line: { cityId: id }, isActive: true },
     include: { line: { select: { color: true, name: true } } },
@@ -36,6 +41,10 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params
+
+  const auth = await authorizeCityAccess(req, id)
+  if (auth.error) return auth.error
+
   const body = await req.json().catch(() => null)
   const parsed = CreatePolicySchema.safeParse(body)
   if (!parsed.success) {

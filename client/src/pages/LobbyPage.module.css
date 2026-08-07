@@ -44,33 +44,6 @@
   line-height: 1;
 }
 
-.sidebarDivider {
-  width: 24px;
-  height: 1px;
-  background: var(--border);
-  margin: 14px 0;
-}
-
-.playerList {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-}
-
-.playerDot {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  box-shadow: var(--shadow-sm);
-  transition: transform 0.15s;
-  cursor: pointer;
-}
-
-.playerDot:hover {
-  transform: scale(1.1);
-}
-
 /* ── Main ── */
 .main {
   flex: 1;
@@ -117,120 +90,246 @@
   margin-bottom: 16px;
 }
 
-.coinDisplay {
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.newCityBtn {
   display: flex;
   align-items: center;
   gap: 6px;
+  background: var(--orange);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 10px 18px;
+  border-radius: 99px;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+}
+
+.newCityBtn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.newCityBtn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.newCityBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.newCityBtnIcon {
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.userBadge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   background: var(--bg-card);
   border: 1.5px solid var(--border);
-  padding: 8px 16px;
+  padding: 8px 8px 8px 16px;
   border-radius: 99px;
   box-shadow: var(--shadow-sm);
 }
 
-.coinIcon {
-  font-size: 16px;
+.userNameWrap {
+  position: relative;
+  display: inline-flex;
 }
 
-.coinAmount {
-  font-size: 15px;
+.userName {
+  font-size: 14px;
   font-weight: 700;
   color: var(--text);
-  letter-spacing: 0.3px;
+  cursor: default;
 }
 
-/* ── City grid ── */
-.cityGrid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: clamp(14px, 1.5vw, 20px);
+.userTooltip {
+  position: absolute;
+  top: calc(100% + 9px);
+  left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+  background: var(--text);
+  color: var(--bg);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  box-shadow: var(--shadow-md);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 20;
+}
+
+.userTooltip::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-bottom-color: var(--text);
+}
+
+.userNameWrap:hover .userTooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
+.logoutBtn {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-sidebar);
+  padding: 6px 12px;
+  border-radius: 99px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.logoutBtn:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
+/* ── City list ── */
+.emptyText {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-bottom: clamp(32px, 5vh, 48px);
+}
+
+.cityList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   margin-bottom: clamp(32px, 5vh, 48px);
   width: 100%;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 10px;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--orange-light) transparent;
 }
 
-.cityCard {
+.cityList::-webkit-scrollbar {
+  width: 6px;
+}
+
+.cityList::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.cityList::-webkit-scrollbar-thumb {
+  background: var(--orange-light);
+  border-radius: 999px;
+}
+
+.cityList::-webkit-scrollbar-thumb:hover {
+  background: var(--orange);
+}
+
+.cityRow {
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: 16px;
   background: var(--bg-card);
-  border: 2px solid var(--border);
-  border-radius: var(--radius);
-  padding: clamp(18px, 2vw, 28px);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px 18px;
   text-align: left;
-  min-height: clamp(180px, 28vh, 280px);
   transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
   cursor: pointer;
-  overflow: hidden;
   width: 100%;
 }
 
-.cityCard:hover:not(:disabled) {
+.cityRow:hover:not(:disabled) {
   border-color: var(--orange-light);
-  box-shadow: var(--shadow-md);
-  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
 }
 
-.cityCard:active:not(:disabled) {
+.cityRow:active:not(:disabled) {
   transform: translateY(0);
 }
 
-.cityCardActive {
-  border-color: var(--orange);
-  background: linear-gradient(135deg, #FDFAF7 0%, #FFF6EE 100%);
-  box-shadow: 0 0 0 1px var(--orange), var(--shadow-sm);
-}
-
-.cityCardLocked {
+.cityRow:disabled {
   opacity: 0.55;
   cursor: not-allowed;
-  border-style: dashed;
 }
 
-.activeContent {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  gap: 12px;
+.cityRowActive {
+  border-color: var(--orange-light);
 }
 
-.miniMap {
-  flex: 1;
-  display: flex;
+.cityRowIcon {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-sidebar);
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   align-items: center;
+  justify-items: center;
+  gap: 4px;
+  padding: 8px;
 }
 
-.miniMapSvg {
-  width: 100%;
-  height: auto;
+.lineDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
 }
 
-.cityInfo {
+.lineDotEmpty {
+  grid-column: span 2;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--locked);
+}
+
+.cityRowInfo {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .cityName {
-  font-size: clamp(16px, 1.5vw, 20px);
+  font-size: 15px;
   font-weight: 700;
   color: var(--text);
-  letter-spacing: -0.3px;
+  letter-spacing: -0.2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .citySub {
   font-size: 12px;
   color: var(--text-muted);
-}
-
-.lineChips {
-  display: flex;
-  gap: 4px;
-  margin-top: 4px;
-}
-
-.lineChip {
-  display: inline-block;
-  width: 14px;
-  height: 4px;
-  border-radius: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .activeBadge {
@@ -241,6 +340,7 @@
   font-weight: 600;
   color: var(--orange);
   letter-spacing: 0.3px;
+  flex-shrink: 0;
 }
 
 .activeDot {
@@ -256,51 +356,16 @@
   50% { opacity: 0.3; }
 }
 
-.lockedContent {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  gap: 8px;
-}
-
-.lockIcon {
-  font-size: 24px;
-  opacity: 0.5;
-}
-
-/* New city card */
-.newCityCard {
-  background: transparent;
-  border: 2px dashed var(--border);
-  border-radius: var(--radius);
-  min-height: clamp(180px, 28vh, 280px);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  transition: border-color 0.15s, background 0.15s;
-  cursor: pointer;
-  width: 100%;
-}
-
-.newCityCard:hover {
-  border-color: var(--orange-light);
-  background: var(--orange-muted);
-}
-
-.newCityIcon {
-  font-size: 28px;
+.cityRowChevron {
+  flex-shrink: 0;
+  font-size: 18px;
   color: var(--text-light);
-  font-weight: 300;
-  line-height: 1;
+  transition: transform 0.15s, color 0.15s;
 }
 
-.newCityLabel {
-  font-size: 13px;
-  color: var(--text-muted);
+.cityRow:hover:not(:disabled) .cityRowChevron {
+  color: var(--orange);
+  transform: translateX(2px);
 }
 
 /* ── Activity ── */
@@ -320,10 +385,38 @@
   margin-bottom: 16px;
 }
 
+.activityEmpty {
+  font-size: 13px;
+  color: var(--text-light);
+}
+
 .activityList {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
+  max-height: 148px;
+  overflow-y: auto;
+  padding-right: 10px;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--orange-light) transparent;
+}
+
+.activityList::-webkit-scrollbar {
+  width: 6px;
+}
+
+.activityList::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.activityList::-webkit-scrollbar-thumb {
+  background: var(--orange-light);
+  border-radius: 999px;
+}
+
+.activityList::-webkit-scrollbar-thumb:hover {
+  background: var(--orange);
 }
 
 .activityItem {
@@ -331,10 +424,11 @@
   align-items: baseline;
   gap: 12px;
   font-size: 14px;
+  flex-shrink: 0;
 }
 
 .activityTime {
-  flex: 0 0 72px;
+  flex: 0 0 60px;
   color: var(--text-light);
   font-size: 12px;
 }
@@ -344,16 +438,23 @@
   line-height: 1.5;
 }
 
-/* ── Tablet ── */
-@media (max-width: 900px) {
-  .cityGrid {
-    grid-template-columns: repeat(2, 1fr);
-  }
+.activityRoom {
+  display: inline;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--orange);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: rgba(224, 123, 53, 0.35);
+}
 
-  .newCityCard {
-    grid-column: span 2;
-    min-height: 140px;
-  }
+.activityRoom:hover {
+  color: var(--orange-dark);
+  text-decoration-color: currentColor;
 }
 
 /* ── Mobile ── */
@@ -371,12 +472,22 @@
     font-size: 22px;
   }
 
-  .cityGrid {
-    grid-template-columns: 1fr;
+  .header {
+    flex-wrap: wrap;
   }
 
-  .newCityCard {
-    grid-column: span 1;
-    min-height: 120px;
+  .newCityBtn {
+    padding: 8px 14px;
+    font-size: 13px;
+  }
+
+  .cityRow {
+    padding: 12px 14px;
+    gap: 12px;
+  }
+
+  .cityRowIcon {
+    width: 38px;
+    height: 38px;
   }
 }

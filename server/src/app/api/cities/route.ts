@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { CITY_NAMES, isCityName, pickRandomRoomTitle } from '@/lib/city-names'
 import { z } from 'zod'
 
 const CreateCitySchema = z.object({
-  name: z.string().min(1).max(20),
+  name: z
+    .string()
+    .trim()
+    .refine(isCityName, `도시 이름은 ${CITY_NAMES.join(', ')} 중 하나여야 합니다.`),
+  roomTitle: z.string().trim().min(1).max(24).optional(),
   playerToken: z.string().uuid(),
   lineColor: z.enum(['RED', 'BLUE', 'GREEN', 'YELLOW', 'PURPLE']),
   mapKey: z.enum(['BUSAN', 'SEOUL']).default('BUSAN'),
@@ -93,7 +98,10 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null)
   const parsed = CreateCitySchema.safeParse(body)
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400, headers: corsHeaders() })
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message ?? '요청을 확인해주세요.' },
+      { status: 400, headers: corsHeaders() },
+    )
   }
 
   const player = await db.player.findUnique({ where: { token: parsed.data.playerToken } })
@@ -102,11 +110,13 @@ export async function POST(req: NextRequest) {
   }
 
   const seed = Math.floor(Math.random() * 1_000_000)
+  const cityName = parsed.data.name
+  const roomTitle = parsed.data.roomTitle ?? pickRandomRoomTitle()
   const layout = MAP_LAYOUTS[parsed.data.mapKey]
 
   const city = await db.$transaction(async (tx) => {
     const city = await tx.city.create({
-      data: { name: parsed.data.name, mapKey: parsed.data.mapKey, seed },
+      data: { name: cityName, roomTitle, mapKey: parsed.data.mapKey, seed },
     })
 
     const stations = await Promise.all(
@@ -193,7 +203,10 @@ export async function POST(req: NextRequest) {
     return city
   })
 
-  return NextResponse.json({ cityId: city.id }, { status: 201, headers: corsHeaders() })
+  return NextResponse.json(
+    { cityId: city.id, name: city.name, roomTitle: city.roomTitle },
+    { status: 201, headers: corsHeaders() },
+  )
 }
 
 // GET /api/cities — 로비용 도시 목록 (노선 수 · 생성일)
@@ -202,17 +215,24 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   const token = req.headers.get('x-player-token')
 
-  let playerId: string | undefined
+  let player: { id: string; email: string | null } | null = null
   if (token) {
-    const player = await db.player.findUnique({ where: { token } })
+    player = await db.player.findUnique({ where: { token }, select: { id: true, email: true } })
     if (!player) {
       return NextResponse.json({ error: '플레이어 없음' }, { status: 404, headers: corsHeaders() })
     }
-    playerId = player.id
   }
 
+  // 로그인 상태면 "내가 소유한 노선이 있는 도시" + "이메일로 초대받은 도시"만 보여준다.
   const cities = await db.city.findMany({
-    where: playerId ? { lines: { some: { playerId } } } : undefined,
+    where: player
+      ? {
+          OR: [
+            { lines: { some: { playerId: player.id } } },
+            ...(player.email ? [{ invites: { some: { email: player.email } } }] : []),
+          ],
+        }
+      : undefined,
     include: {
       lines: {
         select: { color: true },
@@ -226,6 +246,7 @@ export async function GET(req: NextRequest) {
   const payload = cities.map((city) => ({
     id: city.id,
     name: city.name,
+    roomTitle: city.roomTitle,
     mapKey: city.mapKey,
     seasonDay: city.seasonDay,
     status: city.status,

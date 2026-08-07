@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { syncCityClock } from '@/lib/simulation'
+import { authorizeCityAccess } from '@/lib/access'
 import { z } from 'zod'
 
 const SimSchema = z.object({
@@ -13,6 +14,10 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params
+
+  const auth = await authorizeCityAccess(req, id)
+  if (auth.error) return auth.error
+
   const body = await req.json().catch(() => ({}))
   const parsed = SimSchema.safeParse(body)
   if (!parsed.success) {

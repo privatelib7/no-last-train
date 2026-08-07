@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type WheelEvent } from 'react'
 import {
+  ApiError,
   executeCityAction,
   fetchCity,
   TICKS_PER_DAY,
@@ -10,13 +11,19 @@ import {
   type Station,
   type Vehicle,
 } from '../api/game'
+import type { AuthSession } from '../api/auth'
+import { updateRoomTitle } from '../api/cities'
+import { scheduleMajorEventNotification, subscribePendingNotification } from '../lib/notifications'
+import InviteModal from './InviteModal'
 import { getCityMap, polyPath } from '../maps'
 import { createCitizenJourneys, locateCitizen, type CitizenTravelMode } from '../mobility'
 import styles from './GamePage.module.css'
 
 interface Props {
   cityId: string
+  session: AuthSession | null
   onBack: () => void
+  onRequireLogin: () => void
 }
 
 type VehicleDragState = {
@@ -189,7 +196,7 @@ function pointSegmentDistance(px: number, py: number, ax: number, ay: number, bx
 function isAutoStationName(name: string) {
   return /^신설역 \d+$/.test(name)
 }
-export default function GamePage({ cityId, onBack }: Props) {
+export default function GamePage({ cityId, session, onBack, onRequireLogin }: Props) {
   const [state, setState] = useState<CityState | null>(null)
   const [selectedLineId, setSelectedLineId] = useState('')
   const [selectedVehicleId, setSelectedVehicleId] = useState('')
@@ -205,8 +212,15 @@ export default function GamePage({ cityId, onBack }: Props) {
   const [mapView, setMapView] = useState<MapView>(INITIAL_MAP_VIEW)
   const [isMapPanning, setIsMapPanning] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [errorStatus, setErrorStatus] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [motionProgress, setMotionProgress] = useState(0)
+  const [showInviteModal, setShowInviteModal] = useState(false)
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState('')
+  const [titleSaving, setTitleSaving] = useState(false)
+  const [notifyStatus, setNotifyStatus] = useState<'idle' | 'pending' | 'sent' | 'denied' | 'unsupported' | 'busy'>('idle')
+  const [notifySecondsLeft, setNotifySecondsLeft] = useState(0)
   const ticking = useRef(false)
   const vehicleDragRef = useRef<VehicleDragState | null>(null)
   const stationDragRef = useRef<StationLinkDrag | null>(null)
@@ -224,7 +238,7 @@ export default function GamePage({ cityId, onBack }: Props) {
   }, [state])
 
   const loadCity = async () => {
-    const next = await fetchCity(cityId)
+    const next = await fetchCity(cityId, session?.token)
     setState(next)
     const firstLine = next.city.lines.slice().sort((a, b) => a.name.localeCompare(b.name, 'ko'))[0]
     setSelectedLineId(current => current || firstLine?.id || '')
@@ -233,19 +247,26 @@ export default function GamePage({ cityId, onBack }: Props) {
 
   useEffect(() => {
     let cancelled = false
-    fetchCity(cityId)
+    fetchCity(cityId, session?.token)
       .then(next => {
         if (cancelled) return
         setState(next)
         const firstLine = next.city.lines.slice().sort((a, b) => a.name.localeCompare(b.name, 'ko'))[0]
         setSelectedLineId(firstLine?.id ?? '')
       })
-      .catch(() => {
+      .catch(err => {
+        if (cancelled) return
+        const status = err instanceof ApiError ? err.status : null
+        if (status === 401 || status === 403) {
+          setError(err instanceof Error ? err.message : '도시를 불러오지 못했습니다.')
+          setErrorStatus(status)
+          return
+        }
         // 삭제된 도시 ID가 localStorage에 남은 경우 등 — 로비로 복귀
-        if (!cancelled) onBack()
+        onBack()
       })
     return () => { cancelled = true }
-  }, [cityId, onBack])
+  }, [cityId, session?.token, onBack])
 
   useEffect(() => {
     let cancelled = false
@@ -253,12 +274,15 @@ export default function GamePage({ cityId, onBack }: Props) {
       if (ticking.current || busy) return
       ticking.current = true
       try {
-        const next = await fetchCity(cityId)
+        const next = await fetchCity(cityId, session?.token)
         if (!cancelled) {
           setState(next)
         }
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : '자동 운행 연결 오류')
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : '자동 운행 연결 오류')
+          setErrorStatus(err instanceof ApiError ? err.status : null)
+        }
       } finally {
         ticking.current = false
       }
@@ -267,7 +291,7 @@ export default function GamePage({ cityId, onBack }: Props) {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [busy, cityId])
+  }, [busy, cityId, session?.token])
 
   const motionTick = state?.city.currentTick ?? -1
   useEffect(() => {
@@ -343,6 +367,86 @@ export default function GamePage({ cityId, onBack }: Props) {
     [state],
   )
 
+  const beginEditTitle = () => {
+    if (!state?.isOwner || !session) return
+    setTitleDraft(state.city.roomTitle)
+    setEditingTitle(true)
+  }
+
+  const cancelEditTitle = () => {
+    setEditingTitle(false)
+    setTitleDraft('')
+  }
+
+  const saveRoomTitle = async () => {
+    if (!state || !session || titleSaving) return
+    const nextTitle = titleDraft.trim()
+    if (!nextTitle) {
+      setError('방제목을 입력해주세요.')
+      return
+    }
+    if (nextTitle === state.city.roomTitle) {
+      cancelEditTitle()
+      return
+    }
+    setTitleSaving(true)
+    setError(null)
+    try {
+      const updated = await updateRoomTitle(cityId, session.token, nextTitle)
+      setState(current =>
+        current
+          ? { ...current, city: { ...current.city, roomTitle: updated.roomTitle } }
+          : current,
+      )
+      cancelEditTitle()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '방제목을 바꾸지 못했습니다.')
+    } finally {
+      setTitleSaving(false)
+    }
+  }
+
+  // 알림 예약은 모듈 전역 타이머라 로비로 나가도 유지된다. UI만 구독한다.
+  useEffect(() => {
+    return subscribePendingNotification((next) => {
+      if (!next) {
+        setNotifyStatus((prev) => (prev === 'pending' ? 'sent' : prev))
+        setNotifySecondsLeft(0)
+        return
+      }
+      setNotifyStatus('pending')
+      setNotifySecondsLeft(Math.max(0, Math.ceil((next.firesAt - Date.now()) / 1000)))
+    })
+  }, [])
+
+  useEffect(() => {
+    if (notifyStatus !== 'pending') return
+    const timer = window.setInterval(() => {
+      setNotifySecondsLeft((prev) => Math.max(0, prev - 1))
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [notifyStatus])
+
+  useEffect(() => {
+    if (notifyStatus !== 'sent' && notifyStatus !== 'denied' && notifyStatus !== 'unsupported' && notifyStatus !== 'busy') {
+      return
+    }
+    const timer = window.setTimeout(() => setNotifyStatus('idle'), 4000)
+    return () => window.clearTimeout(timer)
+  }, [notifyStatus])
+
+  // 주요 이벤트 크롬 알림 테스트 — 버튼을 누르면 5초 뒤에 알림을 띄운다.
+  const handleTestNotification = async () => {
+    if (!state || notifyStatus === 'pending') return
+    const result = await scheduleMajorEventNotification(state.city.roomTitle, 5000)
+    if (result === 'scheduled') {
+      setNotifyStatus('pending')
+      setNotifySecondsLeft(5)
+    } else {
+      setNotifyStatus(result)
+    }
+  }
+
   useEffect(() => {
     if (!selectedVehicleId || !state) return
     const stillExists = state.city.lines.some(line => line.vehicles.some(vehicle => vehicle.id === selectedVehicleId))
@@ -353,7 +457,7 @@ export default function GamePage({ cityId, onBack }: Props) {
     setBusy(true)
     setError(null)
     try {
-      await executeCityAction(cityId, action)
+      await executeCityAction(cityId, action, session?.token)
       const next = await loadCity()
       if (action.type === 'REMOVE_VEHICLE') setSelectedVehicleId('')
       if (action.type === 'RESET_CITY') {
@@ -759,6 +863,32 @@ export default function GamePage({ cityId, onBack }: Props) {
   }, [draggedSegmentKey])
 
   if (!state) {
+    if (errorStatus === 401) {
+      return (
+        <div className={styles.loadingPage}>
+          <div className={styles.accessScreen}>
+            <p>로그인이 필요합니다.</p>
+            <button className={styles.accessActionBtn} onClick={onRequireLogin} type="button">
+              로그인하러 가기
+            </button>
+          </div>
+        </div>
+      )
+    }
+
+    if (errorStatus === 403) {
+      return (
+        <div className={styles.loadingPage}>
+          <div className={styles.accessScreen}>
+            <p>이 도시에 접근 권한이 없습니다.<br />초대받은 이메일 계정으로 로그인했는지 확인해주세요.</p>
+            <button className={styles.accessActionBtn} onClick={onBack} type="button">
+              돌아가기
+            </button>
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className={styles.loadingPage}>
         <span className={styles.loadingDot} />
@@ -797,12 +927,103 @@ export default function GamePage({ cityId, onBack }: Props) {
     <div className={styles.page}>
       <aside className={styles.controlRoom}>
         <div className={styles.controlHeader}>
-          <button className={styles.backButton} onClick={onBack} aria-label="도시 선택으로 돌아가기">←</button>
-          <div>
-            <span>{mapDef.key} CONTROL</span>
-            <h1>도시 운영실</h1>
+          <div className={styles.controlHeaderTop}>
+            <button className={styles.backButton} onClick={onBack} aria-label="도시 선택으로 돌아가기">←</button>
+            <div className={styles.controlIdentity}>
+              <span>{state.city.name.toUpperCase()} CONTROL</span>
+              {editingTitle ? (
+                <form
+                  className={styles.titleEditForm}
+                  onSubmit={event => {
+                    event.preventDefault()
+                    void saveRoomTitle()
+                  }}
+                >
+                  <input
+                    className={styles.titleEditInput}
+                    value={titleDraft}
+                    onChange={event => setTitleDraft(event.target.value)}
+                    maxLength={24}
+                    autoFocus
+                    aria-label="방제목"
+                  />
+                  <button className={styles.titleSaveBtn} type="submit" disabled={titleSaving}>
+                    {titleSaving ? '…' : '저장'}
+                  </button>
+                  <button className={styles.titleCancelBtn} type="button" onClick={cancelEditTitle} disabled={titleSaving}>
+                    취소
+                  </button>
+                </form>
+              ) : (
+                <div className={styles.titleRow}>
+                  <h1>{state.city.roomTitle}</h1>
+                  {state.isOwner && session && (
+                    <button
+                      className={styles.titleEditBtn}
+                      type="button"
+                      onClick={beginEditTitle}
+                      title="방제목 바꾸기"
+                      aria-label="방제목 바꾸기"
+                    >
+                      수정
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+            {session && (
+              <button
+                className={styles.inviteButton}
+                onClick={() => setShowInviteModal(true)}
+                aria-label="이 도시에 사람 초대하기"
+                title="초대"
+              >
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <circle cx="9.5" cy="8.5" r="3.1" stroke="currentColor" strokeWidth="1.8" />
+                  <path d="M3.5 19c0-3 2.7-5.2 6-5.2s6 2.2 6 5.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                  <path d="M17.5 7.5v5M15 10h5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+                <span>초대</span>
+              </button>
+            )}
+          </div>
+          <div className={styles.headerActions}>
+            <button
+              className={styles.notifyButton}
+              onClick={() => void handleTestNotification()}
+              disabled={notifyStatus === 'pending'}
+              type="button"
+              aria-label="주요 이벤트 알림 테스트"
+              title="5초 후 크롬 알림을 띄웁니다"
+            >
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M12 4.5c-2.9 0-5 2.2-5 5v2.4c0 .6-.2 1.2-.6 1.7l-1.1 1.4c-.6.8 0 1.9 1 1.9h11.4c1 0 1.6-1.1 1-1.9l-1.1-1.4c-.4-.5-.6-1.1-.6-1.7V9.5c0-2.8-2.1-5-5-5z"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinejoin="round"
+                />
+                <path d="M10.3 18.5a1.9 1.9 0 0 0 3.4 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+              <span>
+                {notifyStatus === 'pending' && `${notifySecondsLeft || 1}초 후 알림…`}
+                {notifyStatus === 'sent' && '알림 전송됨'}
+                {notifyStatus === 'denied' && '알림 차단됨'}
+                {notifyStatus === 'unsupported' && '알림 미지원'}
+                {notifyStatus === 'busy' && '이미 예약됨'}
+                {notifyStatus === 'idle' && '알림 테스트'}
+              </span>
+            </button>
           </div>
         </div>
+
+        {session && showInviteModal && (
+          <InviteModal
+            cityId={cityId}
+            playerToken={session.token}
+            onClose={() => setShowInviteModal(false)}
+          />
+        )}
 
         <div className={`${styles.liveStatus} ${goalReached ? styles.goalLiveStatus : ''} ${isGameOver ? styles.stoppedStatus : ''}`}>
           <span className={styles.liveDot} />
@@ -1009,8 +1230,10 @@ export default function GamePage({ cityId, onBack }: Props) {
       <main className={styles.gameStage}>
         <header className={styles.hudTop}>
           <div className={styles.cityIdentity}>
-            <span className={styles.cityName}>{state.city.name}</span>
-            <span>{Math.floor(currentTick / TICKS_PER_DAY) + 1}일차{isWeekend ? ' · 주말' : ''} · {formatHour(gameHour)}</span>
+            <span className={styles.cityName}>{state.city.roomTitle}</span>
+            <span>
+              {state.city.name} · {Math.floor(currentTick / TICKS_PER_DAY) + 1}일차{isWeekend ? ' · 주말' : ''} · {formatHour(gameHour)}
+            </span>
           </div>
           <div className={styles.hudStats}>
             <span><small>경영 점수</small><b>{state.city.score.toLocaleString('ko-KR')}</b></span>

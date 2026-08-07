@@ -60,6 +60,7 @@ export type GameLine = {
 export type GameCity = {
   id: string
   name: string
+  roomTitle: string
   mapKey: string
   seed: number
   seasonDay: number
@@ -103,6 +104,7 @@ export type CityState = {
   city: GameCity
   elapsedGameHours: number
   stationStats: StationStat[]
+  isOwner: boolean
   economyRules: {
     buildCosts: {
       station: number
@@ -170,23 +172,38 @@ export const TICKS_PER_DAY = TICKS_PER_HOUR * 24
 
 const API_BASE = import.meta.env.VITE_API_URL ?? ''
 
+export class ApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${url}`, init)
   const body = await res.json().catch(() => ({}))
   if (!res.ok) {
-    throw new Error(body.error?.formErrors?.[0] ?? body.error ?? `요청에 실패했습니다. (${res.status})`)
+    throw new ApiError(
+      body.error?.formErrors?.[0] ?? body.error ?? `요청에 실패했습니다. (${res.status})`,
+      res.status,
+    )
   }
   return body as T
 }
 
-export function fetchCity(cityId: string) {
-  return request<CityState>(`/api/cities/${cityId}`)
+function authHeaders(playerToken?: string): HeadersInit {
+  return playerToken ? { 'x-player-token': playerToken } : {}
 }
 
-export function advanceCity(cityId: string) {
+export function fetchCity(cityId: string, playerToken?: string) {
+  return request<CityState>(`/api/cities/${cityId}`, { headers: authHeaders(playerToken) })
+}
+
+export function advanceCity(cityId: string, playerToken?: string) {
   return request<SimResult>(`/api/cities/${cityId}/simulate`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders(playerToken) },
     body: JSON.stringify({ ticks: 1 }),
   })
 }
@@ -208,10 +225,10 @@ export type CityAction =
   | { type: 'TRANSFER_VEHICLE'; lineId: string; vehicleId: string; targetLineId: string }
   | { type: 'REMOVE_VEHICLE'; lineId: string; vehicleId: string }
 
-export function executeCityAction(cityId: string, action: CityAction) {
+export function executeCityAction(cityId: string, action: CityAction, playerToken?: string) {
   return request<{ message: string; line?: GameLine }>(`/api/cities/${cityId}/actions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders(playerToken) },
     body: JSON.stringify(action),
   })
 }
