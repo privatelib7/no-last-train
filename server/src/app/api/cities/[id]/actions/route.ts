@@ -153,35 +153,48 @@ export async function POST(
       )
     }
 
-    await db.$transaction(async tx => {
-      if (fromMembership) {
-        await tx.lineStation.updateMany({
-          where: { lineId: line.id, order: { gt: fromMembership.order } },
-          data: { order: { increment: 1 } },
-        })
-        await tx.lineStation.create({
-          data: { lineId: line.id, stationId: action.toStationId, order: fromMembership.order + 1 },
-        })
-        return
+    // 노선 중간 삽입은 폴리라인이 의도치 않게 우회하므로 종점 연장만 허용한다
+    const memberships = line.lineStations
+    const onLine = fromMembership ?? toMembership
+    const newStationId = fromMembership ? action.toStationId : action.fromStationId
+    if (memberships.length > 0) {
+      if (!onLine) {
+        return NextResponse.json(
+          { error: `${line.name}의 종점과 이어주세요. 노선에 없는 두 역끼리는 연결할 수 없습니다.` },
+          { status: 400 },
+        )
       }
-      if (toMembership) {
-        await tx.lineStation.updateMany({
-          where: { lineId: line.id, order: { gte: toMembership.order } },
-          data: { order: { increment: 1 } },
-        })
-        await tx.lineStation.create({
-          data: { lineId: line.id, stationId: action.fromStationId, order: toMembership.order },
-        })
-        return
+      const isFirst = onLine.stationId === memberships[0].stationId
+      const isLast = onLine.stationId === memberships[memberships.length - 1].stationId
+      if (!isFirst && !isLast) {
+        return NextResponse.json(
+          { error: '노선 중간에는 연결할 수 없습니다. 종점에서만 연장할 수 있습니다.' },
+          { status: 400 },
+        )
       }
-      const lastOrder = line.lineStations[line.lineStations.length - 1]?.order ?? -1
-      await tx.lineStation.createMany({
+      if (isLast) {
+        await db.lineStation.create({
+          data: { lineId: line.id, stationId: newStationId, order: memberships[memberships.length - 1].order + 1 },
+        })
+      } else {
+        await db.$transaction([
+          db.lineStation.updateMany({
+            where: { lineId: line.id },
+            data: { order: { increment: 1 } },
+          }),
+          db.lineStation.create({
+            data: { lineId: line.id, stationId: newStationId, order: memberships[0].order },
+          }),
+        ])
+      }
+    } else {
+      await db.lineStation.createMany({
         data: [
-          { lineId: line.id, stationId: action.fromStationId, order: lastOrder + 1 },
-          { lineId: line.id, stationId: action.toStationId, order: lastOrder + 2 },
+          { lineId: line.id, stationId: action.fromStationId, order: 0 },
+          { lineId: line.id, stationId: action.toStationId, order: 1 },
         ],
       })
-    })
+    }
 
     // 차고지는 노선 종점을 따라간다: 차고지와 가까운 쪽 종점의 연장선상으로 재배치
     const ordered = await db.lineStation.findMany({

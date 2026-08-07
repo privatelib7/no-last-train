@@ -233,8 +233,6 @@ export default function GamePage({ cityId, onBack }: Props) {
   const [stationName, setStationName] = useState('')
   const [selectedStationId, setSelectedStationId] = useState('')
   const [renameValue, setRenameValue] = useState('')
-  const [linkMode, setLinkMode] = useState(false)
-  const [linkFromId, setLinkFromId] = useState('')
   const [moveStationMode, setMoveStationMode] = useState(false)
   const [vehicleDrag, setVehicleDrag] = useState<VehicleDragState | null>(null)
   const [dragTarget, setDragTarget] = useState<DragTarget>(null)
@@ -412,33 +410,21 @@ export default function GamePage({ cityId, onBack }: Props) {
   const handleStationClick = (event: MouseEvent<SVGGElement>, stationId: string) => {
     event.stopPropagation()
     if (busy) return
-    if (linkMode) {
-      if (!selectedLineId) {
-        setError('먼저 노선을 선택해주세요.')
-        return
-      }
-      if (!linkFromId) {
-        setLinkFromId(stationId)
-        return
-      }
-      if (linkFromId === stationId) {
-        setLinkFromId('')
-        return
-      }
-      void performAction({
-        type: 'BUILD_SEGMENT',
-        lineId: selectedLineId,
-        fromStationId: linkFromId,
-        toStationId: stationId,
-      }).then(next => {
-        // 연결 성공 시 방금 이은 역에서 이어서 연결 가능
-        setLinkFromId(next ? stationId : '')
-      })
-      return
-    }
     const station = stationById.get(stationId)
+    const prevSelectedId = selectedStationId
     setSelectedStationId(stationId)
     setRenameValue(station?.name ?? '')
+    // 역 두 개를 연달아 클릭하면 선택된 노선으로 바로 연결 (성공 시 두 번째 역에서 체인 계속)
+    if (!prevSelectedId || prevSelectedId === stationId || !selectedLine) return
+    const fromOnLine = lineHasStation(selectedLine, prevSelectedId)
+    const toOnLine = lineHasStation(selectedLine, stationId)
+    if (fromOnLine && toOnLine) return // 둘 다 이미 노선 위 — 단순 재선택으로 취급
+    void performAction({
+      type: 'BUILD_SEGMENT',
+      lineId: selectedLine.id,
+      fromStationId: prevSelectedId,
+      toStationId: stationId,
+    })
   }
 
   const handleMapClick = (event: MouseEvent<SVGSVGElement>) => {
@@ -446,7 +432,12 @@ export default function GamePage({ cityId, onBack }: Props) {
       suppressMapClick.current = false
       return
     }
-    if (busy || (!stationBuildMode && !moveStationMode)) return
+    if (busy) return
+    if (!stationBuildMode && !moveStationMode) {
+      // 빈 지도 클릭 → 역 선택 해제 (연속 클릭 연결 시작점도 초기화)
+      setSelectedStationId('')
+      return
+    }
     const svg = mapRef.current
     const matrix = svg?.getScreenCTM()
     if (!svg || !matrix) return
@@ -781,8 +772,6 @@ export default function GamePage({ cityId, onBack }: Props) {
               onClick={() => {
                 setMoveStationMode(current => !current)
                 setStationBuildMode(false)
-                setLinkMode(false)
-                setLinkFromId('')
                 setError(null)
               }}
               disabled={busy}
@@ -825,30 +814,11 @@ export default function GamePage({ cityId, onBack }: Props) {
                 aria-pressed={stationBuildMode}
                 onClick={() => {
                   setStationBuildMode(current => !current)
-                  setLinkMode(false)
-                  setLinkFromId('')
                   setMoveStationMode(false)
                   setSelectedVehicleId('')
                   setError(null)
                 }}
               >＋ 역 짓기</button>
-              <button
-                className={linkMode ? styles.stationBuilderActive : ''}
-                aria-pressed={linkMode}
-                onClick={() => {
-                  setLinkMode(current => !current)
-                  setLinkFromId('')
-                  setStationBuildMode(false)
-                  setMoveStationMode(false)
-                  setSelectedVehicleId('')
-                  setError(null)
-                }}
-              >⤳ 선로 잇기</button>
-              {linkMode && (
-                <div>
-                  <small>{linkFromId ? '연결할 다음 역 클릭' : `${selectedLine?.name ?? '노선'}에 이을 첫 역 클릭`}</small>
-                </div>
-              )}
               {stationBuildMode && (
                 <div>
                   <input
@@ -976,8 +946,7 @@ export default function GamePage({ cityId, onBack }: Props) {
               const isBusStop = busOnlyStationIds.has(station.id)
               const isCurrentVehicleStation = selectedVehicle?.currentStationId === station.id
               const isDropTarget = dragTarget?.kind === 'STATION' && dragTarget.id === station.id
-              const highlighted = isCurrentVehicleStation || isDropTarget
-                || station.id === linkFromId || (!linkMode && station.id === selectedStationId)
+              const highlighted = isCurrentVehicleStation || isDropTarget || station.id === selectedStationId
               return (
                 <g
                   key={station.id}
