@@ -268,7 +268,7 @@
 
 .page {
   display: grid;
-  grid-template-columns: minmax(292px, 324px) minmax(0, 1fr);
+  grid-template-columns: minmax(344px, 380px) minmax(0, 1fr);
   width: 100%;
   height: 100%;
   min-height: 100svh;
@@ -526,9 +526,34 @@
 
 .liveStatus b {
   color: #3e764a;
-  font-size: 11px;
+  font-size: 15px;
   font-weight: 900;
 }
+
+.goalLiveStatus {
+  border-color: rgba(210, 145, 38, 0.48);
+  background: rgba(243, 184, 61, 0.1);
+}
+
+.goalLiveStatus .liveDot {
+  background: #dc9b27;
+  box-shadow: 0 0 0 3px rgba(220, 155, 39, 0.15);
+}
+
+.goalLiveStatus b { color: #986413; }
+
+.stoppedStatus {
+  border-color: rgba(179, 74, 56, 0.45);
+  background: rgba(179, 74, 56, 0.08);
+}
+
+.stoppedStatus .liveDot {
+  background: #b34a38;
+  box-shadow: none;
+  animation: none;
+}
+
+.stoppedStatus b { color: #9f3e2f; }
 
 .controlSection {
   margin-top: 17px;
@@ -542,6 +567,120 @@
   border-top: 0;
 }
 
+.goalSection {
+  padding-bottom: 2px;
+}
+
+.goalCard {
+  padding: 11px;
+  border: 1px solid #d8cec1;
+  border-radius: 8px;
+  background: linear-gradient(145deg, #fff 0%, #f7f1e8 100%);
+}
+
+.goalCardReached {
+  border-color: rgba(210, 145, 38, 0.5);
+  background: linear-gradient(145deg, #fffaf0 0%, #f8e8c8 100%);
+}
+
+.goalCardTop {
+  display: grid;
+  gap: 3px;
+}
+
+.goalCardTop > span {
+  color: #d36e39;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+}
+
+.goalCardTop b {
+  color: #332d28;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.goalCardTop small {
+  color: #8c8278;
+  font-size: 11px;
+}
+
+.progressTrack,
+.happinessTrack {
+  height: 6px;
+  margin-top: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e4ddd3;
+}
+
+.progressTrack i,
+.happinessTrack i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #e9783c, #efb240);
+  transition: width 0.4s ease;
+}
+
+.goalCardReached .progressTrack i { background: #d69a2d; }
+
+.goalCard p {
+  margin-top: 7px;
+  color: #7b7167;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.economyGrid {
+  display: grid;
+  grid-template-columns: 1.35fr 0.65fr;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.economyGrid > span {
+  display: grid;
+  gap: 3px;
+  padding: 8px 9px;
+  border: 1px solid #ded6cc;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.economyGrid small {
+  color: #91877d;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.economyGrid b {
+  color: #3a342e;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.happinessTrack {
+  height: 4px;
+  margin-top: 6px;
+}
+
+.happinessTrack i { background: linear-gradient(90deg, #d7a132, #5a9a67); }
+
+.dangerValue { color: #b34a38 !important; }
+
+.riskWarning {
+  margin-top: 7px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  background: rgba(179, 74, 56, 0.09);
+  color: #a24334;
+  font-size: 11px;
+  font-weight: 900;
+}
+
 .sectionHeading {
   display: flex;
   align-items: center;
@@ -552,8 +691,8 @@
 .sectionHeading > span {
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   background: var(--gp-surface-chip);
   color: var(--gp-text-accent-chip);
@@ -602,12 +741,12 @@
 
 .newLineRow button {
   flex: 1;
-  min-height: 26px;
+  min-height: 32px;
   border: 1px dashed rgba(58, 52, 46, 0.4);
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.6);
   color: #504942;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 800;
 }
 
@@ -623,7 +762,7 @@
 }
 
 .lineTabs span {
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 900;
 }
 
@@ -642,7 +781,7 @@
   border-radius: 6px;
   background: var(--gp-surface);
   color: #b34a38;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 800;
 }
 
@@ -922,7 +1061,7 @@
   border-radius: 7px;
   background: rgba(79, 142, 92, 0.08);
   color: #39754a;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 900;
 }
 
@@ -964,7 +1103,7 @@
   border-radius: 6px;
   background: var(--gp-surface);
   color: #b34836;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 800;
 }
 
@@ -1039,7 +1178,7 @@
   border-radius: 7px;
   background: rgba(79, 142, 92, 0.06);
   color: #4d7455;
-  font-size: 8px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -1063,7 +1202,7 @@
   border-color: rgba(181, 70, 50, 0.3);
   background: rgba(181, 70, 50, 0.06);
   color: #a04434;
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -1079,7 +1218,7 @@
 }
 
 .hudTop {
-  min-height: 58px;
+  min-height: 72px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1200,7 +1339,7 @@
 .stationBuilder input {
   min-width: 0;
   width: 100%;
-  height: 25px;
+  height: 30px;
   padding: 0 7px;
   border: 1px solid var(--gp-border-station-input);
   border-radius: 4px;
@@ -1219,7 +1358,7 @@
 .zoomControls {
   display: flex;
   align-items: center;
-  height: 30px;
+  height: 36px;
   overflow: hidden;
   border: 1px solid var(--gp-border-overlay);
   border-radius: 6px;
@@ -1228,12 +1367,12 @@
 }
 
 .zoomControls button {
-  min-width: 30px;
+  min-width: 36px;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
-  font-size: 14px;
+  font-size: 18px;
 }
 
 .zoomControls button:hover {
@@ -1352,13 +1491,37 @@
   pointer-events: none;
 }
 
-.personDot,
-.personDotWarm {
-  fill: var(--gp-person);
+.personDot {
+  fill: #33475c;
+  stroke: rgba(255, 255, 255, 0.86);
+  stroke-width: 0.12;
+  filter: drop-shadow(0 0.28px 0.28px rgba(34, 30, 26, 0.28));
 }
 
-.personDotWarm {
+.personWalking {
+  fill: #33475c;
+}
+
+.personWalking.personDotWarm {
   fill: #d46b3a;
+}
+
+.personWaiting {
+  fill: #efb63f;
+  stroke: #fff8e5;
+  stroke-width: 0.22;
+  animation: citizenWaitPulse 0.9s ease-in-out infinite alternate;
+}
+
+.personBoarding {
+  fill: #8b8177;
+  stroke: #fff;
+  stroke-width: 0.3;
+}
+
+@keyframes citizenWaitPulse {
+  from { opacity: 0.56; }
+  to { opacity: 1; }
 }
 
 .river {
@@ -1663,7 +1826,7 @@
 
 .stationLegend {
   position: absolute;
-  top: 55px;
+  top: 60px;
   left: 14px;
   display: flex;
   gap: 11px;
@@ -1684,7 +1847,28 @@
 
 .zoneLegend {
   position: absolute;
-  top: 89px;
+  top: 100px;
+  left: 14px;
+  display: flex;
+  gap: 11px;
+  padding: 8px 10px;
+  border: 1px solid rgba(67, 60, 54, 0.24);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #746c63;
+  font-size: 10px;
+  backdrop-filter: blur(8px);
+}
+
+.zoneLegend span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.mobilityLegend {
+  position: absolute;
+  top: 123px;
   left: 14px;
   display: flex;
   gap: 11px;
@@ -1697,10 +1881,37 @@
   backdrop-filter: blur(8px);
 }
 
-.zoneLegend span {
+.mobilityLegend span {
   display: flex;
   align-items: center;
   gap: 5px;
+}
+
+.walkingCitizenMark,
+.waitingCitizenMark,
+.boardingCitizenMark {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.walkingCitizenMark {
+  background: #33475c;
+  border: 1px solid #fff;
+  box-shadow: 0 0 0 1px rgba(51, 71, 92, 0.22);
+}
+
+.waitingCitizenMark {
+  background: #efb63f;
+  border: 1px solid #fff8e5;
+  box-shadow: 0 0 0 1px rgba(216, 144, 47, 0.45);
+}
+
+.boardingCitizenMark {
+  background: #8b8177;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(87, 78, 69, 0.35);
 }
 
 .zoneMarkResidential,
@@ -1756,9 +1967,113 @@
   box-shadow: inset 0 0 0 2px var(--gp-mark-bg), inset 0 0 0 4px var(--gp-station-stroke);
 }
 
+.gameOverOverlay {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(31, 27, 23, 0.68);
+  backdrop-filter: blur(6px);
+}
+
+.gameOverCard {
+  width: min(470px, 100%);
+  padding: 30px;
+  border: 1px solid #2d2823;
+  border-radius: 14px;
+  background: #fcfaf6;
+  box-shadow: 12px 12px 0 rgba(25, 21, 18, 0.28);
+  text-align: center;
+}
+
+.gameOverEyebrow {
+  color: #ba543b;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+}
+
+.gameOverCard h2 {
+  margin-top: 7px;
+  color: #2b2520;
+  font: 900 34px/1 var(--font);
+  letter-spacing: -0.04em;
+}
+
+.gameOverReason {
+  max-width: 350px;
+  margin: 14px auto 0;
+  color: #6c6259;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.65;
+}
+
+.gameOverStats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 21px;
+}
+
+.gameOverStats span {
+  display: grid;
+  gap: 5px;
+  padding: 12px 8px;
+  border: 1px solid #ddd3c8;
+  border-radius: 8px;
+  background: #f5f0e9;
+}
+
+.gameOverStats small {
+  color: #94887d;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.gameOverStats b {
+  color: #332d28;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.restartHint {
+  margin-top: 15px;
+  color: #8a8076;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.gameOverActions {
+  display: grid;
+  grid-template-columns: 0.7fr 1.3fr;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.gameOverActions button {
+  min-height: 42px;
+  border: 1px solid #8c8278;
+  border-radius: 7px;
+  background: #fff;
+  color: #574f48;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.gameOverActions .restartButton {
+  border-color: #322c27;
+  background: #e9783c;
+  color: #2a241f;
+}
+
+.gameOverActions button:disabled { opacity: 0.55; }
+
 @media (max-width: 900px) {
   .page {
-    grid-template-columns: 276px minmax(0, 1fr);
+    grid-template-columns: 320px minmax(0, 1fr);
   }
 
   .controlRoom {
@@ -1776,6 +2091,7 @@
     justify-content: space-between;
     gap: 6px;
     font-size: 11px;
+    flex-wrap: wrap;
   }
 }
 
@@ -1823,8 +2139,14 @@
 @media (max-width: 420px) {
   .hudStats {
     display: grid;
-    grid-template-columns: repeat(3, auto) minmax(112px, auto);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .tickNumber { min-width: 0; }
+
+  .gameOverCard { padding: 24px 16px; }
+
+  .gameOverStats { grid-template-columns: 1fr; }
 
   .vehicleList {
     grid-template-columns: 1fr;

@@ -64,9 +64,18 @@ export type GameCity = {
   mapKey: string
   seed: number
   seasonDay: number
-  status: 'ACTIVE' | 'SEASON_ENDED'
+  status: 'ACTIVE' | 'SEASON_ENDED' | 'GAME_OVER'
   currentTick: number
   lastTickAt: string
+  cashBalance: number
+  totalRevenue: number
+  revenueGoal: number
+  happiness: number
+  score: number
+  insolvencyTicks: number
+  unhappyTicks: number
+  gameOverReason: 'BANKRUPT' | 'HAPPINESS' | null
+  goalReachedAtTick: number | null
   stations: Station[]
   lines: GameLine[]
   events: Array<{
@@ -83,6 +92,11 @@ export type GameCity = {
     passengersTransported: number
     avgCongestion: number
     serviceScore: number
+    revenue: number
+    operatingCost: number
+    cashBalance: number
+    happiness: number
+    score: number
   }>
 }
 
@@ -91,6 +105,22 @@ export type CityState = {
   elapsedGameHours: number
   stationStats: StationStat[]
   isOwner: boolean
+  economyRules: {
+    buildCosts: {
+      station: number
+      subwayLine: number
+      busLine: number
+      subwaySegmentBase: number
+      busSegmentBase: number
+      subwaySegmentPerMapUnit: number
+      busSegmentPerMapUnit: number
+    }
+    buildDebtLimit: number
+    bankruptLimit: number
+    criticalHappiness: number
+    gameOverGraceTicks: number
+    goalRewardCash: number
+  }
 }
 
 export type PolicyType = 'CONGESTION_RESPONSE' | 'PASSENGER_PRIORITY' | 'SUPPORT_CONDITION'
@@ -115,7 +145,7 @@ export type PolicyParseResult =
 export type TickHighlight = {
   tickNumber: number
   gameTimeHour: number
-  type: 'CONGESTION' | 'AI_ACTION' | 'EVENT' | 'SUPPORT'
+  type: 'CONGESTION' | 'AI_ACTION' | 'EVENT' | 'SUPPORT' | 'GOAL'
   description: string
   severity: 'INFO' | 'WARNING' | 'CRITICAL'
 }
@@ -123,8 +153,15 @@ export type TickHighlight = {
 export type SimResult = {
   ticksProcessed: number
   totalTransported: number
+  revenueEarned: number
+  operatingCost: number
   peakCongestion: number
   serviceScore: number
+  cashBalance: number
+  happiness: number
+  score: number
+  goalReached: boolean
+  gameOverReason: 'BANKRUPT' | 'HAPPINESS' | null
   actionsFired: Array<{ description: string; actionType: ActionType }>
   highlights: TickHighlight[]
 }
@@ -172,6 +209,7 @@ export function advanceCity(cityId: string, playerToken?: string) {
 }
 
 export type CityAction =
+  | { type: 'RESET_CITY' }
   | { type: 'BUILD_STATION'; name: string; posX: number; posY: number }
   | { type: 'RENAME_STATION'; stationId: string; name: string }
   | { type: 'MOVE_STATION'; stationId: string; posX: number; posY: number }

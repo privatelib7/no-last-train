@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { authorizeCityAccess } from '@/lib/access'
+import { ECONOMY, lineBuildCost, segmentBuildCost, stationInsertCost, vehiclePurchaseCost } from '@/lib/economy'
+import type { Prisma } from '@prisma/client'
 import { z } from 'zod'
 
 const ActionSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('RESET_CITY') }),
   z.object({
     type: z.literal('BUILD_STATION'),
     name: z.string().trim().min(1).max(12),
@@ -81,6 +84,29 @@ const ActionSchema = z.discriminatedUnion('type', [
   }),
 ])
 
+class ConstructionFundsError extends Error {}
+
+async function runPaidConstruction<T>(
+  cityId: string,
+  cost: number,
+  operation: (tx: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  return db.$transaction(async tx => {
+    const charged = await tx.city.updateMany({
+      where: {
+        id: cityId,
+        status: 'ACTIVE',
+        cashBalance: { gte: cost + ECONOMY.BUILD_DEBT_LIMIT },
+      },
+      data: { cashBalance: { decrement: cost } },
+    })
+    if (charged.count === 0) {
+      throw new ConstructionFundsError('공사 후 운영자금이 대출 한도(-2,500만 원)를 넘습니다.')
+    }
+    return operation(tx)
+  })
+}
+
 // 차고지를 현재 차고지와 가까운 쪽 종점의 연장선상으로 재배치한다.
 // 노선 구성이 바뀌는 모든 액션(연장·역 제거·역 이동) 후에 호출할 것.
 async function repositionDepot(lineId: string) {
@@ -122,6 +148,39 @@ export async function POST(
   }
   const action = parsed.data
 
+  if (action.type === 'RESET_CITY') {
+    const city = await db.city.findUnique({ where: { id } })
+    if (!city) return NextResponse.json({ error: '도시를 찾을 수 없습니다.' }, { status: 404 })
+    await db.$transaction([
+      db.passenger.deleteMany({ where: { cityId: id } }),
+      db.city.update({
+        where: { id },
+        data: {
+          status: 'ACTIVE',
+          lastTickAt: new Date(),
+          cashBalance: ECONOMY.INITIAL_CASH,
+          totalRevenue: 0,
+          revenueGoal: ECONOMY.REVENUE_GOAL,
+          happiness: ECONOMY.INITIAL_HAPPINESS,
+          score: 0,
+          insolvencyTicks: 0,
+          unhappyTicks: 0,
+          gameOverReason: null,
+          goalReachedAtTick: null,
+        },
+      }),
+    ])
+    return NextResponse.json({ message: '같은 도시와 노선을 유지한 채 새 경영을 시작했습니다.' })
+  }
+
+  const city = await db.city.findUnique({ where: { id }, select: { status: true } })
+  if (!city) return NextResponse.json({ error: '도시를 찾을 수 없습니다.' }, { status: 404 })
+  if (city.status !== 'ACTIVE') {
+    return NextResponse.json({ error: '게임이 종료되었습니다. 다시 시작한 뒤 운영해주세요.' }, { status: 409 })
+  }
+
+  try {
+
   if (action.type === 'BUILD_STATION') {
     const stationCount = await db.station.count({ where: { cityId: id } })
     if (stationCount >= 30) {
@@ -129,7 +188,7 @@ export async function POST(
     }
     const duplicate = await db.station.findFirst({ where: { cityId: id, name: action.name } })
     if (duplicate) return NextResponse.json({ error: '같은 이름의 역이 이미 있습니다.' }, { status: 409 })
-    const station = await db.station.create({
+    const station = await runPaidConstruction(id, ECONOMY.BUILD_COST.STATION, tx => tx.station.create({
       data: {
         cityId: id,
         name: action.name,
@@ -138,8 +197,8 @@ export async function POST(
         posX: action.posX,
         posY: action.posY,
       },
-    })
-    const message = `${station.name}을 건설했습니다.`
+    }))
+    const message = `${station.name}을 건설했습니다. (800만 원)`
     await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
     return NextResponse.json({ message, station })
   }
@@ -164,20 +223,24 @@ export async function POST(
     const color = COLORS
       .map(candidate => ({ candidate, count: lines.filter(item => item.color === candidate).length }))
       .sort((a, b) => a.count - b.count)[0].candidate
-    const created = await db.line.create({
-      data: { cityId: id, mode: action.mode, name, color, depotX: 50, depotY: 50 },
-    })
-    await db.vehicle.create({
-      data: {
-        lineId: created.id,
-        capacity: action.mode === 'BUS' ? 60 : 120,
-        status: 'SPARE',
-        isSpare: true,
-        headwayMinutes: 6,
-      },
+    const cost = lineBuildCost(action.mode)
+    const created = await runPaidConstruction(id, cost, async tx => {
+      const nextLine = await tx.line.create({
+        data: { cityId: id, mode: action.mode, name, color, depotX: 50, depotY: 50 },
+      })
+      await tx.vehicle.create({
+        data: {
+          lineId: nextLine.id,
+          capacity: action.mode === 'BUS' ? 60 : 120,
+          status: 'SPARE',
+          isSpare: true,
+          headwayMinutes: 6,
+        },
+      })
+      return nextLine
     })
     return NextResponse.json({
-      message: `${name} 노선을 만들었습니다. 역 두 개를 연달아 클릭해 선로를 부설하세요.`,
+      message: `${name} 노선을 만들었습니다. (${action.mode === 'BUS' ? '600만' : '2,000만'} 원) 역 두 개를 연달아 클릭해 선로를 부설하세요.`,
       line: created,
     })
   }
@@ -257,6 +320,10 @@ export async function POST(
     const memberships = line.lineStations
     const onLine = fromMembership ?? toMembership
     const newStationId = fromMembership ? action.toStationId : action.fromStationId
+    const [fromStation, toStation] = [action.fromStationId, action.toStationId]
+      .map(stationId => stations.find(station => station.id === stationId)!)
+    const distance = Math.hypot(fromStation.posX - toStation.posX, fromStation.posY - toStation.posY)
+    const cost = segmentBuildCost(line.mode, distance)
     if (memberships.length > 0) {
       if (!onLine) {
         return NextResponse.json(
@@ -273,35 +340,33 @@ export async function POST(
         )
       }
       if (isLast) {
-        await db.lineStation.create({
+        await runPaidConstruction(id, cost, tx => tx.lineStation.create({
           data: { lineId: line.id, stationId: newStationId, order: memberships[memberships.length - 1].order + 1 },
-        })
+        }))
       } else {
-        await db.$transaction([
-          db.lineStation.updateMany({
+        await runPaidConstruction(id, cost, async tx => {
+          await tx.lineStation.updateMany({
             where: { lineId: line.id },
             data: { order: { increment: 1 } },
-          }),
-          db.lineStation.create({
+          })
+          return tx.lineStation.create({
             data: { lineId: line.id, stationId: newStationId, order: memberships[0].order },
-          }),
-        ])
+          })
+        })
       }
     } else {
-      await db.lineStation.createMany({
+      await runPaidConstruction(id, cost, tx => tx.lineStation.createMany({
         data: [
           { lineId: line.id, stationId: action.fromStationId, order: 0 },
           { lineId: line.id, stationId: action.toStationId, order: 1 },
         ],
-      })
+      }))
     }
 
     // 차고지는 노선 종점을 따라간다
     await repositionDepot(line.id)
 
-    const [fromStation, toStation] = [action.fromStationId, action.toStationId]
-      .map(stationId => stations.find(station => station.id === stationId)!)
-    const message = `${fromStation.name}–${toStation.name} 구간을 ${line.name}에 건설했습니다.`
+    const message = `${fromStation.name}–${toStation.name} 구간을 ${line.name}에 건설했습니다. (${formatWon(cost)})`
     await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
     return NextResponse.json({ message })
   }
@@ -321,16 +386,17 @@ export async function POST(
     const station = await db.station.findFirst({ where: { id: action.stationId, cityId: id } })
     if (!station) return NextResponse.json({ error: '역을 찾을 수 없습니다.' }, { status: 404 })
     const insertAt = Math.min(fromMembership.order, toMembership.order) + 1
-    await db.$transaction([
-      db.lineStation.updateMany({
+    const cost = stationInsertCost(line.mode)
+    await runPaidConstruction(id, cost, async tx => {
+      await tx.lineStation.updateMany({
         where: { lineId: line.id, order: { gte: insertAt } },
         data: { order: { increment: 1 } },
-      }),
-      db.lineStation.create({
+      })
+      return tx.lineStation.create({
         data: { lineId: line.id, stationId: action.stationId, order: insertAt },
-      }),
-    ])
-    return NextResponse.json({ message: `${line.name}이 ${station.name}을 경유하도록 변경했습니다.` })
+      })
+    })
+    return NextResponse.json({ message: `${line.name}이 ${station.name}을 경유하도록 변경했습니다. (${formatWon(cost)})` })
   }
 
   if (action.type === 'DETACH_STATION') {
@@ -381,15 +447,15 @@ export async function POST(
           where: { id: spare.id },
           data: { status: 'OPERATING', isSpare: false, currentStationId: stationId, direction: 1 },
         })
-      : await db.vehicle.create({
+      : await runPaidConstruction(id, vehiclePurchaseCost(line.mode), tx => tx.vehicle.create({
           data: {
             lineId: line.id,
-            capacity: 120,
+            capacity: line.mode === 'BUS' ? 60 : 120,
             status: 'OPERATING',
             currentStationId: stationId,
             direction: 1,
           },
-        })
+        }))
     const station = await db.station.findUniqueOrThrow({ where: { id: stationId } })
     const message = `${line.name} 차량을 ${station.name}에 배치했습니다.`
     await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
@@ -458,4 +524,14 @@ export async function POST(
   const message = `${line.name} 차량 1대를 제거했습니다.`
   await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
   return NextResponse.json({ message })
+  } catch (error) {
+    if (error instanceof ConstructionFundsError) {
+      return NextResponse.json({ error: error.message }, { status: 409 })
+    }
+    throw error
+  }
+}
+
+function formatWon(value: number): string {
+  return `${Math.round(value / 10_000).toLocaleString('ko-KR')}만 원`
 }

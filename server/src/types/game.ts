@@ -30,8 +30,15 @@ export interface StationSnapshot {
 export interface SimResult {
   ticksProcessed: number
   totalTransported: number
+  revenueEarned: number
+  operatingCost: number
   peakCongestion: number
   serviceScore: number
+  cashBalance: number
+  happiness: number
+  score: number
+  goalReached: boolean
+  gameOverReason: 'BANKRUPT' | 'HAPPINESS' | null
   actionsFired: Array<{ description: string; actionType: string }>
   highlights: TickHighlight[]  // 주요 순간 최대 3개
 }
@@ -39,7 +46,7 @@ export interface SimResult {
 export interface TickHighlight {
   tickNumber: number
   gameTimeHour: number
-  type: 'CONGESTION' | 'AI_ACTION' | 'EVENT' | 'SUPPORT'
+  type: 'CONGESTION' | 'AI_ACTION' | 'EVENT' | 'SUPPORT' | 'GOAL'
   description: string
   severity: 'INFO' | 'WARNING' | 'CRITICAL'
 }

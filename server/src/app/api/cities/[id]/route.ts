@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { SIM } from '@/types/game'
 import { syncCityClock } from '@/lib/simulation'
 import { authorizeCityAccess, authorizeCityOwner } from '@/lib/access'
+import { ECONOMY } from '@/lib/economy'
 import { z } from 'zod'
 
 const UpdateCitySchema = z.object({
@@ -70,7 +71,28 @@ export async function GET(
   const elapsedGameHours = elapsedMs / SIM.LIVE_TICK_MS / SIM.TICKS_PER_GAME_HOUR
   const isOwner = city.lines.some(line => line.playerId === auth.player.id)
 
-  return NextResponse.json({ city, elapsedGameHours, stationStats, isOwner })
+  return NextResponse.json({
+    city,
+    elapsedGameHours,
+    stationStats,
+    isOwner,
+    economyRules: {
+      buildCosts: {
+        station: ECONOMY.BUILD_COST.STATION,
+        subwayLine: ECONOMY.BUILD_COST.SUBWAY_LINE,
+        busLine: ECONOMY.BUILD_COST.BUS_LINE,
+        subwaySegmentBase: ECONOMY.BUILD_COST.SUBWAY_SEGMENT_BASE,
+        busSegmentBase: ECONOMY.BUILD_COST.BUS_SEGMENT_BASE,
+        subwaySegmentPerMapUnit: ECONOMY.BUILD_COST.SUBWAY_SEGMENT_PER_MAP_UNIT,
+        busSegmentPerMapUnit: ECONOMY.BUILD_COST.BUS_SEGMENT_PER_MAP_UNIT,
+      },
+      buildDebtLimit: ECONOMY.BUILD_DEBT_LIMIT,
+      bankruptLimit: ECONOMY.BANKRUPT_LIMIT,
+      criticalHappiness: ECONOMY.CRITICAL_HAPPINESS,
+      gameOverGraceTicks: ECONOMY.GAME_OVER_GRACE_TICKS,
+      goalRewardCash: ECONOMY.GOAL_REWARD_CASH,
+    },
+  })
 }
 
 // PATCH /api/cities/[id] — 방제목 변경 (관제장만)

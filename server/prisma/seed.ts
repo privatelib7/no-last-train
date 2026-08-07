@@ -191,8 +191,8 @@ async function main() {
     await db.$transaction([
       db.city.update({
         where: { id: existing.id },
+        // 개발 서버 재시작이 GAME OVER 상태를 임의로 되살리지 않도록 시계만 동기화한다.
         data: {
-          status: 'ACTIVE',
           lastTickAt: new Date(),
           roomTitle: existing.roomTitle === '운영실' ? '데모 운영실' : existing.roomTitle,
         },

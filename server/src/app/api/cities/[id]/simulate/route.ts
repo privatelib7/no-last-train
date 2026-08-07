@@ -32,8 +32,15 @@ export async function POST(
   return NextResponse.json(result ?? {
     ticksProcessed: 0,
     totalTransported: 0,
+    revenueEarned: 0,
+    operatingCost: 0,
     peakCongestion: 0,
     serviceScore: 100,
+    cashBalance: city.cashBalance,
+    happiness: city.happiness,
+    score: city.score,
+    goalReached: city.goalReachedAtTick !== null,
+    gameOverReason: city.gameOverReason,
     actionsFired: [],
     highlights: [],
   })
