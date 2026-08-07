@@ -1,3 +1,271 @@
+.page,
+.loadingPage {
+  /* Surfaces */
+  --gp-page-bg: #f3efe8;
+  --gp-loading-bg: #f2efe9;
+  --gp-control-bg: #fcfbf8;
+  --gp-stage-bg: #f6f3ed;
+  --gp-surface: #ffffff;
+  --gp-surface-soft: #f8f5f0;
+  --gp-surface-muted: #f1ece4;
+  --gp-surface-hover: #f2eee7;
+  --gp-surface-selected: #faf6f0;
+  --gp-surface-chip: #eee9e1;
+  --gp-surface-store: #f4f0ea;
+  --gp-surface-tick: #f7f3ed;
+  --gp-hud-bg: rgba(255, 255, 255, 0.92);
+  --gp-map-bg: #dbe9ed;
+  --gp-overlay: rgba(255, 255, 255, 0.9);
+  --gp-overlay-strong: rgba(255, 255, 255, 0.92);
+  --gp-overlay-soft: rgba(255, 255, 255, 0.86);
+  --gp-overlay-faint: rgba(255, 255, 255, 0.82);
+  --gp-ghost-bg: rgba(255, 255, 255, 0.94);
+  --gp-zoom-hover: #eee8df;
+  --gp-active-bg: #ed8954;
+  --gp-accent: #e9783c;
+  --gp-accent-hover: #d86c36;
+  --gp-accent-solid: #e07b35;
+
+  /* Text */
+  --gp-text: #28231f;
+  --gp-text-strong: #27221e;
+  --gp-text-secondary: #4d463f;
+  --gp-text-body: #3d3731;
+  --gp-text-card: #3c3630;
+  --gp-text-input: #403a34;
+  --gp-text-muted: #716b62;
+  --gp-text-soft: #8b837a;
+  --gp-text-faint: #968e84;
+  --gp-text-label: #8a8278;
+  --gp-text-hint: #9b9389;
+  --gp-text-button: #665f57;
+  --gp-text-control: #37312b;
+  --gp-text-icon: #b5ada3;
+  --gp-text-depot: #7f776e;
+  --gp-text-depot-empty: #a59b91;
+  --gp-text-depot-title: #4f4841;
+  --gp-text-depot-sub: #9a9187;
+  --gp-text-hud: #5a534c;
+  --gp-text-hud-label: #958c82;
+  --gp-text-hud-value: #3b3530;
+  --gp-text-tick: #29241f;
+  --gp-text-zoom: #6d655d;
+  --gp-text-builder: #504942;
+  --gp-text-builder-hint: #827a71;
+  --gp-text-legend: #746c63;
+  --gp-text-ghost: #3f3933;
+  --gp-text-step: #756d64;
+  --gp-text-store: #6b6259;
+  --gp-text-on-active: #29231f;
+  --gp-text-on-active-alt: #2d2722;
+  --gp-text-on-active-btn: #2e2823;
+  --gp-text-accent: #d86c36;
+  --gp-text-accent-chip: #d96f3a;
+  --gp-text-accent-hover: #c45f20;
+
+  /* Borders */
+  --gp-border: #d9d2c8;
+  --gp-border-soft: #d8d0c6;
+  --gp-border-dashed: #d8d0c7;
+  --gp-border-muted: #d4ccc2;
+  --gp-border-input: #bdb5ab;
+  --gp-border-mid: #c8c0b6;
+  --gp-border-form: #ded7ce;
+  --gp-border-depot: #cfc6bb;
+  --gp-border-strong: #37312b;
+  --gp-border-btn: #4c453e;
+  --gp-border-dark: #36302b;
+  --gp-border-active: #302a25;
+  --gp-border-card: #4b443d;
+  --gp-border-card-strong: #4f4840;
+  --gp-border-focus: #4c453e;
+  --gp-border-hud: #3c3630;
+  --gp-border-tick: #bcb2a7;
+  --gp-border-station-input: #c9c0b6;
+  --gp-border-ghost: #3f3933;
+  --gp-border-ghost-mark: #45403a;
+  --gp-border-overlay: rgba(58, 52, 46, 0.36);
+  --gp-border-overlay-soft: rgba(58, 52, 46, 0.28);
+  --gp-border-legend: rgba(67, 60, 54, 0.32);
+  --gp-border-legend-soft: rgba(67, 60, 54, 0.24);
+  --gp-border-store: rgba(91, 83, 75, 0.34);
+
+  /* Shadows / relief */
+  --gp-shadow-control: 12px 0 30px rgba(41, 34, 28, 0.05);
+  --gp-relief: #e8e1d8;
+  --gp-relief-soft: #e2d8cd;
+  --gp-focus-ring: rgba(76, 69, 62, 0.08);
+  --gp-dot-glow: rgba(233, 120, 60, 0.13);
+  --gp-shadow-ghost: 4px 5px 16px rgba(43, 36, 30, 0.18);
+  --gp-shadow-legend: rgba(55, 49, 43, 0.12);
+  --gp-shadow-mobile: 0 -12px 28px rgba(41, 34, 28, 0.07);
+  --gp-train-wheel: #39332e;
+
+  /* Map */
+  --gp-sea: #dce9ed;
+  --gp-land: #f3f0e8;
+  --gp-land-alt: #eeeae1;
+  --gp-land-stroke: #b9c3bd;
+  --gp-river: #b7d7e1;
+  --gp-river-soft: rgba(108, 161, 190, 0.18);
+  --gp-mountains: #d8dfd1;
+  --gp-district: #a1a49b;
+  --gp-person: #3f5360;
+  --gp-station-fill: #fbfaf7;
+  --gp-station-stroke: #2b2722;
+  --gp-station-hover: #ffe5d5;
+  --gp-station-action: #ffd8c1;
+  --gp-map-label: #484139;
+  --gp-map-label-halo: #f6f3ed;
+  --gp-map-halo: rgba(255, 255, 255, 0.97);
+  --gp-line-shadow: rgba(255, 255, 255, 0.97);
+  --gp-line-drop: rgba(25, 20, 15, 0.13);
+  --gp-depot-fill: #fbfaf7;
+  --gp-depot-stroke: #38322d;
+  --gp-depot-rails: #4a433c;
+  --gp-depot-halo: #f3f0e8;
+  --gp-depot-count-stroke: #3d3731;
+  --gp-depot-hit: rgba(255, 255, 255, 0.5);
+  --gp-depot-hit-stroke: rgba(65, 59, 53, 0.25);
+  --gp-train-selected-stroke: #2d2823;
+  --gp-train-body-wheel: #36302b;
+  --gp-train-drop: rgba(34, 29, 24, 0.32);
+  --gp-mark-bg: #ffffff;
+}
+
+:global(html[data-theme='dark']) .page,
+:global(html[data-theme='dark']) .loadingPage {
+  --gp-page-bg: #1b1815;
+  --gp-loading-bg: #1b1815;
+  --gp-control-bg: #24211b;
+  --gp-stage-bg: #1e1b17;
+  --gp-surface: #2a251e;
+  --gp-surface-soft: #2a251e;
+  --gp-surface-muted: #322c25;
+  --gp-surface-hover: #322c25;
+  --gp-surface-selected: #322c25;
+  --gp-surface-chip: #322c25;
+  --gp-surface-store: #2a251e;
+  --gp-surface-tick: #2a251e;
+  --gp-hud-bg: rgba(36, 33, 27, 0.94);
+  --gp-overlay: rgba(36, 33, 27, 0.92);
+  --gp-overlay-strong: rgba(36, 33, 27, 0.94);
+  --gp-overlay-soft: rgba(36, 33, 27, 0.9);
+  --gp-overlay-faint: rgba(36, 33, 27, 0.86);
+  --gp-ghost-bg: rgba(36, 33, 27, 0.96);
+  --gp-zoom-hover: #322c25;
+  --gp-active-bg: #e8863f;
+  --gp-accent: #e8863f;
+  --gp-accent-hover: #d67c33;
+  --gp-accent-solid: #e8863f;
+
+  --gp-text: #f5f2ed;
+  --gp-text-strong: #f5f2ed;
+  --gp-text-secondary: #d4cfc8;
+  --gp-text-body: #e8e2da;
+  --gp-text-card: #e8e2da;
+  --gp-text-input: #f5f2ed;
+  --gp-text-muted: #b5aea4;
+  --gp-text-soft: #b5aea4;
+  --gp-text-faint: #8a8279;
+  --gp-text-label: #8a8279;
+  --gp-text-hint: #8a8279;
+  --gp-text-button: #b5aea4;
+  --gp-text-control: #f5f2ed;
+  --gp-text-icon: #8a8279;
+  --gp-text-depot: #b5aea4;
+  --gp-text-depot-empty: #8a8279;
+  --gp-text-depot-title: #f5f2ed;
+  --gp-text-depot-sub: #8a8279;
+  --gp-text-hud: #d4cfc8;
+  --gp-text-hud-label: #8a8279;
+  --gp-text-hud-value: #f5f2ed;
+  --gp-text-tick: #f5f2ed;
+  --gp-text-zoom: #b5aea4;
+  --gp-text-builder: #d4cfc8;
+  --gp-text-builder-hint: #8a8279;
+  --gp-text-legend: #b5aea4;
+  --gp-text-ghost: #f5f2ed;
+  --gp-text-step: #b5aea4;
+  --gp-text-store: #b5aea4;
+  --gp-text-on-active: #1a1613;
+  --gp-text-on-active-alt: #1a1613;
+  --gp-text-on-active-btn: #1a1613;
+  --gp-text-accent: #e8863f;
+  --gp-text-accent-chip: #f5a96a;
+  --gp-text-accent-hover: #f5a96a;
+
+  --gp-border: #3a342c;
+  --gp-border-soft: #3a342c;
+  --gp-border-dashed: #3a342c;
+  --gp-border-muted: #3a342c;
+  --gp-border-input: #55504a;
+  --gp-border-mid: #55504a;
+  --gp-border-form: #3a342c;
+  --gp-border-depot: #55504a;
+  --gp-border-strong: #8a8279;
+  --gp-border-btn: #55504a;
+  --gp-border-dark: #8a8279;
+  --gp-border-active: #b5aea4;
+  --gp-border-card: #8a8279;
+  --gp-border-card-strong: #b5aea4;
+  --gp-border-focus: #8a8279;
+  --gp-border-hud: #3a342c;
+  --gp-border-tick: #55504a;
+  --gp-border-station-input: #55504a;
+  --gp-border-ghost: #8a8279;
+  --gp-border-ghost-mark: #b5aea4;
+  --gp-border-overlay: rgba(245, 242, 237, 0.18);
+  --gp-border-overlay-soft: rgba(245, 242, 237, 0.14);
+  --gp-border-legend: rgba(245, 242, 237, 0.16);
+  --gp-border-legend-soft: rgba(245, 242, 237, 0.12);
+  --gp-border-store: rgba(181, 174, 164, 0.34);
+
+  --gp-shadow-control: 12px 0 30px rgba(0, 0, 0, 0.35);
+  --gp-relief: #1b1815;
+  --gp-relief-soft: #1b1815;
+  --gp-focus-ring: rgba(232, 134, 63, 0.22);
+  --gp-dot-glow: rgba(232, 134, 63, 0.22);
+  --gp-shadow-ghost: 4px 5px 16px rgba(0, 0, 0, 0.45);
+  --gp-shadow-legend: rgba(0, 0, 0, 0.35);
+  --gp-shadow-mobile: 0 -12px 28px rgba(0, 0, 0, 0.4);
+  --gp-train-wheel: #39332e;
+
+  /* 지도(맵 캔버스)는 다크모드에서도 라이트 톤 유지 */
+}
+
+/* Semantic status colors — slightly brighter text in dark for contrast on charcoal panels */
+:global(html[data-theme='dark']) .liveStatus {
+  border-color: rgba(110, 180, 125, 0.42);
+  background: rgba(79, 142, 92, 0.14);
+}
+
+:global(html[data-theme='dark']) .liveStatus b,
+:global(html[data-theme='dark']) .operationMessage,
+:global(html[data-theme='dark']) .startVehicleButton,
+:global(html[data-theme='dark']) .reopenButton,
+:global(html[data-theme='dark']) .toolToggle .reopenButton {
+  color: #8fca9a;
+}
+
+:global(html[data-theme='dark']) .operationError,
+:global(html[data-theme='dark']) .closeButton,
+:global(html[data-theme='dark']) .removeVehicleButton,
+:global(html[data-theme='dark']) .vehicleActions .removeButton,
+:global(html[data-theme='dark']) .toolToggle .closeButton {
+  color: #e08a78;
+}
+
+:global(html[data-theme='dark']) .operationMessage {
+  border-color: rgba(110, 180, 125, 0.32);
+  background: rgba(79, 142, 92, 0.12);
+}
+
+:global(html[data-theme='dark']) .operationError {
+  border-color: rgba(224, 138, 120, 0.35);
+  background: rgba(181, 70, 50, 0.14);
+}
+
 .page {
   display: grid;
   grid-template-columns: minmax(292px, 324px) minmax(0, 1fr);
@@ -6,8 +274,8 @@
   min-height: 100svh;
   min-height: 100dvh;
   overflow: hidden;
-  background: #f3efe8;
-  color: #28231f;
+  background: var(--gp-page-bg);
+  color: var(--gp-text);
 }
 
 .loadingPage {
@@ -18,9 +286,19 @@
   align-items: center;
   justify-content: center;
   gap: 12px;
-  background: #f2efe9;
-  color: #716b62;
+  background: var(--gp-loading-bg);
+  color: var(--gp-text-muted);
   font-size: 14px;
+}
+
+.accessScreen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  max-width: 360px;
+  text-align: center;
+  line-height: 1.6;
 }
 
 .loadingDot,
@@ -28,8 +306,8 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #e9783c;
-  box-shadow: 0 0 0 4px rgba(233, 120, 60, 0.13);
+  background: var(--gp-accent);
+  box-shadow: 0 0 0 4px var(--gp-dot-glow);
   animation: pulse 1.8s ease-in-out infinite;
 }
 
@@ -45,18 +323,83 @@
   height: 100%;
   overflow-y: auto;
   padding: 18px 16px 20px;
-  background: #fcfbf8;
-  border-right: 1px solid #37312b;
-  box-shadow: 12px 0 30px rgba(41, 34, 28, 0.05);
+  background: var(--gp-control-bg);
+  border-right: 1px solid var(--gp-border-strong);
+  box-shadow: var(--gp-shadow-control);
 }
 
 .controlHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--gp-border);
+}
+
+.controlHeaderTop {
   display: grid;
-  grid-template-columns: 36px 1fr;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid #d9d2c8;
+  min-width: 0;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.inviteButton,
+.notifyButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--gp-border-btn);
+  background: var(--gp-surface);
+  color: var(--gp-text-control);
+  font-size: 13px;
+  font-weight: 700;
+  transition: transform 0.15s, background 0.15s, opacity 0.15s;
+  white-space: nowrap;
+}
+
+.inviteButton svg,
+.notifyButton svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+.inviteButton:hover,
+.notifyButton:hover:not(:disabled) {
+  transform: scale(1.03);
+  background: var(--gp-surface-hover);
+}
+
+.notifyButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.accessActionBtn {
+  padding: 10px 20px;
+  border-radius: 999px;
+  border: 1px solid var(--gp-border-strong);
+  background: var(--gp-accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  transition: transform 0.15s, background 0.15s;
+}
+
+.accessActionBtn:hover {
+  transform: translateY(-1px);
+  background: var(--gp-accent-hover);
 }
 
 .backButton {
@@ -64,32 +407,102 @@
   place-items: center;
   width: 34px;
   height: 34px;
-  border: 1px solid #4c453e;
+  border: 1px solid var(--gp-border-btn);
   border-radius: 50%;
-  background: #fff;
-  color: #37312b;
+  background: var(--gp-surface);
+  color: var(--gp-text-control);
   font-size: 17px;
   transition: transform 0.15s, background 0.15s;
 }
 
 .backButton:hover {
   transform: translateX(-2px);
-  background: #f2eee7;
+  background: var(--gp-surface-hover);
 }
 
-.controlHeader span {
+.controlIdentity > span {
   display: block;
-  color: #d86c36;
+  color: var(--gp-text-accent);
   font-size: 8px;
   font-weight: 900;
   letter-spacing: 0.16em;
 }
 
+.controlIdentity {
+  min-width: 0;
+}
+
 .controlHeader h1 {
   margin-top: 2px;
-  color: #27221e;
-  font-size: 20px;
+  color: var(--gp-text-strong);
+  font-size: 18px;
   letter-spacing: -0.04em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.titleEditBtn {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border: 1px solid var(--gp-border-soft);
+  border-radius: 999px;
+  background: var(--gp-surface);
+  color: var(--gp-text-soft);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.titleEditBtn:hover {
+  border-color: var(--gp-accent-solid);
+  color: var(--gp-text-accent-hover);
+}
+
+.titleEditForm {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  min-width: 0;
+}
+
+.titleEditInput {
+  min-width: 0;
+  flex: 1;
+  padding: 4px 8px;
+  border: 1.5px solid var(--gp-accent-solid);
+  border-radius: 6px;
+  background: var(--gp-surface);
+  color: var(--gp-text-strong);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.titleSaveBtn,
+.titleCancelBtn {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.titleSaveBtn {
+  background: var(--gp-accent-solid);
+  color: #fff;
+}
+
+.titleCancelBtn {
+  border: 1px solid var(--gp-border-soft);
+  background: var(--gp-surface);
+  color: var(--gp-text-soft);
 }
 
 .liveStatus {
@@ -120,7 +533,7 @@
 .controlSection {
   margin-top: 17px;
   padding-top: 16px;
-  border-top: 1px dashed #d8d0c7;
+  border-top: 1px dashed var(--gp-border-dashed);
 }
 
 .controlSection:first-of-type {
@@ -142,14 +555,14 @@
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: #eee9e1;
-  color: #d96f3a;
+  background: var(--gp-surface-chip);
+  color: var(--gp-text-accent-chip);
   font-size: 8px;
   font-weight: 900;
 }
 
 .sectionHeading h2 {
-  color: #4d463f;
+  color: var(--gp-text-secondary);
   font-size: 11px;
   letter-spacing: 0.02em;
 }
@@ -166,18 +579,18 @@
   gap: 2px 7px;
   align-items: center;
   padding: 10px;
-  border: 1px solid #d4ccc2;
+  border: 1px solid var(--gp-border-muted);
   border-radius: 7px;
-  background: #fff;
-  color: #3d3731;
+  background: var(--gp-surface);
+  color: var(--gp-text-body);
   text-align: left;
   transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
 }
 
 .lineTabs button:hover,
 .lineTabs .lineTabActive {
-  border-color: #37312b;
-  box-shadow: 3px 3px 0 #e8e1d8;
+  border-color: var(--gp-border-strong);
+  box-shadow: 3px 3px 0 var(--gp-relief);
   transform: translate(-1px, -1px);
 }
 
@@ -194,7 +607,7 @@
 
 .lineTabs small {
   grid-column: 2;
-  color: #968e84;
+  color: var(--gp-text-faint);
   font-size: 8px;
 }
 
@@ -205,7 +618,7 @@
   margin-top: 9px;
   border: 1px solid rgba(179, 74, 56, 0.35);
   border-radius: 6px;
-  background: #fff;
+  background: var(--gp-surface);
   color: #b34a38;
   font-size: 9px;
   font-weight: 800;
@@ -227,20 +640,20 @@
 .toolToggle button,
 .modeButton {
   min-height: 34px;
-  border: 1px solid #bdb5ab;
+  border: 1px solid var(--gp-border-input);
   border-radius: 6px;
-  background: #fff;
-  color: #665f57;
+  background: var(--gp-surface);
+  color: var(--gp-text-button);
   font-size: 9px;
   font-weight: 800;
 }
 
 .toolToggle .activeTool,
 .modeButtonActive {
-  border-color: #302a25;
-  background: #ed8954;
-  color: #29231f;
-  box-shadow: 2px 2px 0 #e2d8cd;
+  border-color: var(--gp-border-active);
+  background: var(--gp-active-bg);
+  color: var(--gp-text-on-active);
+  box-shadow: 2px 2px 0 var(--gp-relief-soft);
 }
 
 .toolToggle .closeButton {
@@ -261,15 +674,15 @@
 
 .actionForm {
   padding: 9px;
-  border: 1px solid #ded7ce;
+  border: 1px solid var(--gp-border-form);
   border-radius: 7px;
-  background: #f8f5f0;
+  background: var(--gp-surface-soft);
 }
 
 .actionForm label {
   display: block;
   margin-bottom: 6px;
-  color: #8a8278;
+  color: var(--gp-text-label);
   font-size: 8px;
   font-weight: 800;
 }
@@ -285,27 +698,27 @@
   min-width: 0;
   height: 32px;
   padding: 0 8px;
-  border: 1px solid #bdb5ab;
+  border: 1px solid var(--gp-border-input);
   border-radius: 5px;
   outline: none;
-  background: #fff;
-  color: #403a34;
+  background: var(--gp-surface);
+  color: var(--gp-text-input);
   font: 500 9px var(--font);
 }
 
 .actionForm button,
 .vehicleActions button {
-  border: 1px solid #36302b;
+  border: 1px solid var(--gp-border-dark);
   border-radius: 5px;
-  background: #fff;
-  color: #39332e;
+  background: var(--gp-surface);
+  color: var(--gp-text-control);
   font-size: 9px;
   font-weight: 800;
 }
 
 .actionForm button:hover:not(:disabled),
 .vehicleActions button:hover:not(:disabled) {
-  background: #ed8954;
+  background: var(--gp-active-bg);
 }
 
 .actionForm button:disabled,
@@ -318,7 +731,7 @@
 .actionForm > small {
   display: block;
   margin-top: 6px;
-  color: #9b9389;
+  color: var(--gp-text-hint);
   font-size: 8px;
 }
 
@@ -342,9 +755,9 @@
   gap: 8px;
   width: 100%;
   padding: 7px 8px;
-  border: 1px solid #d8d0c7;
+  border: 1px solid var(--gp-border-dashed);
   border-radius: 7px;
-  background: #fff;
+  background: var(--gp-surface);
   text-align: left;
   transition: border-color 0.15s, background 0.15s;
   cursor: grab;
@@ -352,7 +765,7 @@
 }
 
 .dragHandle {
-  color: #b5ada3;
+  color: var(--gp-text-icon);
   font-size: 16px;
   line-height: 1;
   cursor: grab;
@@ -362,17 +775,17 @@
   width: 100%;
   height: 34px;
   padding: 0 10px;
-  border: 1px solid #c8c0b6;
+  border: 1px solid var(--gp-border-mid);
   border-radius: 6px;
   outline: none;
-  background: #fff;
-  color: #3e3832;
+  background: var(--gp-surface);
+  color: var(--gp-text-body);
   font: 700 10px var(--font);
 }
 
 .stationNameInput:focus {
-  border-color: #4c453e;
-  box-shadow: 0 0 0 3px rgba(76, 69, 62, 0.08);
+  border-color: var(--gp-border-focus);
+  box-shadow: 0 0 0 3px var(--gp-focus-ring);
 }
 
 .buildTools {
@@ -384,20 +797,20 @@
 
 .buildTools button {
   min-height: 34px;
-  border: 1px solid #bdb5ab;
+  border: 1px solid var(--gp-border-input);
   border-radius: 6px;
-  background: #fff;
-  color: #665f57;
+  background: var(--gp-surface);
+  color: var(--gp-text-button);
   font-size: 9px;
   font-weight: 800;
 }
 
 .buildTools button:hover:not(:disabled),
 .buildTools .activeTool {
-  border-color: #302a25;
-  background: #ed8954;
-  color: #29231f;
-  box-shadow: 2px 2px 0 #e2d8cd;
+  border-color: var(--gp-border-active);
+  background: var(--gp-active-bg);
+  color: var(--gp-text-on-active);
+  box-shadow: 2px 2px 0 var(--gp-relief-soft);
 }
 
 .buildTools button:disabled {
@@ -408,16 +821,16 @@
   margin-top: 7px;
   padding: 7px 9px;
   border-radius: 5px;
-  background: #f1ece4;
-  color: #756d64;
+  background: var(--gp-surface-muted);
+  color: var(--gp-text-step);
   font-size: 8px;
   font-weight: 800;
 }
 
 .vehicleCard:hover,
 .vehicleList .vehicleSelected {
-  border-color: #4b443d;
-  background: #faf6f0;
+  border-color: var(--gp-border-card);
+  background: var(--gp-surface-selected);
 }
 
 .trainBadge {
@@ -431,7 +844,7 @@
   padding-top: 5px;
   border: 2px solid #fff;
   border-radius: 9px 9px 6px 6px;
-  box-shadow: 0 0 0 1px #4f4840, 2px 3px 0 #e8e1d8;
+  box-shadow: 0 0 0 1px var(--gp-border-card-strong), 2px 3px 0 var(--gp-relief);
 }
 
 .trainBadge i {
@@ -457,7 +870,7 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #39332e;
+  background: var(--gp-train-wheel);
   border: 2px solid white;
 }
 
@@ -470,13 +883,13 @@
 }
 
 .vehicleCard > span:nth-child(2) b {
-  color: #3c3630;
+  color: var(--gp-text-card);
   font-size: 9px;
 }
 
 .vehicleCard > span:nth-child(2) small {
   margin-top: 3px;
-  color: #948c82;
+  color: var(--gp-text-faint);
   font-size: 8px;
 }
 
@@ -492,16 +905,16 @@
 }
 
 .storeVehicleButton {
-  border-color: rgba(91, 83, 75, 0.34);
-  background: #f4f0ea;
-  color: #6b6259;
+  border-color: var(--gp-border-store);
+  background: var(--gp-surface-store);
+  color: var(--gp-text-store);
 }
 
 .startVehicleButton:hover:not(:disabled),
 .storeVehicleButton:hover:not(:disabled) {
-  border-color: #3e3832;
-  background: #ed8954;
-  color: #2e2823;
+  border-color: var(--gp-border-card);
+  background: var(--gp-active-bg);
+  color: var(--gp-text-on-active-btn);
 }
 
 .startVehicleButton:disabled,
@@ -527,7 +940,7 @@
   margin-top: 8px;
   border: 1px solid rgba(179, 72, 54, 0.4);
   border-radius: 6px;
-  background: #fff;
+  background: var(--gp-surface);
   color: #b34836;
   font-size: 9px;
   font-weight: 800;
@@ -535,7 +948,7 @@
 
 .depotHeading {
   margin-top: 14px;
-  color: #7f776e;
+  color: var(--gp-text-depot);
   font-size: 8px;
   font-weight: 800;
 }
@@ -552,10 +965,10 @@
   gap: 8px;
   min-height: 48px;
   margin-top: 8px;
-  border: 1px dashed #cfc6bb;
+  border: 1px dashed var(--gp-border-depot);
   border-radius: 7px;
   padding: 8px 10px;
-  color: #a59b91;
+  color: var(--gp-text-depot-empty);
   font-size: 8px;
   transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
@@ -572,13 +985,13 @@
 }
 
 .vehicleDepot b {
-  color: #4f4841;
+  color: var(--gp-text-depot-title);
   font-size: 9px;
 }
 
 .vehicleDepot small {
   margin-top: 2px;
-  color: #9a9187;
+  color: var(--gp-text-depot-sub);
   font-size: 8px;
 }
 
@@ -640,7 +1053,7 @@
   min-width: 0;
   min-height: 0;
   height: 100%;
-  background: #f6f3ed;
+  background: var(--gp-stage-bg);
 }
 
 .hudTop {
@@ -650,20 +1063,20 @@
   justify-content: space-between;
   gap: 16px;
   padding: 10px 18px;
-  border-bottom: 1px solid #3c3630;
-  background: rgba(255, 255, 255, 0.92);
+  border-bottom: 1px solid var(--gp-border-hud);
+  background: var(--gp-hud-bg);
 }
 
 .cityIdentity {
   display: flex;
   align-items: baseline;
   gap: 10px;
-  color: #8b837a;
+  color: var(--gp-text-soft);
   font-size: 10px;
 }
 
 .cityIdentity .cityName {
-  color: #28231f;
+  color: var(--gp-text);
   font-size: 19px;
   font-weight: 900;
   letter-spacing: -0.04em;
@@ -673,7 +1086,7 @@
   display: flex;
   align-items: center;
   gap: 22px;
-  color: #5a534c;
+  color: var(--gp-text-hud);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -684,13 +1097,13 @@
 }
 
 .hudStats small {
-  color: #958c82;
+  color: var(--gp-text-hud-label);
   font-size: 8px;
   font-weight: 700;
 }
 
 .hudStats b {
-  color: #3b3530;
+  color: var(--gp-text-hud-value);
   font-size: 13px;
   font-weight: 900;
 }
@@ -698,13 +1111,13 @@
 .tickNumber {
   min-width: 112px;
   padding: 6px 10px;
-  border: 1px solid #bcb2a7;
+  border: 1px solid var(--gp-border-tick);
   border-radius: 6px;
-  background: #f7f3ed;
+  background: var(--gp-surface-tick);
 }
 
 .tickNumber b {
-  color: #29241f;
+  color: var(--gp-text-tick);
   font: 900 15px/1 monospace;
 }
 
@@ -713,7 +1126,7 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: #dbe9ed;
+  background: var(--gp-map-bg);
 }
 
 .mapControls {
@@ -736,19 +1149,19 @@
 .zoomControls button {
   min-height: 30px;
   padding: 0 9px;
-  border: 1px solid rgba(58, 52, 46, 0.36);
+  border: 1px solid var(--gp-border-overlay);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.9);
-  color: #504942;
+  background: var(--gp-overlay);
+  color: var(--gp-text-builder);
   font-size: 9px;
   font-weight: 900;
   backdrop-filter: blur(8px);
 }
 
 .stationBuilder .stationBuilderActive {
-  border-color: #37312b;
-  background: #ed8954;
-  color: #2d2722;
+  border-color: var(--gp-border-strong);
+  background: var(--gp-active-bg);
+  color: var(--gp-text-on-active-alt);
 }
 
 .stationBuilder > div {
@@ -756,9 +1169,9 @@
   gap: 3px;
   width: 118px;
   padding: 6px;
-  border: 1px solid rgba(58, 52, 46, 0.28);
+  border: 1px solid var(--gp-border-overlay-soft);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--gp-overlay-strong);
   backdrop-filter: blur(8px);
 }
 
@@ -767,15 +1180,16 @@
   width: 100%;
   height: 25px;
   padding: 0 7px;
-  border: 1px solid #c9c0b6;
+  border: 1px solid var(--gp-border-station-input);
   border-radius: 4px;
   outline: none;
-  color: #403a34;
+  background: var(--gp-surface);
+  color: var(--gp-text-input);
   font: 700 9px var(--font);
 }
 
 .stationBuilder small {
-  color: #827a71;
+  color: var(--gp-text-builder-hint);
   font-size: 7px;
   font-weight: 800;
 }
@@ -785,9 +1199,9 @@
   align-items: center;
   height: 30px;
   overflow: hidden;
-  border: 1px solid rgba(58, 52, 46, 0.36);
+  border: 1px solid var(--gp-border-overlay);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--gp-overlay);
   backdrop-filter: blur(8px);
 }
 
@@ -801,12 +1215,12 @@
 }
 
 .zoomControls button:hover {
-  background: #eee8df;
+  background: var(--gp-zoom-hover);
 }
 
 .zoomControls span {
   min-width: 40px;
-  color: #6d655d;
+  color: var(--gp-text-zoom);
   font: 800 8px/1 monospace;
   text-align: center;
 }
@@ -829,18 +1243,18 @@
 }
 
 .sea {
-  fill: #dce9ed;
+  fill: var(--gp-sea);
 }
 
 .busanLand,
 .yeongdo {
-  fill: #f3f0e8;
-  stroke: #b9c3bd;
+  fill: var(--gp-land);
+  stroke: var(--gp-land-stroke);
   stroke-width: 0.45;
 }
 
 .yeongdo {
-  fill: #eeeae1;
+  fill: var(--gp-land-alt);
 }
 
 .mapGrid {
@@ -851,7 +1265,7 @@
 .nakdongRiver,
 .suyeongRiver {
   fill: none;
-  stroke: #b7d7e1;
+  stroke: var(--gp-river);
   stroke-width: 3.8;
   stroke-linecap: round;
   opacity: 0.9;
@@ -864,13 +1278,13 @@
 }
 
 .mountains {
-  fill: #d8dfd1;
+  fill: var(--gp-mountains);
   opacity: 0.58;
   pointer-events: none;
 }
 
 .districtLabels {
-  fill: #a1a49b;
+  fill: var(--gp-district);
   font-size: 1.7px;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -883,7 +1297,7 @@
 
 .personDot,
 .personDotWarm {
-  fill: #3f5360;
+  fill: var(--gp-person);
 }
 
 .personDotWarm {
@@ -892,7 +1306,7 @@
 
 .river {
   fill: none;
-  stroke: rgba(108, 161, 190, 0.18);
+  stroke: var(--gp-river-soft);
   stroke-width: 7;
   stroke-linecap: round;
 }
@@ -913,13 +1327,13 @@
 }
 
 .lineShadow {
-  stroke: rgba(255, 255, 255, 0.97);
+  stroke: var(--gp-line-shadow);
   stroke-width: 4.2;
 }
 
 .linePath {
   stroke-width: 2.25;
-  filter: drop-shadow(0 1px 1px rgba(25, 20, 15, 0.13));
+  filter: drop-shadow(0 1px 1px var(--gp-line-drop));
 }
 
 .selectedLinePath {
@@ -937,34 +1351,34 @@
 }
 
 .actionableStation:hover .stationNode {
-  fill: #ffd8c1;
+  fill: var(--gp-station-action);
   stroke-width: 1;
 }
 
 .stationHalo {
-  fill: rgba(255, 255, 255, 0.97);
-  stroke: rgba(255, 255, 255, 0.97);
+  fill: var(--gp-map-halo);
+  stroke: var(--gp-map-halo);
   stroke-width: 1.2;
 }
 
 .stationNode {
-  fill: #fbfaf7;
-  stroke: #2b2722;
+  fill: var(--gp-station-fill);
+  stroke: var(--gp-station-stroke);
   stroke-width: 0.68;
 }
 
 .transferCore {
-  fill: #2b2722;
+  fill: var(--gp-station-stroke);
   pointer-events: none;
 }
 
 .stationGroup:hover .stationNode {
-  fill: #ffe5d5;
+  fill: var(--gp-station-hover);
 }
 
 .stationSelection {
   fill: rgba(233, 120, 60, 0.08);
-  stroke: #e9783c;
+  stroke: var(--gp-accent);
   stroke-width: 0.55;
   stroke-dasharray: 1.2 0.8;
   animation: selectionSpin 5s linear infinite;
@@ -977,16 +1391,16 @@
 .stationIcon {
   font-size: 2.05px;
   font-weight: 900;
-  fill: #2b2722;
+  fill: var(--gp-station-stroke);
   pointer-events: none;
 }
 
 .stationLabel {
   font-size: 1.7px;
   font-weight: 800;
-  fill: #484139;
+  fill: var(--gp-map-label);
   paint-order: stroke;
-  stroke: #f6f3ed;
+  stroke: var(--gp-map-label-halo);
   stroke-width: 1.2px;
   stroke-linejoin: round;
   pointer-events: none;
@@ -1004,7 +1418,7 @@
   font-weight: 900;
   fill: #d34d35;
   paint-order: stroke;
-  stroke: #f6f3ed;
+  stroke: var(--gp-map-label-halo);
   stroke-width: 0.8px;
 }
 
@@ -1014,7 +1428,7 @@
 }
 
 .trainIcon {
-  filter: drop-shadow(0 1.2px 1px rgba(34, 29, 24, 0.32));
+  filter: drop-shadow(0 1.2px 1px var(--gp-train-drop));
   cursor: pointer;
   outline: none;
   touch-action: none;
@@ -1025,7 +1439,7 @@
 }
 
 .selectedTrain .trainBody {
-  stroke: #2d2823;
+  stroke: var(--gp-train-selected-stroke);
   stroke-width: 1;
 }
 
@@ -1039,7 +1453,7 @@
 }
 
 .trainWheel {
-  fill: #36302b;
+  fill: var(--gp-train-body-wheel);
   stroke: #fff;
   stroke-width: 0.3;
 }
@@ -1056,37 +1470,37 @@
 }
 
 .depotHitArea {
-  fill: rgba(255, 255, 255, 0.5);
-  stroke: rgba(65, 59, 53, 0.25);
+  fill: var(--gp-depot-hit);
+  stroke: var(--gp-depot-hit-stroke);
   stroke-width: 0.45;
   stroke-dasharray: 1 0.8;
 }
 
 .depotBuilding {
-  fill: #fbfaf7;
-  stroke: #38322d;
+  fill: var(--gp-depot-fill);
+  stroke: var(--gp-depot-stroke);
   stroke-width: 0.55;
 }
 
 .depotRails {
   fill: none;
-  stroke: #4a433c;
+  stroke: var(--gp-depot-rails);
   stroke-width: 0.55;
   stroke-linecap: round;
 }
 
 .depotLabel {
-  fill: #4a433c;
+  fill: var(--gp-depot-rails);
   font-size: 1.45px;
   font-weight: 900;
   paint-order: stroke;
-  stroke: #f3f0e8;
+  stroke: var(--gp-depot-halo);
   stroke-width: 1px;
 }
 
 .depotCount {
   fill: #fff;
-  stroke: #3d3731;
+  stroke: var(--gp-depot-count-stroke);
   stroke-width: 2.8px;
   paint-order: stroke;
   font-size: 1.35px;
@@ -1095,7 +1509,7 @@
 
 .depotDropTarget .depotHitArea {
   fill: rgba(233, 120, 60, 0.24);
-  stroke: #e9783c;
+  stroke: var(--gp-accent);
   stroke-width: 0.9;
   animation: depotReady 0.75s ease-in-out infinite alternate;
 }
@@ -1112,11 +1526,11 @@
   gap: 7px;
   transform: translate(12px, 12px);
   padding: 7px 10px;
-  border: 1px solid #3f3933;
+  border: 1px solid var(--gp-border-ghost);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 4px 5px 16px rgba(43, 36, 30, 0.18);
-  color: #3f3933;
+  background: var(--gp-ghost-bg);
+  box-shadow: var(--gp-shadow-ghost);
+  color: var(--gp-text-ghost);
   font-size: 9px;
   font-weight: 900;
   pointer-events: none;
@@ -1127,7 +1541,7 @@
   height: 8px;
   border: 2px solid #fff;
   border-radius: 4px;
-  box-shadow: 0 0 0 1px #45403a;
+  box-shadow: 0 0 0 1px var(--gp-border-ghost-mark);
 }
 
 .mapLegend {
@@ -1143,10 +1557,10 @@
   align-items: center;
   gap: 5px;
   padding: 6px 8px;
-  border: 1px solid rgba(67, 60, 54, 0.32);
+  border: 1px solid var(--gp-border-legend);
   border-radius: 5px;
-  background: rgba(255, 255, 255, 0.86);
-  color: #665f57;
+  background: var(--gp-overlay-soft);
+  color: var(--gp-text-button);
   font-size: 9px;
   backdrop-filter: blur(8px);
   cursor: pointer;
@@ -1159,8 +1573,8 @@
 }
 
 .mapLegend .mapLegendActive {
-  border-color: #37312b;
-  box-shadow: 2px 2px 0 rgba(55, 49, 43, 0.12);
+  border-color: var(--gp-border-strong);
+  box-shadow: 2px 2px 0 var(--gp-shadow-legend);
 }
 
 .stationLegend {
@@ -1170,10 +1584,10 @@
   display: flex;
   gap: 11px;
   padding: 6px 8px;
-  border: 1px solid rgba(67, 60, 54, 0.24);
+  border: 1px solid var(--gp-border-legend-soft);
   border-radius: 5px;
-  background: rgba(255, 255, 255, 0.82);
-  color: #746c63;
+  background: var(--gp-overlay-faint);
+  color: var(--gp-text-legend);
   font-size: 8px;
   backdrop-filter: blur(8px);
 }
@@ -1189,23 +1603,23 @@
   display: inline-block;
   width: 10px;
   height: 10px;
-  border: 2px solid #2b2722;
+  border: 2px solid var(--gp-station-stroke);
   border-radius: 50%;
-  background: #fff;
+  background: var(--gp-mark-bg);
 }
 
 .depotMark {
   display: inline-block;
   width: 11px;
   height: 9px;
-  border: 2px solid #2b2722;
+  border: 2px solid var(--gp-station-stroke);
   border-radius: 2px;
-  background: #fff;
-  box-shadow: inset 0 -3px 0 #e9783c;
+  background: var(--gp-mark-bg);
+  box-shadow: inset 0 -3px 0 var(--gp-accent);
 }
 
 .interchangeStationMark {
-  box-shadow: inset 0 0 0 2px #fff, inset 0 0 0 4px #2b2722;
+  box-shadow: inset 0 0 0 2px var(--gp-mark-bg), inset 0 0 0 4px var(--gp-station-stroke);
 }
 
 @media (max-width: 900px) {
@@ -1246,9 +1660,9 @@
     height: auto;
     max-height: none;
     overflow: visible;
-    border-top: 1px solid #37312b;
+    border-top: 1px solid var(--gp-border-strong);
     border-right: 0;
-    box-shadow: 0 -12px 28px rgba(41, 34, 28, 0.07);
+    box-shadow: var(--gp-shadow-mobile);
   }
 
   .gameStage {
