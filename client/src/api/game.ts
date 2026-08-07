@@ -46,6 +46,7 @@ export type GameLine = {
   id: string
   playerId: string | null
   color: LineColor
+  mode: 'SUBWAY' | 'BUS'
   name: string
   status: 'OPERATING' | 'DEGRADED' | 'SUSPENDED'
   depotX: number
@@ -59,6 +60,7 @@ export type GameLine = {
 export type GameCity = {
   id: string
   name: string
+  mapKey: string
   seed: number
   seasonDay: number
   status: 'ACTIVE' | 'SEASON_ENDED'
@@ -125,6 +127,10 @@ export type SimResult = {
   highlights: TickHighlight[]
 }
 
+// 서버 SIM 상수(server/src/types/game.ts)와 반드시 일치해야 한다
+export const TICKS_PER_HOUR = 6
+export const TICKS_PER_DAY = TICKS_PER_HOUR * 24
+
 const API_BASE = import.meta.env.VITE_API_URL ?? ''
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -150,6 +156,13 @@ export function advanceCity(cityId: string) {
 
 export type CityAction =
   | { type: 'BUILD_STATION'; name: string; posX: number; posY: number }
+  | { type: 'RENAME_STATION'; stationId: string; name: string }
+  | { type: 'MOVE_STATION'; stationId: string; posX: number; posY: number }
+  | { type: 'REMOVE_STATION'; stationId: string }
+  | { type: 'CREATE_LINE'; mode: 'SUBWAY' | 'BUS' }
+  | { type: 'REMOVE_LINE'; lineId: string }
+  | { type: 'DETACH_STATION'; lineId: string; stationId: string }
+  | { type: 'INSERT_STATION'; lineId: string; fromStationId: string; toStationId: string; stationId: string }
   | { type: 'BUILD_SEGMENT'; lineId: string; fromStationId: string; toStationId: string }
   | { type: 'SET_LINE_STATUS'; lineId: string; status: 'OPERATING' | 'SUSPENDED' }
   | { type: 'SET_VEHICLE_SERVICE'; lineId: string; vehicleId: string; inService: boolean }
@@ -158,7 +171,7 @@ export type CityAction =
   | { type: 'REMOVE_VEHICLE'; lineId: string; vehicleId: string }
 
 export function executeCityAction(cityId: string, action: CityAction) {
-  return request<{ message: string }>(`/api/cities/${cityId}/actions`, {
+  return request<{ message: string; line?: GameLine }>(`/api/cities/${cityId}/actions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(action),

@@ -112,3 +112,57 @@ export const TIME_DEMAND_MULTIPLIER: Record<number, number> = {
   23: 0.3, 0: 0.2, 1: 0.1, 2: 0.1,    // 심야
   3: 0.1, 4: 0.2, 5: 0.5,
 }
+
+// ─── 시간대·요일 기반 승객 이동 패턴 ─────────────────────────────────────
+
+export type DayPeriod = 'MORNING' | 'DAY' | 'EVENING' | 'NIGHT'
+
+export function periodOfHour(hour: number): DayPeriod {
+  const h = Math.floor(hour)
+  if (h >= 6 && h <= 9) return 'MORNING'
+  if (h >= 10 && h <= 15) return 'DAY'
+  if (h >= 16 && h <= 19) return 'EVENING'
+  return 'NIGHT'
+}
+
+const TICKS_PER_DAY = SIM.TICKS_PER_GAME_HOUR * SIM.GAME_HOURS_PER_DAY
+
+// 게임 내 7일 주기: 6·7일차 = 주말
+export function isWeekendTick(tick: number): boolean {
+  return Math.floor(tick / TICKS_PER_DAY) % 7 >= 5
+}
+
+type StationTypeKey = 'RESIDENTIAL' | 'COMMERCIAL' | 'TOURIST' | 'INDUSTRIAL' | 'HUB'
+type ODTable = Record<'WEEKDAY' | 'WEEKEND', Record<DayPeriod, Record<StationTypeKey, number>>>
+
+// 승객 출발지(역 타입) 가중치 — 아침엔 주거에서 쏟아져 나오고, 저녁엔 산업/상업에서 귀가
+export const ORIGIN_WEIGHT: ODTable = {
+  WEEKDAY: {
+    MORNING: { RESIDENTIAL: 1.6, COMMERCIAL: 0.5, INDUSTRIAL: 0.4, TOURIST: 0.6, HUB: 1.0 },
+    DAY:     { RESIDENTIAL: 0.6, COMMERCIAL: 1.2, INDUSTRIAL: 0.8, TOURIST: 1.2, HUB: 1.0 },
+    EVENING: { RESIDENTIAL: 0.5, COMMERCIAL: 1.2, INDUSTRIAL: 1.5, TOURIST: 0.9, HUB: 1.2 },
+    NIGHT:   { RESIDENTIAL: 0.4, COMMERCIAL: 1.0, INDUSTRIAL: 0.3, TOURIST: 0.8, HUB: 0.7 },
+  },
+  WEEKEND: {
+    MORNING: { RESIDENTIAL: 1.0, COMMERCIAL: 0.5, INDUSTRIAL: 0.05, TOURIST: 1.0, HUB: 0.8 },
+    DAY:     { RESIDENTIAL: 0.9, COMMERCIAL: 1.4, INDUSTRIAL: 0.05, TOURIST: 1.5, HUB: 1.0 },
+    EVENING: { RESIDENTIAL: 0.7, COMMERCIAL: 1.3, INDUSTRIAL: 0.05, TOURIST: 1.3, HUB: 1.0 },
+    NIGHT:   { RESIDENTIAL: 0.5, COMMERCIAL: 0.9, INDUSTRIAL: 0.05, TOURIST: 0.7, HUB: 0.7 },
+  },
+}
+
+// 승객 목적지(역 타입) 가중치 — 아침 산업행, 저녁 주거·상업행, 밤 주거행, 주말은 산업 소멸
+export const DEST_WEIGHT: ODTable = {
+  WEEKDAY: {
+    MORNING: { RESIDENTIAL: 0.2, COMMERCIAL: 1.0, INDUSTRIAL: 2.0, TOURIST: 0.4, HUB: 1.2 },
+    DAY:     { RESIDENTIAL: 0.5, COMMERCIAL: 1.5, INDUSTRIAL: 0.8, TOURIST: 1.2, HUB: 1.0 },
+    EVENING: { RESIDENTIAL: 2.0, COMMERCIAL: 1.2, INDUSTRIAL: 0.2, TOURIST: 0.6, HUB: 1.0 },
+    NIGHT:   { RESIDENTIAL: 2.5, COMMERCIAL: 0.5, INDUSTRIAL: 0.1, TOURIST: 0.3, HUB: 0.8 },
+  },
+  WEEKEND: {
+    MORNING: { RESIDENTIAL: 0.6, COMMERCIAL: 1.5, INDUSTRIAL: 0.05, TOURIST: 1.5, HUB: 1.0 },
+    DAY:     { RESIDENTIAL: 0.6, COMMERCIAL: 1.8, INDUSTRIAL: 0.05, TOURIST: 1.8, HUB: 1.0 },
+    EVENING: { RESIDENTIAL: 1.8, COMMERCIAL: 1.0, INDUSTRIAL: 0.05, TOURIST: 0.8, HUB: 1.0 },
+    NIGHT:   { RESIDENTIAL: 2.2, COMMERCIAL: 0.5, INDUSTRIAL: 0.05, TOURIST: 0.3, HUB: 0.8 },
+  },
+}
