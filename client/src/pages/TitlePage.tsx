@@ -3,9 +3,10 @@ import styles from './TitlePage.module.css'
 
 interface Props {
   onStart: () => void
+  onOpenSettings: () => void
 }
 
-export default function TitlePage({ onStart }: Props) {
+export default function TitlePage({ onStart, onOpenSettings }: Props) {
   const svgRef = useRef<SVGSVGElement>(null)
 
   useEffect(() => {
@@ -81,61 +82,14 @@ export default function TitlePage({ onStart }: Props) {
       </div>
 
       <aside className={styles.right}>
-        <div className={styles.menuPanel}>
-          <div className={styles.menuHeader}>
-            <span className={styles.menuHeaderDot} />
-            <span>메뉴</span>
-          </div>
-
-          <div className={styles.menu}>
-            <button className={`${styles.menuBtn} ${styles.btnStart}`} onClick={onStart}>
-              <span className={styles.menuIcon} aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
-                  <path d="M10 8.5L16 12L10 15.5V8.5Z" fill="currentColor" />
-                </svg>
-              </span>
-              <span className={styles.menuText}>
-                <span className={styles.menuLabel}>시작</span>
-                <span className={styles.menuHint}>도시 운영하기</span>
-              </span>
-              <span className={styles.menuChevron} aria-hidden="true">›</span>
-            </button>
-
-            <button className={`${styles.menuBtn} ${styles.btnShop}`}>
-              <span className={styles.menuIcon} aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none">
-                  <path d="M4 9H20L18.5 19H5.5L4 9Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-                  <path d="M8 9V7C8 4.8 9.8 3 12 3C14.2 3 16 4.8 16 7V9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              </span>
-              <span className={styles.menuText}>
-                <span className={styles.menuLabel}>상점</span>
-                <span className={styles.menuHint}>차량 · 장식</span>
-              </span>
-              <span className={styles.menuChevron} aria-hidden="true">›</span>
-            </button>
-
-            <button className={`${styles.menuBtn} ${styles.btnSettings}`}>
-              <span className={styles.menuIcon} aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2" />
-                  <path
-                    d="M12 3V5.5M12 18.5V21M3 12H5.5M18.5 12H21M5.6 5.6L7.4 7.4M16.6 16.6L18.4 18.4M18.4 5.6L16.6 7.4M7.4 16.6L5.6 18.4"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </span>
-              <span className={styles.menuText}>
-                <span className={styles.menuLabel}>설정</span>
-                <span className={styles.menuHint}>소리 · 화면</span>
-              </span>
-              <span className={styles.menuChevron} aria-hidden="true">›</span>
-            </button>
-          </div>
-        </div>
+        <nav className={styles.menu}>
+          <button className={styles.menuBtn} onClick={onStart} type="button">
+            시작
+          </button>
+          <button className={styles.menuBtn} onClick={onOpenSettings} type="button">
+            설정
+          </button>
+        </nav>
 
         <div className={styles.versionBadge}>v1.0</div>
       </aside>
