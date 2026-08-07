@@ -423,7 +423,7 @@
 .controlIdentity > span {
   display: block;
   color: var(--gp-text-accent);
-  font-size: 8px;
+  font-size: 9.5px;
   font-weight: 900;
   letter-spacing: 0.16em;
 }
@@ -456,7 +456,7 @@
   border-radius: 999px;
   background: var(--gp-surface);
   color: var(--gp-text-soft);
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 800;
 }
 
@@ -490,7 +490,7 @@
   flex: 0 0 auto;
   padding: 4px 7px;
   border-radius: 6px;
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 800;
 }
 
@@ -603,7 +603,7 @@
 
 .goalCardTop small {
   color: #8c8278;
-  font-size: 11px;
+  font-size: 12.5px;
 }
 
 .progressTrack,
@@ -629,7 +629,7 @@
 .goalCard p {
   margin-top: 7px;
   color: #7b7167;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 700;
   line-height: 1.5;
 }
@@ -652,7 +652,7 @@
 
 .economyGrid small {
   color: #91877d;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 800;
 }
 
@@ -677,7 +677,7 @@
   border-radius: 5px;
   background: rgba(179, 74, 56, 0.09);
   color: #a24334;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 900;
 }
 
@@ -696,13 +696,13 @@
   border-radius: 50%;
   background: var(--gp-surface-chip);
   color: var(--gp-text-accent-chip);
-  font-size: 8px;
+  font-size: 9.5px;
   font-weight: 900;
 }
 
 .sectionHeading h2 {
   color: var(--gp-text-secondary);
-  font-size: 11px;
+  font-size: 12.5px;
   letter-spacing: 0.02em;
 }
 
@@ -741,7 +741,7 @@
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.8);
   color: #6e665d;
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 800;
   line-height: 1;
 }
@@ -843,7 +843,7 @@
 .lineTabs small {
   grid-column: 2;
   color: var(--gp-text-faint);
-  font-size: 8px;
+  font-size: 9.5px;
 }
 
 .closeButton,
@@ -879,7 +879,7 @@
   border-radius: 6px;
   background: var(--gp-surface);
   color: var(--gp-text-button);
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 800;
 }
 
@@ -918,7 +918,7 @@
   display: block;
   margin-bottom: 6px;
   color: var(--gp-text-label);
-  font-size: 8px;
+  font-size: 9.5px;
   font-weight: 800;
 }
 
@@ -938,7 +938,7 @@
   outline: none;
   background: var(--gp-surface);
   color: var(--gp-text-input);
-  font: 500 9px var(--font);
+  font: 500 10.5px var(--font);
 }
 
 .actionForm button,
@@ -947,7 +947,7 @@
   border-radius: 5px;
   background: var(--gp-surface);
   color: var(--gp-text-control);
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 800;
 }
 
@@ -967,7 +967,7 @@
   display: block;
   margin-top: 6px;
   color: var(--gp-text-hint);
-  font-size: 8px;
+  font-size: 9.5px;
 }
 
 .vehicleList {
@@ -1015,7 +1015,7 @@
   outline: none;
   background: var(--gp-surface);
   color: var(--gp-text-body);
-  font: 700 10px var(--font);
+  font: 700 11.5px var(--font);
 }
 
 .stationNameInput:focus {
@@ -1036,7 +1036,7 @@
   border-radius: 6px;
   background: var(--gp-surface);
   color: var(--gp-text-button);
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 800;
 }
 
@@ -1058,7 +1058,7 @@
   border-radius: 5px;
   background: var(--gp-surface-muted);
   color: var(--gp-text-step);
-  font-size: 8px;
+  font-size: 9.5px;
   font-weight: 800;
 }
 
@@ -1094,7 +1094,7 @@
   right: 4px;
   bottom: 2px;
   color: white;
-  font-size: 7px;
+  font-size: 8.5px;
 }
 
 .trainBadge::before,
@@ -1119,13 +1119,13 @@
 
 .vehicleCard > span:nth-child(2) b {
   color: var(--gp-text-card);
-  font-size: 9px;
+  font-size: 10.5px;
 }
 
 .vehicleCard > span:nth-child(2) small {
   margin-top: 3px;
   color: var(--gp-text-faint);
-  font-size: 8px;
+  font-size: 9.5px;
 }
 
 .startVehicleButton,
@@ -1135,7 +1135,7 @@
   border-radius: 7px;
   background: rgba(79, 142, 92, 0.08);
   color: #39754a;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 900;
 }
 
@@ -1184,7 +1184,7 @@
 .depotHeading {
   margin-top: 14px;
   color: var(--gp-text-depot);
-  font-size: 8px;
+  font-size: 9.5px;
   font-weight: 800;
 }
 
@@ -1204,7 +1204,7 @@
   border-radius: 7px;
   padding: 8px 10px;
   color: var(--gp-text-depot-empty);
-  font-size: 8px;
+  font-size: 9.5px;
   transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
 
@@ -1221,13 +1221,13 @@
 
 .vehicleDepot b {
   color: var(--gp-text-depot-title);
-  font-size: 9px;
+  font-size: 10.5px;
 }
 
 .vehicleDepot small {
   margin-top: 2px;
   color: var(--gp-text-depot-sub);
-  font-size: 8px;
+  font-size: 9.5px;
 }
 
 .vehicleDepotReady {
@@ -1252,7 +1252,7 @@
   border-radius: 7px;
   background: rgba(79, 142, 92, 0.06);
   color: #4d7455;
-  font-size: 11px;
+  font-size: 12.5px;
   line-height: 1.5;
 }
 
@@ -1265,7 +1265,7 @@
   border-radius: 50%;
   background: #4f8e5c;
   color: white;
-  font-size: 8px;
+  font-size: 9.5px;
 }
 
 .operationError {
@@ -1307,7 +1307,7 @@
   align-items: baseline;
   gap: 10px;
   color: var(--gp-text-soft);
-  font-size: 10px;
+  font-size: 11.5px;
 }
 
 .cityIdentity .cityName {
@@ -1333,7 +1333,7 @@
 
 .hudStats small {
   color: var(--gp-text-hud-label);
-  font-size: 8px;
+  font-size: 9.5px;
   font-weight: 700;
 }
 
@@ -1391,7 +1391,7 @@
   border-radius: 8px 0 0 8px;
   background: transparent;
   color: var(--gp-text-builder);
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 900;
 }
 
@@ -1426,12 +1426,12 @@
   outline: none;
   background: var(--gp-surface);
   color: var(--gp-text-input);
-  font: 700 9px var(--font);
+  font: 700 10.5px var(--font);
 }
 
 .stationBuilder small {
   color: var(--gp-text-builder-hint);
-  font-size: 7px;
+  font-size: 8.5px;
   font-weight: 800;
 }
 
@@ -1855,7 +1855,7 @@
   background: var(--gp-ghost-bg);
   box-shadow: var(--gp-shadow-ghost);
   color: var(--gp-text-ghost);
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 900;
   pointer-events: none;
 }
@@ -1899,7 +1899,7 @@
   border-radius: 5px;
   background: transparent;
   color: var(--gp-text-button);
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 800;
   cursor: pointer;
 }
@@ -1933,7 +1933,7 @@
   padding: 7px 4px 3px;
   border-top: 1px solid var(--gp-border-legend-soft);
   color: var(--gp-text-legend);
-  font-size: 8.5px;
+  font-size: 10px;
 }
 
 .legendRow {
@@ -1946,7 +1946,7 @@
 .legendRow > b {
   min-width: 24px;
   color: var(--gp-text-label);
-  font-size: 7.5px;
+  font-size: 9px;
   letter-spacing: 0.06em;
 }
 
@@ -2059,7 +2059,7 @@
 
 .gameOverEyebrow {
   color: #ba543b;
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 900;
   letter-spacing: 0.18em;
 }
@@ -2075,7 +2075,7 @@
   max-width: 350px;
   margin: 14px auto 0;
   color: #6c6259;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 700;
   line-height: 1.65;
 }
@@ -2098,7 +2098,7 @@
 
 .gameOverStats small {
   color: #94887d;
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 800;
 }
 
@@ -2111,7 +2111,7 @@
 .restartHint {
   margin-top: 15px;
   color: #8a8076;
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 700;
 }
 
@@ -2128,7 +2128,7 @@
   border-radius: 7px;
   background: #fff;
   color: #574f48;
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 900;
 }
 
@@ -2159,7 +2159,7 @@
     width: 100%;
     justify-content: space-between;
     gap: 6px;
-    font-size: 11px;
+    font-size: 12.5px;
     flex-wrap: wrap;
   }
 }
