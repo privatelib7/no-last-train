@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { SIM } from '@/types/game'
 import { syncCityClock } from '@/lib/simulation'
+import { ECONOMY } from '@/lib/economy'
 
 // GET /api/cities/[id] — 도시 현재 상태 전체 조회
 export async function GET(
@@ -60,5 +61,25 @@ export async function GET(
   const elapsedMs = Date.now() - city.lastTickAt.getTime()
   const elapsedGameHours = elapsedMs / SIM.LIVE_TICK_MS / SIM.TICKS_PER_GAME_HOUR
 
-  return NextResponse.json({ city, elapsedGameHours, stationStats })
+  return NextResponse.json({
+    city,
+    elapsedGameHours,
+    stationStats,
+    economyRules: {
+      buildCosts: {
+        station: ECONOMY.BUILD_COST.STATION,
+        subwayLine: ECONOMY.BUILD_COST.SUBWAY_LINE,
+        busLine: ECONOMY.BUILD_COST.BUS_LINE,
+        subwaySegmentBase: ECONOMY.BUILD_COST.SUBWAY_SEGMENT_BASE,
+        busSegmentBase: ECONOMY.BUILD_COST.BUS_SEGMENT_BASE,
+        subwaySegmentPerMapUnit: ECONOMY.BUILD_COST.SUBWAY_SEGMENT_PER_MAP_UNIT,
+        busSegmentPerMapUnit: ECONOMY.BUILD_COST.BUS_SEGMENT_PER_MAP_UNIT,
+      },
+      buildDebtLimit: ECONOMY.BUILD_DEBT_LIMIT,
+      bankruptLimit: ECONOMY.BANKRUPT_LIMIT,
+      criticalHappiness: ECONOMY.CRITICAL_HAPPINESS,
+      gameOverGraceTicks: ECONOMY.GAME_OVER_GRACE_TICKS,
+      goalRewardCash: ECONOMY.GOAL_REWARD_CASH,
+    },
+  })
 }
