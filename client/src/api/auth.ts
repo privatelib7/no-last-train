@@ -3,6 +3,7 @@ export type AuthSession = {
   token: string
   username: string
   nickname: string | null
+  email: string | null
 }
 
 export type RegisterResult = {
@@ -43,9 +44,10 @@ export function login(identifier: string, password: string) {
 }
 
 export function fetchMe(token: string) {
-  return request<{ playerId: string; username: string | null; nickname: string | null }>('/api/auth/me', {
-    headers: { 'x-player-token': token },
-  })
+  return request<{ playerId: string; username: string | null; nickname: string | null; email: string | null }>(
+    '/api/auth/me',
+    { headers: { 'x-player-token': token } },
+  )
 }
 
 export function verifyEmail(token: string) {

@@ -142,12 +142,21 @@ export default function App() {
 
   useEffect(() => {
     if (!session) return
-    fetchMe(session.token).catch(() => {
-      window.localStorage.removeItem(SESSION_KEY)
-      setSession(null)
-      // 공유 링크로 들어와 도시를 보고 있는 중이라면 로그인 세션 만료와 무관하게 유지한다.
-      setPage((p) => (p === 'game' || p === 'verify' ? p : 'title'))
-    })
+    fetchMe(session.token)
+      .then((me) => {
+        // 예전에 저장된 세션(email 필드 도입 전)도 최신 정보로 보강한다.
+        if (me.email !== session.email || me.nickname !== session.nickname) {
+          const merged: AuthSession = { ...session, email: me.email, nickname: me.nickname }
+          window.localStorage.setItem(SESSION_KEY, JSON.stringify(merged))
+          setSession(merged)
+        }
+      })
+      .catch(() => {
+        window.localStorage.removeItem(SESSION_KEY)
+        setSession(null)
+        // 공유 링크로 들어와 도시를 보고 있는 중이라면 로그인 세션 만료와 무관하게 유지한다.
+        setPage((p) => (p === 'game' || p === 'verify' ? p : 'title'))
+      })
     // 세션 검증은 앱 시작 시 1회만 수행한다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

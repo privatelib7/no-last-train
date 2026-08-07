@@ -17,5 +17,6 @@ export async function GET(req: NextRequest) {
     playerId: player.id,
     username: player.username,
     nickname: player.nickname,
+    email: player.email,
   })
 }

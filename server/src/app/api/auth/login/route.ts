@@ -51,5 +51,6 @@ export async function POST(req: NextRequest) {
     token: updated.token,
     username: updated.username,
     nickname: updated.nickname,
+    email: updated.email,
   })
 }

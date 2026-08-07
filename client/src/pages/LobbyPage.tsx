@@ -141,7 +141,14 @@ export default function LobbyPage({ session, onBack, onSelectCity, onLogout }: P
             </button>
             {session && (
               <div className={styles.userBadge}>
-                <span className={styles.userName}>{session.nickname ?? session.username}</span>
+                <span className={styles.userNameWrap}>
+                  <span className={styles.userName}>{session.nickname ?? session.username}</span>
+                  {session.email && (
+                    <span className={styles.userTooltip} role="tooltip">
+                      {session.email}
+                    </span>
+                  )}
+                </span>
                 <button className={styles.logoutBtn} onClick={onLogout} type="button">
                   로그아웃
                 </button>
