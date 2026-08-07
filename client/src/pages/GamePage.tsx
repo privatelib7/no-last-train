@@ -202,6 +202,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const [selectedStationId, setSelectedStationId] = useState('')
   const [renameValue, setRenameValue] = useState('')
   const [moveStationMode, setMoveStationMode] = useState(false)
+  const [legendOpen, setLegendOpen] = useState(false)
   const [vehicleDrag, setVehicleDrag] = useState<VehicleDragState | null>(null)
   const [stationDrag, setStationDrag] = useState<StationLinkDrag | null>(null)
   const [segmentDrag, setSegmentDrag] = useState<SegmentDrag | null>(null)
@@ -1700,36 +1701,47 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             </g>
           </svg>
 
-          <div className={styles.mapLegend}>
-            {sortedLines.map(line => (
+          <div className={styles.mapPanel}>
+            <div className={styles.mapPanelLines} aria-label="운영 노선 선택">
+              {sortedLines.map(line => (
+                <button
+                  key={line.id}
+                  className={line.id === selectedLineId ? styles.mapLegendActive : ''}
+                  onClick={() => selectLine(line.id)}
+                >
+                  <i style={{ background: LINE_COLORS[line.color] }} />{line.name}{line.status === 'SUSPENDED' ? ' · 폐쇄' : ''}
+                </button>
+              ))}
               <button
-                key={line.id}
-                className={line.id === selectedLineId ? styles.mapLegendActive : ''}
-                onClick={() => selectLine(line.id)}
-              >
-                <i style={{ background: LINE_COLORS[line.color] }} />{line.name}{line.status === 'SUSPENDED' ? ' · 폐쇄' : ''}
-              </button>
-            ))}
-          </div>
-
-          <div className={styles.stationLegend} aria-label="역 종류">
-            <span><i className={styles.regularStationMark} />일반역</span>
-            <span><i className={styles.interchangeStationMark} />환승역</span>
-            <span><i className={styles.busStopMark} />버스 정류장</span>
-            <span><i className={styles.depotMark} />차고지</span>
-            <span><i className={styles.saturatedMark} />포화역</span>
-          </div>
-
-          <div className={styles.zoneLegend} aria-label="구역 종류">
-            <span><i className={styles.zoneMarkResidential} />주거 구역</span>
-            <span><i className={styles.zoneMarkCommercial} />상업 구역</span>
-            <span><i className={styles.zoneMarkIndustrial} />산업·오피스 구역</span>
-          </div>
-
-          <div className={styles.mobilityLegend} aria-label="시민 이동 상태">
-            <span><i className={styles.walkingCitizenMark} />도보</span>
-            <span><i className={styles.waitingCitizenMark} />역 대기</span>
-            <span><i className={styles.boardingCitizenMark} />탑승</span>
+                className={styles.legendToggle}
+                onClick={() => setLegendOpen(current => !current)}
+                aria-expanded={legendOpen}
+              >범례 {legendOpen ? '▴' : '▾'}</button>
+            </div>
+            {legendOpen && (
+              <div className={styles.legendBody}>
+                <div className={styles.legendRow} aria-label="역 종류">
+                  <b>역</b>
+                  <span><i className={styles.regularStationMark} />일반</span>
+                  <span><i className={styles.interchangeStationMark} />환승</span>
+                  <span><i className={styles.busStopMark} />버스 정류장</span>
+                  <span><i className={styles.depotMark} />차고지</span>
+                  <span><i className={styles.saturatedMark} />포화</span>
+                </div>
+                <div className={styles.legendRow} aria-label="구역 종류">
+                  <b>구역</b>
+                  <span><i className={styles.zoneMarkResidential} />주거</span>
+                  <span><i className={styles.zoneMarkCommercial} />상업</span>
+                  <span><i className={styles.zoneMarkIndustrial} />산업·오피스</span>
+                </div>
+                <div className={styles.legendRow} aria-label="시민 이동 상태">
+                  <b>시민</b>
+                  <span><i className={styles.walkingCitizenMark} />도보</span>
+                  <span><i className={styles.waitingCitizenMark} />역 대기</span>
+                  <span><i className={styles.boardingCitizenMark} />탑승</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </main>

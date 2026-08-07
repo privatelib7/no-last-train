@@ -1371,7 +1371,10 @@
   right: 14px;
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  border: 1px solid var(--gp-border-overlay);
+  border-radius: 8px;
+  background: var(--gp-overlay);
+  backdrop-filter: blur(8px);
 }
 
 .stationBuilder {
@@ -1382,15 +1385,18 @@
 
 .stationBuilder > button,
 .zoomControls button {
-  min-height: 30px;
-  padding: 0 9px;
-  border: 1px solid var(--gp-border-overlay);
-  border-radius: 6px;
-  background: var(--gp-overlay);
+  min-height: 36px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 8px 0 0 8px;
+  background: transparent;
   color: var(--gp-text-builder);
   font-size: 9px;
   font-weight: 900;
-  backdrop-filter: blur(8px);
+}
+
+.stationBuilder > button:hover {
+  background: var(--gp-zoom-hover);
 }
 
 .stationBuilder .stationBuilderActive {
@@ -1434,10 +1440,7 @@
   align-items: center;
   height: 36px;
   overflow: hidden;
-  border: 1px solid var(--gp-border-overlay);
-  border-radius: 6px;
-  background: var(--gp-overlay);
-  backdrop-filter: blur(8px);
+  border-left: 1px solid var(--gp-border-legend-soft);
 }
 
 .zoomControls button {
@@ -1865,100 +1868,92 @@
   box-shadow: 0 0 0 1px var(--gp-border-ghost-mark);
 }
 
-.mapLegend {
+/* 지도 좌상단 통합 패널: 노선 칩 + 접이식 범례 (박스 하나로 통일) */
+.mapPanel {
   position: absolute;
   left: 14px;
   top: 14px;
-  display: flex;
+  max-width: min(72%, 560px);
+  display: grid;
   gap: 7px;
+  padding: 7px;
+  border: 1px solid var(--gp-border-overlay);
+  border-radius: 8px;
+  background: var(--gp-overlay);
+  backdrop-filter: blur(8px);
 }
 
-.mapLegend button {
+.mapPanelLines {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.mapPanelLines button {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 6px 8px;
-  border: 1px solid var(--gp-border-legend);
+  padding: 5px 8px;
+  border: 1px solid transparent;
   border-radius: 5px;
-  background: var(--gp-overlay-soft);
+  background: transparent;
   color: var(--gp-text-button);
   font-size: 9px;
-  backdrop-filter: blur(8px);
+  font-weight: 800;
   cursor: pointer;
 }
 
-.mapLegend i {
-  width: 16px;
+.mapPanelLines button:hover {
+  background: var(--gp-zoom-hover);
+}
+
+.mapPanelLines i {
+  width: 14px;
   height: 3px;
   border-radius: 99px;
 }
 
-.mapLegend .mapLegendActive {
+.mapPanelLines .mapLegendActive {
   border-color: var(--gp-border-strong);
+  background: var(--gp-surface);
   box-shadow: 2px 2px 0 var(--gp-shadow-legend);
 }
 
-.stationLegend {
-  position: absolute;
-  top: 60px;
-  left: 14px;
-  display: flex;
-  gap: 11px;
-  padding: 6px 8px;
-  border: 1px solid var(--gp-border-legend-soft);
-  border-radius: 5px;
-  background: var(--gp-overlay-faint);
+.legendToggle {
+  margin-left: 2px;
+  padding: 5px 7px !important;
+  color: var(--gp-text-muted) !important;
+  font-weight: 800;
+}
+
+.legendBody {
+  display: grid;
+  gap: 5px;
+  padding: 7px 4px 3px;
+  border-top: 1px solid var(--gp-border-legend-soft);
   color: var(--gp-text-legend);
-  font-size: 8px;
-  backdrop-filter: blur(8px);
+  font-size: 8.5px;
 }
 
-.stationLegend span {
+.legendRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+}
+
+.legendRow > b {
+  min-width: 24px;
+  color: var(--gp-text-label);
+  font-size: 7.5px;
+  letter-spacing: 0.06em;
+}
+
+.legendRow span {
   display: flex;
   align-items: center;
-  gap: 5px;
-}
-
-.zoneLegend {
-  position: absolute;
-  top: 100px;
-  left: 14px;
-  display: flex;
-  gap: 11px;
-  padding: 8px 10px;
-  border: 1px solid rgba(67, 60, 54, 0.24);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.82);
-  color: #746c63;
-  font-size: 10px;
-  backdrop-filter: blur(8px);
-}
-
-.zoneLegend span {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.mobilityLegend {
-  position: absolute;
-  top: 123px;
-  left: 14px;
-  display: flex;
-  gap: 11px;
-  padding: 6px 8px;
-  border: 1px solid rgba(67, 60, 54, 0.24);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.82);
-  color: #746c63;
-  font-size: 8px;
-  backdrop-filter: blur(8px);
-}
-
-.mobilityLegend span {
-  display: flex;
-  align-items: center;
-  gap: 5px;
+  gap: 4px;
 }
 
 .walkingCitizenMark,
