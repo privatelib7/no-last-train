@@ -9,10 +9,13 @@
   // 서버(server/, Next.js + Prisma + PostgreSQL)는 이 설정으로 배포되지
   // 않는다. main 진입점이 없는 정적 자산 전용 구성이다.
   //
-  // Cloudflare 빌드 설정 (클라이언트 Worker):
-  //   Root directory : client
-  //   Build command  : npm run build
-  //   Deploy command : npx wrangler deploy
+  // Cloudflare Workers Builds (대시보드 Settings → Builds):
+  //   Git repository  : privatelib7/no-last-train
+  //   Production branch: main
+  //   Root directory  : client
+  //   Build command   : npm run build
+  //   Deploy command  : npx wrangler deploy
+  //   Build variable  : VITE_API_URL=https://no-last-train-server.no-last-train.workers.dev
   //
   // 클라이언트가 호출할 API 주소는 빌드 시점에 VITE_API_URL로 주입한다.
   // 비어 있으면 상대경로 /api/... 로 요청하므로 Cloudflare에서 404가 된다.
@@ -27,5 +30,10 @@
     // 사용하므로 SPA 폴백이 필요 없다. 폴백을 켜면 /api/* 요청에도
     // index.html이 200으로 돌아가, VITE_API_URL 미설정이 404가 아니라
     // "JSON 파싱 실패"로 위장되어 원인 파악이 어려워진다.
+  },
+
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
   }
 }

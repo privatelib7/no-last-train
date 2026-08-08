@@ -6,17 +6,32 @@
   //
   // Cloudflare 빌드 설정 (서버 Worker):
   //   Root directory : server
-  //   Build command  : npm run build:cf
+  //   Build command  : npm run build
   //   Deploy command : npx wrangler deploy
   "name": "no-last-train-server",
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-08-08",
 
-  // Prisma, nodemailer 등 Node 내장 모듈에 의존하는 코드가 있어 필요하다.
+  // Prisma, nodemailer, pg TCP 등에 필요.
   "compatibility_flags": ["nodejs_compat"],
 
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
+  },
+
+  // Supabase Postgres — workerd 직접 TLS는 인증서 검증으로 실패하므로
+  // Hyperdrive를 경유한다. 로컬 `wrangler dev`는 .dev.vars의
+  // CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE 를 쓴다.
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "426ef7ee1c004ea18d85c1b5d9d2b716"
+    }
+  ],
+
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
   }
 }

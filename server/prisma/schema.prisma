@@ -1,3 +1,8 @@
+// OpenNext Cloudflare는 기본 경로의 @prisma/client / .prisma/client 를
+// serverExternalPackages로 두고 workerd export 조건으로 패치·번들한다.
+// 커스텀 output + webpack wasm 에셋은 Worker에서
+// `readAll '/bundle/static/wasm/…'` 로 실패하므로 쓰지 않는다.
+// https://opennext.js.org/cloudflare/howtos/db
 generator client {
   provider = "prisma-client-js"
 }
