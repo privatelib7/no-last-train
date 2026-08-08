@@ -17,7 +17,7 @@ import {
 import type { AuthSession } from '../api/auth'
 import { updateRoomTitle } from '../api/cities'
 import { fetchCursors, leaveCursor, syncCursor, type RemoteCursor } from '../api/cursors'
-import { scheduleMajorEventNotification, subscribePendingNotification } from '../lib/notifications'
+import { notifyEmergency } from '../lib/notifications'
 import InviteModal from './InviteModal'
 import { getCityMap, polyPath } from '../maps'
 import { createCitizenJourneys, locateCitizen, type CitizenTravelMode } from '../mobility'
@@ -201,8 +201,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
   const [titleSaving, setTitleSaving] = useState(false)
-  const [notifyStatus, setNotifyStatus] = useState<'idle' | 'pending' | 'sent' | 'denied' | 'unsupported' | 'busy'>('idle')
-  const [notifySecondsLeft, setNotifySecondsLeft] = useState(0)
   const [commandInput, setCommandInput] = useState('')
   const [commandBusy, setCommandBusy] = useState(false)
   const [commandMessages, setCommandMessages] = useState<CityCommandMessage[]>([{
@@ -226,6 +224,10 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const performActionRef = useRef<((action: CityAction) => Promise<CityState | null>) | null>(null)
   const commandMessageId = useRef(0)
   const commandLogRef = useRef<HTMLDivElement | null>(null)
+  const emergencyCityRef = useRef<string | null>(null)
+  const cashEmergencyRef = useRef(false)
+  const gameOverRiskRef = useRef(false)
+  const gameOverFiredRef = useRef(false)
 
   useEffect(() => {
     stateRef.current = state
@@ -269,13 +271,13 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
       .catch(err => {
         if (cancelled) return
         const status = err instanceof ApiError ? err.status : null
-        if (status === 401 || status === 403) {
-          setError(err instanceof Error ? err.message : '도시를 불러오지 못했습니다.')
-          setErrorStatus(status)
+        if (status === 404) {
+          // 삭제된 도시 ID가 localStorage에 남은 경우 등 — 로비로 복귀
+          onBack()
           return
         }
-        // 삭제된 도시 ID가 localStorage에 남은 경우 등 — 로비로 복귀
-        onBack()
+        setError(err instanceof Error ? err.message : '도시를 불러오지 못했습니다.')
+        setErrorStatus(status)
       })
     return () => { cancelled = true }
   }, [cityId, session?.token, onBack])
@@ -475,46 +477,56 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     }
   }
 
-  // 알림 예약은 모듈 전역 타이머라 로비로 나가도 유지된다. UI만 구독한다.
+  // 응급 상황(운영자금 마이너스 · 파산·행복도 위험 · 게임오버) 진입 순간에만 한 번씩 크롬 알림을 띄운다.
+  // 도시를 새로 열었을 때 이미 위험한 상태였다면 그건 "방금 벌어진 일"이 아니므로 기준선만 세우고 알리지 않는다.
   useEffect(() => {
-    return subscribePendingNotification((next) => {
-      if (!next) {
-        setNotifyStatus((prev) => (prev === 'pending' ? 'sent' : prev))
-        setNotifySecondsLeft(0)
-        return
-      }
-      setNotifyStatus('pending')
-      setNotifySecondsLeft(Math.max(0, Math.ceil((next.firesAt - Date.now()) / 1000)))
-    })
-  }, [])
+    if (!state) return
+    const isNewCity = emergencyCityRef.current !== cityId
+    emergencyCityRef.current = cityId
 
-  useEffect(() => {
-    if (notifyStatus !== 'pending') return
-    const timer = window.setInterval(() => {
-      setNotifySecondsLeft((prev) => Math.max(0, prev - 1))
-    }, 1000)
-    return () => window.clearInterval(timer)
-  }, [notifyStatus])
+    const cashNegative = state.city.cashBalance < 0
+    const bankruptcyRisk = state.city.cashBalance <= state.economyRules.bankruptLimit
+    const happinessRisk = state.city.happiness <= state.economyRules.criticalHappiness
+    const gameOverRisk = bankruptcyRisk || happinessRisk
+    const gameOver = state.city.status === 'GAME_OVER'
+    const roomTitle = state.city.roomTitle
 
-  useEffect(() => {
-    if (notifyStatus !== 'sent' && notifyStatus !== 'denied' && notifyStatus !== 'unsupported' && notifyStatus !== 'busy') {
+    if (isNewCity) {
+      cashEmergencyRef.current = cashNegative
+      gameOverRiskRef.current = gameOverRisk
+      gameOverFiredRef.current = gameOver
       return
     }
-    const timer = window.setTimeout(() => setNotifyStatus('idle'), 4000)
-    return () => window.clearTimeout(timer)
-  }, [notifyStatus])
 
-  // 주요 이벤트 크롬 알림 테스트 — 버튼을 누르면 5초 뒤에 알림을 띄운다.
-  const handleTestNotification = async () => {
-    if (!state || notifyStatus === 'pending') return
-    const result = await scheduleMajorEventNotification(state.city.roomTitle, 5000)
-    if (result === 'scheduled') {
-      setNotifyStatus('pending')
-      setNotifySecondsLeft(5)
-    } else {
-      setNotifyStatus(result)
+    if (cashNegative && !cashEmergencyRef.current) {
+      void notifyEmergency(
+        `${roomTitle} — 운영자금 마이너스`,
+        '운영자금이 바닥났습니다. 노선을 점검해주세요.',
+        `nlt-cash-${cityId}`,
+      )
     }
-  }
+    cashEmergencyRef.current = cashNegative
+
+    if (gameOverRisk && !gameOverRiskRef.current) {
+      void notifyEmergency(
+        `${roomTitle} — 게임오버 위험`,
+        bankruptcyRisk
+          ? '파산 위험 상태입니다. 회복하지 못하면 곧 경영이 종료됩니다.'
+          : '시민 행복도가 위험 수준입니다. 회복하지 못하면 곧 경영이 종료됩니다.',
+        `nlt-risk-${cityId}`,
+      )
+    }
+    gameOverRiskRef.current = gameOverRisk
+
+    if (gameOver && !gameOverFiredRef.current) {
+      void notifyEmergency(
+        `${roomTitle} — 게임 오버`,
+        '경영이 종료되었습니다. 도시로 돌아가 다시 시작해보세요.',
+        `nlt-gameover-${cityId}`,
+      )
+    }
+    gameOverFiredRef.current = gameOver
+  }, [state, cityId])
 
   useEffect(() => {
     if (!selectedVehicleId || !state) return
@@ -1161,34 +1173,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                 <span>초대</span>
               </button>
             )}
-          </div>
-          <div className={styles.headerActions}>
-            <button
-              className={styles.notifyButton}
-              onClick={() => void handleTestNotification()}
-              disabled={notifyStatus === 'pending'}
-              type="button"
-              aria-label="주요 이벤트 알림 테스트"
-              title="5초 후 크롬 알림을 띄웁니다"
-            >
-              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path
-                  d="M12 4.5c-2.9 0-5 2.2-5 5v2.4c0 .6-.2 1.2-.6 1.7l-1.1 1.4c-.6.8 0 1.9 1 1.9h11.4c1 0 1.6-1.1 1-1.9l-1.1-1.4c-.4-.5-.6-1.1-.6-1.7V9.5c0-2.8-2.1-5-5-5z"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinejoin="round"
-                />
-                <path d="M10.3 18.5a1.9 1.9 0 0 0 3.4 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              </svg>
-              <span>
-                {notifyStatus === 'pending' && `${notifySecondsLeft || 1}초 후 알림…`}
-                {notifyStatus === 'sent' && '알림 전송됨'}
-                {notifyStatus === 'denied' && '알림 차단됨'}
-                {notifyStatus === 'unsupported' && '알림 미지원'}
-                {notifyStatus === 'busy' && '이미 예약됨'}
-                {notifyStatus === 'idle' && '알림 테스트'}
-              </span>
-            </button>
           </div>
         </div>
 
