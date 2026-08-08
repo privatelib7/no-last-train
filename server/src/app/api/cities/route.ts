@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { CITY_NAMES, isCityName, pickRandomRoomTitle } from '@/lib/city-names'
+import { stationDwellMinutes } from '@/lib/vehicle-motion'
 import { z } from 'zod'
 
 const CreateCitySchema = z.object({
@@ -141,7 +142,7 @@ export async function POST(req: NextRequest) {
     })
     await tx.vehicle.createMany({
       data: [
-        { lineId: playerLine.id, capacity: 120, status: 'OPERATING', currentStationId: playerStations[0].id, headwayMinutes: 3 },
+        { lineId: playerLine.id, capacity: 120, status: 'OPERATING', currentStationId: playerStations[0].id, headwayMinutes: 3, segmentProgressMinutes: -stationDwellMinutes('SUBWAY') },
         { lineId: playerLine.id, capacity: 120, status: 'SPARE', isSpare: true, headwayMinutes: 6, direction: -1 },
       ],
     })
@@ -162,7 +163,7 @@ export async function POST(req: NextRequest) {
     })
     await tx.vehicle.createMany({
       data: [
-        { lineId: aiLine.id, capacity: 120, status: 'OPERATING', currentStationId: aiStations[0].id, headwayMinutes: 3 },
+        { lineId: aiLine.id, capacity: 120, status: 'OPERATING', currentStationId: aiStations[0].id, headwayMinutes: 3, segmentProgressMinutes: -stationDwellMinutes('SUBWAY') },
         { lineId: aiLine.id, capacity: 120, status: 'SPARE', isSpare: true, headwayMinutes: 6, direction: -1 },
       ],
     })
@@ -186,7 +187,7 @@ export async function POST(req: NextRequest) {
       data: busStations.map((s, i) => ({ lineId: busLine.id, stationId: s.id, order: i })),
     })
     await tx.vehicle.create({
-      data: { lineId: busLine.id, capacity: 60, status: 'OPERATING', currentStationId: busStations[0].id, headwayMinutes: 6 },
+      data: { lineId: busLine.id, capacity: 60, status: 'OPERATING', currentStationId: busStations[0].id, headwayMinutes: 6, segmentProgressMinutes: -stationDwellMinutes('BUS') },
     })
 
     await tx.gameEvent.create({

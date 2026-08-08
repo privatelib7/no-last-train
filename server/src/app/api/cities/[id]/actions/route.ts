@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { authorizeCityAccess } from '@/lib/access'
-import { ECONOMY, lineBuildCost, segmentBuildCost, stationInsertCost, vehiclePurchaseCost } from '@/lib/economy'
+import { ECONOMY, lineBuildCost, segmentBuildCost, stationInsertCost } from '@/lib/economy'
+import { stationDwellMinutes } from '@/lib/vehicle-motion'
+import { isVehicleInService, vehicleServiceUpdate } from '@/lib/vehicle-service'
 import type { Prisma } from '@prisma/client'
 import { z } from 'zod'
 
@@ -31,6 +33,12 @@ const ActionSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('CREATE_LINE'),
     mode: z.enum(['SUBWAY', 'BUS']),
+  }),
+  z.object({
+    type: z.literal('CREATE_CONNECTED_LINE'),
+    mode: z.enum(['SUBWAY', 'BUS']),
+    fromStationId: z.string(),
+    toStationId: z.string(),
   }),
   z.object({
     type: z.literal('DETACH_STATION'),
@@ -66,12 +74,6 @@ const ActionSchema = z.discriminatedUnion('type', [
     inService: z.boolean(),
   }),
   z.object({
-    type: z.literal('DEPLOY_VEHICLE'),
-    lineId: z.string(),
-    vehicleId: z.string().optional(),
-    stationId: z.string(),
-  }),
-  z.object({
     type: z.literal('TRANSFER_VEHICLE'),
     lineId: z.string(),
     vehicleId: z.string(),
@@ -85,6 +87,41 @@ const ActionSchema = z.discriminatedUnion('type', [
 ])
 
 class ConstructionFundsError extends Error {}
+
+const LINE_COLORS = ['RED', 'BLUE', 'GREEN', 'YELLOW', 'PURPLE'] as const
+
+function nextLineIdentity(
+  lines: Array<{ name: string; mode: string; color: string }>,
+  mode: 'SUBWAY' | 'BUS',
+) {
+  let name: string
+  if (mode === 'SUBWAY') {
+    const maxNumber = lines.reduce((max, item) => {
+      const match = item.name.match(/^(\d+)호선$/)
+      return match ? Math.max(max, Number(match[1])) : max
+    }, 0)
+    name = `${maxNumber + 1}호선`
+  } else {
+    const used = new Set(lines.filter(item => item.mode === 'BUS').map(item => item.name))
+    name = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].find(ch => !used.has(ch)) ?? `버스 ${lines.length + 1}`
+  }
+
+  const color = LINE_COLORS
+    .map(candidate => ({ candidate, count: lines.filter(item => item.color === candidate).length }))
+    .sort((a, b) => a.count - b.count)[0].candidate
+  return { name, color }
+}
+
+function depotBeyondTerminus(
+  terminus: { posX: number; posY: number },
+  inner: { posX: number; posY: number },
+) {
+  const length = Math.hypot(terminus.posX - inner.posX, terminus.posY - inner.posY) || 1
+  return {
+    depotX: Math.max(4, Math.min(96, terminus.posX + ((terminus.posX - inner.posX) / length) * 4.5)),
+    depotY: Math.max(4, Math.min(92, terminus.posY + ((terminus.posY - inner.posY) / length) * 4.5)),
+  }
+}
 
 async function runPaidConstruction<T>(
   cityId: string,
@@ -153,10 +190,12 @@ export async function POST(
     if (!city) return NextResponse.json({ error: '도시를 찾을 수 없습니다.' }, { status: 404 })
     await db.$transaction([
       db.passenger.deleteMany({ where: { cityId: id } }),
+      db.simTick.deleteMany({ where: { cityId: id } }),
       db.city.update({
         where: { id },
         data: {
           status: 'ACTIVE',
+          currentTick: 0,
           lastTickAt: new Date(),
           cashBalance: ECONOMY.INITIAL_CASH,
           totalRevenue: 0,
@@ -205,24 +244,7 @@ export async function POST(
 
   if (action.type === 'CREATE_LINE') {
     const lines = await db.line.findMany({ where: { cityId: id } })
-    let name: string
-    if (action.mode === 'SUBWAY') {
-      // 네이밍 규칙: 지하철은 "n호선" — 기존 최대 번호 + 1
-      const maxNumber = lines.reduce((max, item) => {
-        const match = item.name.match(/^(\d+)호선$/)
-        return match ? Math.max(max, Number(match[1])) : max
-      }, 0)
-      name = `${maxNumber + 1}호선`
-    } else {
-      // 버스는 A, B, C…
-      const used = new Set(lines.filter(item => item.mode === 'BUS').map(item => item.name))
-      name = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].find(ch => !used.has(ch)) ?? `버스 ${lines.length + 1}`
-    }
-    // 색상: 도시 내 최소 사용 색 (동률이면 enum 순서 앞이 우선 → 미사용 색 먼저)
-    const COLORS = ['RED', 'BLUE', 'GREEN', 'YELLOW', 'PURPLE'] as const
-    const color = COLORS
-      .map(candidate => ({ candidate, count: lines.filter(item => item.color === candidate).length }))
-      .sort((a, b) => a.count - b.count)[0].candidate
+    const { name, color } = nextLineIdentity(lines, action.mode)
     const cost = lineBuildCost(action.mode)
     const created = await runPaidConstruction(id, cost, async tx => {
       const nextLine = await tx.line.create({
@@ -245,6 +267,51 @@ export async function POST(
     })
   }
 
+  if (action.type === 'CREATE_CONNECTED_LINE') {
+    if (action.fromStationId === action.toStationId) {
+      return NextResponse.json({ error: '서로 다른 두 역을 선택해주세요.' }, { status: 400 })
+    }
+    const stations = await db.station.findMany({
+      where: { cityId: id, id: { in: [action.fromStationId, action.toStationId] } },
+    })
+    const fromStation = stations.find(station => station.id === action.fromStationId)
+    const toStation = stations.find(station => station.id === action.toStationId)
+    if (!fromStation || !toStation) {
+      return NextResponse.json({ error: '선택한 역을 찾을 수 없습니다.' }, { status: 404 })
+    }
+
+    const lines = await db.line.findMany({ where: { cityId: id } })
+    const { name, color } = nextLineIdentity(lines, action.mode)
+    const distance = Math.hypot(fromStation.posX - toStation.posX, fromStation.posY - toStation.posY)
+    const cost = lineBuildCost(action.mode) + segmentBuildCost(action.mode, distance)
+    const depot = depotBeyondTerminus(fromStation, toStation)
+    const created = await runPaidConstruction(id, cost, async tx => {
+      const nextLine = await tx.line.create({
+        data: { cityId: id, mode: action.mode, name, color, ...depot },
+      })
+      await tx.lineStation.createMany({
+        data: [
+          { lineId: nextLine.id, stationId: fromStation.id, order: 0 },
+          { lineId: nextLine.id, stationId: toStation.id, order: 1 },
+        ],
+      })
+      await tx.vehicle.create({
+        data: {
+          lineId: nextLine.id,
+          capacity: action.mode === 'BUS' ? 60 : 120,
+          status: 'SPARE',
+          isSpare: true,
+          headwayMinutes: 6,
+        },
+      })
+      return nextLine
+    })
+
+    const message = `${fromStation.name}–${toStation.name} 사이에 ${name}을 건설했습니다. (${formatWon(cost)})`
+    await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
+    return NextResponse.json({ message, line: created })
+  }
+
   if (action.type === 'MOVE_STATION') {
     const station = await db.station.findFirst({ where: { id: action.stationId, cityId: id } })
     if (!station) return NextResponse.json({ error: '역을 찾을 수 없습니다.' }, { status: 404 })
@@ -263,12 +330,41 @@ export async function POST(
   if (action.type === 'REMOVE_STATION') {
     const station = await db.station.findFirst({ where: { id: action.stationId, cityId: id } })
     if (!station) return NextResponse.json({ error: '역을 찾을 수 없습니다.' }, { status: 404 })
-    // 이 역에 있던 운행 차량은 차고지 대기로 전환 (lineStations·대기 승객은 cascade 삭제)
-    await db.vehicle.updateMany({
-      where: { currentStationId: station.id },
-      data: { status: 'SPARE', isSpare: true, currentStationId: null, direction: 1 },
+    const memberships = await db.lineStation.findMany({
+      where: { stationId: station.id },
+      include: {
+        line: {
+          include: {
+            lineStations: {
+              where: { stationId: { not: station.id } },
+              orderBy: { order: 'asc' },
+            },
+          },
+        },
+      },
     })
-    const memberships = await db.lineStation.findMany({ where: { stationId: station.id } })
+    for (const membership of memberships) {
+      const fallbackStation = membership.line.lineStations[0]
+      const operatingHere = await db.vehicle.count({
+        where: { lineId: membership.lineId, currentStationId: station.id, status: 'OPERATING', isSpare: false },
+      })
+      if (!fallbackStation && operatingHere > 0) {
+        return NextResponse.json(
+          { error: `${membership.line.name} 운행 차량을 먼저 입고한 뒤 마지막 역을 삭제해주세요.` },
+          { status: 409 },
+        )
+      }
+      if (fallbackStation) {
+        await db.vehicle.updateMany({
+          where: { lineId: membership.lineId, currentStationId: station.id },
+          data: {
+            currentStationId: fallbackStation.stationId,
+            direction: 1,
+            segmentProgressMinutes: -stationDwellMinutes(membership.line.mode),
+          },
+        })
+      }
+    }
     await db.station.delete({ where: { id: station.id } })
     // 종점이 사라진 노선의 차고지를 새 종점으로 이동
     for (const membership of memberships) {
@@ -292,7 +388,7 @@ export async function POST(
     where: { id: action.lineId, cityId: id },
     include: {
       lineStations: { include: { station: true }, orderBy: { order: 'asc' } },
-      vehicles: true,
+      vehicles: { orderBy: { id: 'asc' } },
     },
   })
   if (!line) return NextResponse.json({ error: '노선을 찾을 수 없습니다.' }, { status: 404 })
@@ -402,13 +498,27 @@ export async function POST(
   if (action.type === 'DETACH_STATION') {
     const membership = line.lineStations.find(item => item.stationId === action.stationId)
     if (!membership) return NextResponse.json({ error: '이 노선에 속하지 않은 역입니다.' }, { status: 400 })
+    const fallbackStation = line.lineStations.find(item => item.stationId !== action.stationId)
+    if (!fallbackStation && line.vehicles.some(vehicle => (
+      vehicle.currentStationId === action.stationId && isVehicleInService(vehicle)
+    ))) {
+      return NextResponse.json(
+        { error: `${line.name} 운행 차량을 먼저 입고한 뒤 마지막 역을 제거해주세요.` },
+        { status: 409 },
+      )
+    }
+    if (fallbackStation) {
+      await db.vehicle.updateMany({
+        where: { lineId: line.id, currentStationId: action.stationId },
+        data: {
+          currentStationId: fallbackStation.stationId,
+          direction: 1,
+          segmentProgressMinutes: -stationDwellMinutes(line.mode),
+        },
+      })
+    }
     await db.lineStation.delete({
       where: { lineId_stationId: { lineId: line.id, stationId: action.stationId } },
-    })
-    // 제거된 역에 있던 이 노선의 차량은 차고지 대기로 전환
-    await db.vehicle.updateMany({
-      where: { lineId: line.id, currentStationId: action.stationId },
-      data: { status: 'SPARE', isSpare: true, currentStationId: null, direction: 1 },
     })
     await repositionDepot(line.id)
     return NextResponse.json({ message: `${membership.station.name}을 ${line.name}에서 제거했습니다.` })
@@ -432,44 +542,20 @@ export async function POST(
     return NextResponse.json({ message })
   }
 
-  if (action.type === 'DEPLOY_VEHICLE') {
-    const stationId = action.stationId
-    const stationOnLine = line.lineStations.some(item => item.stationId === stationId)
-    if (!stationOnLine) return NextResponse.json({ error: '해당 노선에 연결된 역을 선택해주세요.' }, { status: 400 })
-    const spare = action.vehicleId
-      ? line.vehicles.find(vehicle => vehicle.id === action.vehicleId && vehicle.status === 'SPARE')
-      : line.vehicles.find(vehicle => vehicle.status === 'SPARE')
-    if (action.vehicleId && !spare) {
-      return NextResponse.json({ error: '선택한 예비 차량을 찾을 수 없습니다.' }, { status: 404 })
-    }
-    const vehicle = spare
-      ? await db.vehicle.update({
-          where: { id: spare.id },
-          data: { status: 'OPERATING', isSpare: false, currentStationId: stationId, direction: 1 },
-        })
-      : await runPaidConstruction(id, vehiclePurchaseCost(line.mode), tx => tx.vehicle.create({
-          data: {
-            lineId: line.id,
-            capacity: line.mode === 'BUS' ? 60 : 120,
-            status: 'OPERATING',
-            currentStationId: stationId,
-            direction: 1,
-          },
-        }))
-    const station = await db.station.findUniqueOrThrow({ where: { id: stationId } })
-    const message = `${line.name} 차량을 ${station.name}에 배치했습니다.`
-    await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
-    return NextResponse.json({ message, vehicle })
-  }
-
   const vehicle = line.vehicles.find(item => item.id === action.vehicleId)
   if (!vehicle) return NextResponse.json({ error: '차량을 찾을 수 없습니다.' }, { status: 404 })
 
   if (action.type === 'SET_VEHICLE_SERVICE') {
     if (!action.inService) {
+      if (vehicle.status === 'SPARE' && vehicle.isSpare) {
+        return NextResponse.json({ message: `${line.name} 차량은 이미 차고지에서 대기 중입니다.`, vehicle })
+      }
+      if (!isVehicleInService(vehicle)) {
+        return NextResponse.json({ error: '운행 중인 차량만 입고할 수 있습니다.' }, { status: 409 })
+      }
       const updatedVehicle = await db.vehicle.update({
         where: { id: vehicle.id },
-        data: { status: 'SPARE', isSpare: true, currentStationId: null },
+        data: vehicleServiceUpdate(false),
       })
       const message = `${line.name} 차량을 차고지에 입고했습니다.`
       await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
@@ -477,6 +563,12 @@ export async function POST(
     }
     if (line.lineStations.length === 0) {
       return NextResponse.json({ error: '차량을 투입할 역이 없습니다.' }, { status: 400 })
+    }
+    if (isVehicleInService(vehicle)) {
+      return NextResponse.json({ message: `${line.name} 차량은 이미 운행 중입니다.`, vehicle })
+    }
+    if (!vehicle.isSpare) {
+      return NextResponse.json({ error: '차고지에서 대기 중인 차량만 운행할 수 있습니다.' }, { status: 409 })
     }
     const depotStation = line.lineStations.reduce((nearest, item) => {
       const distance = Math.hypot(item.station.posX - line.depotX, item.station.posY - line.depotY)
@@ -487,12 +579,11 @@ export async function POST(
     const direction = stationIndex >= line.lineStations.length - 1 ? -1 : 1
     const updatedVehicle = await db.vehicle.update({
       where: { id: vehicle.id },
-      data: {
-        status: 'OPERATING',
-        isSpare: false,
-        currentStationId: depotStation.stationId,
+      data: vehicleServiceUpdate(true, {
+        stationId: depotStation.stationId,
         direction,
-      },
+        dwellMinutes: stationDwellMinutes(line.mode),
+      }),
     })
     const message = `${line.name} 차량 운행을 시작했습니다.`
     await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
@@ -500,6 +591,9 @@ export async function POST(
   }
 
   if (action.type === 'TRANSFER_VEHICLE') {
+    if (vehicle.status !== 'SPARE' || !vehicle.isSpare) {
+      return NextResponse.json({ error: '운행 차량은 먼저 입고한 뒤 다른 차고지로 이동해주세요.' }, { status: 409 })
+    }
     if (action.targetLineId === line.id) {
       return NextResponse.json({ error: '같은 노선 차고지로는 이동할 수 없습니다.' }, { status: 400 })
     }
@@ -507,13 +601,7 @@ export async function POST(
     if (!targetLine) return NextResponse.json({ error: '이동할 차고지를 찾을 수 없습니다.' }, { status: 404 })
     const updatedVehicle = await db.vehicle.update({
       where: { id: vehicle.id },
-      data: {
-        lineId: targetLine.id,
-        status: 'SPARE',
-        isSpare: true,
-        currentStationId: null,
-        direction: 1,
-      },
+      data: { lineId: targetLine.id },
     })
     const message = `차량을 ${targetLine.name} 차고지로 이동했습니다.`
     await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })

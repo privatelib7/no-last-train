@@ -5,6 +5,7 @@ import {
   CONGESTION_WARN,
   executeCityAction,
   fetchCity,
+  planCityCommand,
   TICKS_PER_DAY,
   TICKS_PER_HOUR,
   type CityAction,
@@ -19,6 +20,7 @@ import { scheduleMajorEventNotification, subscribePendingNotification } from '..
 import InviteModal from './InviteModal'
 import { getCityMap, polyPath } from '../maps'
 import { createCitizenJourneys, locateCitizen, type CitizenTravelMode } from '../mobility'
+import { locateVehicle } from '../vehicle-motion'
 import styles from './GamePage.module.css'
 
 interface Props {
@@ -70,8 +72,16 @@ type MapPanState = {
   moved: boolean
 }
 
+type CityCommandMessage = {
+  id: number
+  role: 'assistant' | 'user'
+  text: string
+  isError?: boolean
+}
+
 const LIVE_TICK_MS = 3000
 const CITIZEN_TIME_SCALE = 0.72
+const GAME_MINUTES_PER_TICK = 60 / TICKS_PER_HOUR
 const INITIAL_MAP_VIEW: MapView = { x: 0, y: 0, width: 100, height: 100 }
 
 const LINE_COLORS: Record<string, string> = {
@@ -97,7 +107,7 @@ const CITIZEN_MODE_CLASSES: Record<CitizenTravelMode, string> = {
 function formatHour(hour: number) {
   const normalized = ((hour % 24) + 24) % 24
   const h = Math.floor(normalized)
-  const m = Math.round((normalized - h) * 60)
+  const m = Math.floor((normalized - h) * 60)
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 
@@ -128,48 +138,19 @@ function linePoints(line: GameLine) {
 }
 
 function trainStatus(vehicle: Vehicle) {
+  if (vehicle.isSpare) return '차고지 대기'
   if (vehicle.status === 'OPERATING') return '운행 중'
-  if (vehicle.status === 'SPARE') return '차고지 대기'
   if (vehicle.status === 'LOANED') return '지원 운행'
   if (vehicle.status === 'MAINTENANCE') return '정비 중'
   return '운행 불가'
 }
 
+function orderedVehicles(line: GameLine) {
+  return line.vehicles.slice().sort((a, b) => a.id.localeCompare(b.id))
+}
+
 function lineHasStation(line: GameLine, stationId: string) {
   return line.lineStations.some(item => item.stationId === stationId)
-}
-
-// 서버 simulation.ts의 vehicleTiming과 동일해야 함
-function vehicleTiming(vehicleId: string, mode: string = 'SUBWAY') {
-  let hash = 2166136261
-  for (let index = 0; index < vehicleId.length; index++) {
-    hash ^= vehicleId.charCodeAt(index)
-    hash = Math.imul(hash, 16777619)
-  }
-  const unsigned = hash >>> 0
-  // 버스는 지하철보다 한 단계 느림 (2~4틱)
-  const interval = 1 + (unsigned % 3) + (mode === 'BUS' ? 1 : 0)
-  const phase = Math.floor(unsigned / 3) % interval
-  return { interval, phase }
-}
-
-function shouldVehicleMove(vehicleId: string, tick: number, mode: string = 'SUBWAY') {
-  const { interval, phase } = vehicleTiming(vehicleId, mode)
-  return tick % interval === phase
-}
-
-function nextStationOnLine(line: GameLine, vehicle: Vehicle) {
-  const stations = orderedStations(line)
-  if (!vehicle.currentStationId || stations.length < 2) return null
-  const currentIndex = stations.findIndex(station => station.id === vehicle.currentStationId)
-  if (currentIndex < 0) return null
-  let direction = vehicle.direction >= 0 ? 1 : -1
-  let nextIndex = currentIndex + direction
-  if (nextIndex < 0 || nextIndex >= stations.length) {
-    direction *= -1
-    nextIndex = currentIndex + direction
-  }
-  return stations[nextIndex] ?? null
 }
 
 function nearestStationToDepot(line: GameLine) {
@@ -212,13 +193,20 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const [error, setError] = useState<string | null>(null)
   const [errorStatus, setErrorStatus] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
-  const [motionProgress, setMotionProgress] = useState(0)
+  const [clockNowMs, setClockNowMs] = useState(() => Date.now())
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
   const [titleSaving, setTitleSaving] = useState(false)
   const [notifyStatus, setNotifyStatus] = useState<'idle' | 'pending' | 'sent' | 'denied' | 'unsupported' | 'busy'>('idle')
   const [notifySecondsLeft, setNotifySecondsLeft] = useState(0)
+  const [commandInput, setCommandInput] = useState('')
+  const [commandBusy, setCommandBusy] = useState(false)
+  const [commandMessages, setCommandMessages] = useState<CityCommandMessage[]>([{
+    id: 0,
+    role: 'assistant',
+    text: '역과 노선 이름을 사용해 운영 명령을 내려주세요. 실행 결과를 바로 보고드릴게요.',
+  }])
   const ticking = useRef(false)
   const vehicleDragRef = useRef<VehicleDragState | null>(null)
   const stationDragRef = useRef<StationLinkDrag | null>(null)
@@ -230,6 +218,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const mapRef = useRef<SVGSVGElement | null>(null)
   const stateRef = useRef<CityState | null>(null)
   const performActionRef = useRef<((action: CityAction) => Promise<CityState | null>) | null>(null)
+  const commandMessageId = useRef(0)
+  const commandLogRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     stateRef.current = state
@@ -247,6 +237,11 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [])
+
+  useEffect(() => {
+    const log = commandLogRef.current
+    if (log) log.scrollTop = log.scrollHeight
+  }, [commandMessages, commandBusy])
 
   const loadCity = async () => {
     const next = await fetchCity(cityId, session?.token)
@@ -304,22 +299,16 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     }
   }, [busy, cityId, session?.token])
 
-  const motionTick = state?.city.currentTick ?? -1
   useEffect(() => {
-    if (motionTick < 0) return
     let animationFrame = 0
-    const startedAt = performance.now()
-    setMotionProgress(0)
-
-    const animate = (now: number) => {
-      const progress = Math.min((now - startedAt) / (LIVE_TICK_MS - 180), 1)
-      setMotionProgress(progress)
-      if (progress < 1) animationFrame = window.requestAnimationFrame(animate)
+    const animate = () => {
+      setClockNowMs(Date.now())
+      animationFrame = window.requestAnimationFrame(animate)
     }
 
     animationFrame = window.requestAnimationFrame(animate)
     return () => window.cancelAnimationFrame(animationFrame)
-  }, [motionTick])
+  }, [])
 
   const sortedLines = useMemo(
     () => state?.city.lines.slice().sort((a, b) => a.name.localeCompare(b.name, 'ko')) ?? [],
@@ -375,10 +364,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   }, [state, mapDef])
   const congestionByStation = useMemo(
     () => new Map(state?.stationStats.map(stat => [stat.stationId, stat.congestion]) ?? []),
-    [state],
-  )
-  const waitingByStation = useMemo(
-    () => new Map(state?.stationStats.map(stat => [stat.stationId, stat.waitingCount]) ?? []),
     [state],
   )
 
@@ -490,6 +475,61 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     }
   }
   performActionRef.current = performAction
+
+  const appendCommandMessage = (message: Omit<CityCommandMessage, 'id'>) => {
+    commandMessageId.current += 1
+    setCommandMessages(current => [...current, { ...message, id: commandMessageId.current }])
+  }
+
+  const runCityCommand = async (rawCommand: string) => {
+    const command = rawCommand.trim()
+    if (!command || busy || commandBusy || !state?.isOwner) return
+
+    appendCommandMessage({ role: 'user', text: command })
+    setCommandInput('')
+    setCommandBusy(true)
+    setBusy(true)
+    setError(null)
+
+    try {
+      const plan = await planCityCommand(cityId, command, session?.token)
+      if (!plan.ok) {
+        appendCommandMessage({
+          role: 'assistant',
+          text: `${plan.reason}\n${plan.suggestion}`,
+          isError: true,
+        })
+        return
+      }
+
+      const results: string[] = []
+      let createdLineId = ''
+      for (const action of plan.actions) {
+        const result = await executeCityAction(cityId, action, session?.token)
+        results.push(result.message)
+        if (result.line?.id) createdLineId = result.line.id
+      }
+      await loadCity()
+      if (createdLineId) {
+        setSelectedLineId(createdLineId)
+        setSelectedVehicleId('')
+        setSelectedStationId('')
+      }
+      appendCommandMessage({
+        role: 'assistant',
+        text: results.join('\n') || plan.summary,
+      })
+    } catch (err) {
+      appendCommandMessage({
+        role: 'assistant',
+        text: err instanceof Error ? err.message : '명령을 실행하지 못했습니다.',
+        isError: true,
+      })
+    } finally {
+      setCommandBusy(false)
+      setBusy(false)
+    }
+  }
 
   const createLine = async (mode: 'SUBWAY' | 'BUS') => {
     setBusy(true)
@@ -723,11 +763,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
         setDragTarget({ kind: 'DEPOT', id: depot.getAttribute('data-depot-line-id') ?? '' })
         return
       }
-      const station = element?.closest('[data-station-id]')
-      if (station) {
-        setDragTarget({ kind: 'STATION', id: station.getAttribute('data-station-id') ?? '' })
-        return
-      }
       setDragTarget(null)
     }
 
@@ -753,9 +788,12 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
       const vehicle = sourceLine?.vehicles.find(item => item.id === current.vehicleId)
       const element = document.elementFromPoint(event.clientX, event.clientY)
       const depotLineId = element?.closest('[data-depot-line-id]')?.getAttribute('data-depot-line-id')
-      const stationId = element?.closest('[data-station-id]')?.getAttribute('data-station-id')
 
       if (sourceLine && vehicle && depotLineId && depotLineId !== sourceLine.id) {
+        if (vehicle.status !== 'SPARE' || !vehicle.isSpare) {
+          setError('운행 차량은 입고 버튼을 누른 뒤 다른 차고지로 이동해주세요.')
+          return
+        }
         const runAction = performActionRef.current
         if (!runAction) return
         void runAction({
@@ -769,15 +807,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
           setSelectedVehicleId(vehicle.id)
         })
         return
-      }
-
-      if (sourceLine && vehicle?.status === 'SPARE' && stationId && lineHasStation(sourceLine, stationId)) {
-        void performActionRef.current?.({
-          type: 'DEPLOY_VEHICLE',
-          lineId: sourceLine.id,
-          vehicleId: vehicle.id,
-          stationId,
-        })
       }
     }
 
@@ -922,30 +951,83 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   }
 
   const currentTick = state.city.currentTick
+  const lastTickAtMs = Date.parse(state.city.lastTickAt)
+  const liveElapsedTicks = state.city.status === 'ACTIVE' && Number.isFinite(lastTickAtMs)
+    ? Math.max(0, (clockNowMs - lastTickAtMs) / LIVE_TICK_MS)
+    : 0
+  const continuousTick = currentTick + liveElapsedTicks
+  const currentGameDay = Math.floor(continuousTick / TICKS_PER_DAY) + 1
+  const liveElapsedGameMinutes = liveElapsedTicks * GAME_MINUTES_PER_TICK
   // 확대해도 역·글씨·점이 화면 기준 크기를 유지하도록 counter-scale
   const mapScale = mapView.width / 100
   const selectedStation = stationById.get(selectedStationId) ?? null
-  const gameHour = (currentTick / TICKS_PER_HOUR) % 24
+  const gameHour = (continuousTick / TICKS_PER_HOUR) % 24
   // 서버 isWeekendTick과 동일 공식 (1게임일 = 144틱, 7일 주기 중 6·7일차)
-  const isWeekend = Math.floor(currentTick / TICKS_PER_DAY) % 7 >= 5
-  const elapsedSeconds = currentTick * (LIVE_TICK_MS / 1000) + motionProgress * (LIVE_TICK_MS / 1000)
-  const journeyTime = (currentTick + motionProgress) * CITIZEN_TIME_SCALE
+  const isWeekend = Math.floor(continuousTick / TICKS_PER_DAY) % 7 >= 5
+  const elapsedSeconds = continuousTick * (LIVE_TICK_MS / 1000)
+  const journeyTime = continuousTick * CITIZEN_TIME_SCALE
   const movingCitizens = citizenJourneys.map(journey => ({
     ...journey,
     position: locateCitizen(journey, journeyTime),
   }))
+  const vehicleMotionById = new Map(
+    state.city.lines.flatMap(line => orderedVehicles(line).map(vehicle => [
+      vehicle.id,
+      locateVehicle(
+        line,
+        vehicle,
+        line.status === 'OPERATING' && vehicle.status === 'OPERATING' && !vehicle.isSpare
+          ? liveElapsedGameMinutes
+          : 0,
+      ),
+    ] as const)),
+  )
+  // 서버는 3초 경제 틱 끝에 승차를 확정한다. 화면에서는 차량이 역에 실제로
+  // 도착한 프레임부터 예상 승차 인원을 먼저 반영해 대기열이 늦게 사라지지 않게 한다.
+  const waitingByStation = new Map(state.stationStats.map(stat => [stat.stationId, stat.waitingCount]))
+  for (const line of state.city.lines) {
+    if (line.status !== 'OPERATING') continue
+    for (const vehicle of orderedVehicles(line)) {
+      if (vehicle.status !== 'OPERATING' || vehicle.isSpare) continue
+      const motion = vehicleMotionById.get(vehicle.id)
+      for (const stationId of motion?.arrivedStationIds ?? []) {
+        const waiting = waitingByStation.get(stationId) ?? 0
+        waitingByStation.set(stationId, Math.max(0, waiting - vehicle.capacity))
+      }
+    }
+  }
   const latestMetric = state.city.ticks[0]
   const serviceScore = latestMetric?.serviceScore ?? 100
   const totalVehicles = state.city.lines.reduce((sum, line) => sum + line.vehicles.length, 0)
-  const waitingPassengers = state.stationStats.reduce((sum, station) => sum + station.waitingCount, 0)
-  const goalProgress = Math.min(100, (state.city.totalRevenue / state.city.revenueGoal) * 100)
-  const goalReached = state.city.goalReachedAtTick !== null
+  const waitingPassengers = [...waitingByStation.values()].reduce((sum, waiting) => sum + waiting, 0)
+  const goalProgress = state.city.revenueGoal > 0
+    ? Math.min(100, (state.city.totalRevenue / state.city.revenueGoal) * 100)
+    : 0
+  const goalJustReached = state.city.goalsCompleted > 0 && state.city.goalReachedAtTick === currentTick
+  const goalDaysRemaining = state.city.goalDeadlineDay - currentGameDay
+  const goalDeadlineStatus = goalDaysRemaining > 0
+    ? `D-${goalDaysRemaining}`
+    : goalDaysRemaining === 0
+      ? '오늘 마감'
+      : `${Math.abs(goalDaysRemaining)}일 초과`
   const isGameOver = state.city.status === 'GAME_OVER'
   const bankruptcyRisk = state.city.cashBalance <= state.economyRules.bankruptLimit
   const happinessRisk = state.city.happiness <= state.economyRules.criticalHappiness
   const riskTicks = bankruptcyRisk ? state.city.insolvencyTicks : happinessRisk ? state.city.unhappyTicks : 0
   const graceRemaining = Math.max(0, state.economyRules.gameOverGraceTicks - riskTicks)
   const graceHours = Math.ceil(graceRemaining / TICKS_PER_HOUR)
+  const commandExamples: string[] = []
+  const [firstCommandStation, secondCommandStation] = state.city.stations
+  if (firstCommandStation && secondCommandStation) {
+    commandExamples.push(`${firstCommandStation.name}과 ${secondCommandStation.name} 사이에 새로운 노선을 건설해 줘.`)
+  }
+  for (const line of sortedLines) {
+    if (line.lineStations.length === 0) continue
+    const target = state.city.stations.find(station => !lineHasStation(line, station.id))
+    if (!target) continue
+    commandExamples.push(`${line.name}을 ${target.name} 방향으로 연장해줘.`)
+    break
+  }
 
   return (
     <div className={styles.page}>
@@ -1049,22 +1131,31 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
           />
         )}
 
-        <div className={`${styles.liveStatus} ${goalReached ? styles.goalLiveStatus : ''} ${isGameOver ? styles.stoppedStatus : ''}`}>
+        <div className={`${styles.liveStatus} ${goalJustReached ? styles.goalLiveStatus : ''} ${isGameOver ? styles.stoppedStatus : ''}`}>
           <span className={styles.liveDot} />
-          <b>{isGameOver ? '경영 종료' : goalReached ? '목표 달성 · 자동 운행 계속' : '실시간 자동 운행'}</b>
+          <b>{isGameOver ? '경영 종료' : goalJustReached ? `${state.city.goalsCompleted}개 목표 완료 · 새 목표 시작` : `${state.city.goalLevel}단계 목표 진행 중`}</b>
         </div>
 
         <section className={`${styles.controlSection} ${styles.goalSection}`}>
           <div className={styles.sectionHeading}><span>★</span><h2>이번 경영 목표</h2></div>
-          <div className={`${styles.goalCard} ${goalReached ? styles.goalCardReached : ''}`}>
+          <div className={`${styles.goalCard} ${goalJustReached ? styles.goalCardReached : ''}`}>
             <div className={styles.goalCardTop}>
-              <span>{goalReached ? '달성 완료' : '누적 매출'}</span>
+              <span>{state.city.goalLevel}단계 · {state.city.goalDeadlineDay}일차까지</span>
               <b>{formatMoney(state.city.totalRevenue)} <small>/ {formatMoney(state.city.revenueGoal)}</small></b>
+            </div>
+            <div className={`${styles.goalMeta} ${goalDaysRemaining < 0 ? styles.goalMetaOverdue : ''}`}>
+              <span>현재 {currentGameDay}일차</span>
+              <b>{goalDeadlineStatus}</b>
+              <span>완료 {state.city.goalsCompleted}개</span>
             </div>
             <div className={styles.progressTrack} aria-label={`매출 목표 ${Math.round(goalProgress)}%`}>
               <i style={{ width: `${goalProgress}%` }} />
             </div>
-            <p>{goalReached ? '지원금 ₵2,000을 받았습니다. 이제 기록을 더 높여보세요.' : '목표 달성 시 운영 지원금 ₵2,000과 5,000점을 받습니다.'}</p>
+            <p>{goalJustReached
+              ? '이전 목표 보상을 지급하고 더 높은 다음 목표를 설정했습니다.'
+              : goalDaysRemaining < 0
+                ? '기한이 지났습니다. 매출 목표를 달성하면 다음 단계로 계속 진행할 수 있습니다.'
+                : '기한 안에 목표를 달성하면 지원금 ₵2,000과 5,000점을 받고 다음 목표가 열립니다.'}</p>
           </div>
           <div className={styles.economyGrid}>
             <span><small>운영 자금</small><b className={state.city.cashBalance < 0 ? styles.dangerValue : ''}>{formatMoney(state.city.cashBalance)}</b></span>
@@ -1132,9 +1223,14 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
           <section className={styles.controlSection}>
             <div className={styles.sectionHeading}><span>02</span><h2>{selectedLine.mode === 'BUS' ? '차량' : '철도 차량'}</h2></div>
             <div className={styles.vehicleList}>
-              {selectedLine.vehicles.map((vehicle, index) => {
-                const station = vehicle.currentStationId ? stationById.get(vehicle.currentStationId) : null
-                const intervalSeconds = vehicleTiming(vehicle.id, selectedLine.mode).interval * (LIVE_TICK_MS / 1000)
+              {orderedVehicles(selectedLine).map((vehicle, index) => {
+                const motion = vehicleMotionById.get(vehicle.id)
+                const station = motion?.fromStation
+                const isDwelling = selectedLine.status === 'OPERATING' && vehicle.status === 'OPERATING' && motion?.isDwelling
+                const isMoving = selectedLine.status === 'OPERATING' && vehicle.status === 'OPERATING' && motion?.toStation && !isDwelling
+                const routeStatus = isMoving
+                  ? `${station?.name} → ${motion.toStation?.name}`
+                  : station?.name ?? `${selectedLine.name} 차고지`
                 return (
                   <div key={vehicle.id} className={styles.vehicleRow}>
                     <button
@@ -1151,19 +1247,19 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                       </span>
                       <span>
                         <b>{selectedLine.name} 차량 {index + 1}</b>
-                        <small>{station?.name ?? `${selectedLine.name} 차고지`} · {trainStatus(vehicle)} · {intervalSeconds}초</small>
+                        <small>{routeStatus} · {trainStatus(vehicle)}</small>
                       </span>
                     </button>
                     <button
-                      className={vehicle.status === 'OPERATING' ? styles.storeVehicleButton : styles.startVehicleButton}
+                      className={vehicle.status === 'OPERATING' && !vehicle.isSpare ? styles.storeVehicleButton : styles.startVehicleButton}
                       onClick={() => void performAction({
                         type: 'SET_VEHICLE_SERVICE',
                         lineId: selectedLine.id,
                         vehicleId: vehicle.id,
-                        inService: vehicle.status !== 'OPERATING',
+                        inService: !(vehicle.status === 'OPERATING' && !vehicle.isSpare),
                       })}
                       disabled={busy || !['OPERATING', 'SPARE'].includes(vehicle.status)}
-                    >{vehicle.status === 'OPERATING' ? '입고' : '운행'}</button>
+                    >{vehicle.status === 'OPERATING' && !vehicle.isSpare ? '입고' : '운행'}</button>
                   </div>
                 )
               })}
@@ -1261,6 +1357,74 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
         )}
 
         {error && <div className={styles.operationError} role="alert">! {error}</div>}
+
+        {state.isOwner && (
+          <section className={`${styles.controlSection} ${styles.aiCommandSection}`}>
+            <div className={styles.sectionHeading}>
+              <span>AI</span>
+              <h2>도시 운영관</h2>
+              <small>명령 즉시 실행</small>
+            </div>
+            <div className={styles.aiCommandPanel}>
+              <div className={styles.aiChatLog} role="log" aria-live="polite" ref={commandLogRef}>
+                {commandMessages.map(message => (
+                  <div
+                    key={message.id}
+                    className={`${styles.aiMessage} ${message.role === 'user' ? styles.aiMessageUser : styles.aiMessageAssistant} ${message.isError ? styles.aiMessageError : ''}`}
+                  >
+                    <small>{message.role === 'user' ? '나' : 'AI 운영관'}</small>
+                    <p>{message.text}</p>
+                  </div>
+                ))}
+                {commandBusy && (
+                  <div className={`${styles.aiMessage} ${styles.aiMessageAssistant} ${styles.aiMessagePending}`}>
+                    <small>AI 운영관</small>
+                    <p><i /> 명령을 검토하고 있습니다.</p>
+                  </div>
+                )}
+              </div>
+              {commandExamples.length > 0 && (
+                <div className={styles.aiCommandExamples} aria-label="도시 운영 명령 예시">
+                  {commandExamples.slice(0, 2).map(example => (
+                    <button
+                      key={example}
+                      type="button"
+                      onClick={() => setCommandInput(example)}
+                      disabled={busy || commandBusy || isGameOver}
+                    >
+                      {example}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <form
+                className={styles.aiCommandForm}
+                onSubmit={event => {
+                  event.preventDefault()
+                  void runCityCommand(commandInput)
+                }}
+              >
+                <textarea
+                  value={commandInput}
+                  onChange={event => setCommandInput(event.target.value)}
+                  onKeyDown={event => {
+                    if (event.key !== 'Enter' || event.shiftKey) return
+                    event.preventDefault()
+                    void runCityCommand(commandInput)
+                  }}
+                  placeholder="예: 1호선을 시청역 방향으로 연장해줘."
+                  maxLength={300}
+                  rows={2}
+                  disabled={busy || commandBusy || isGameOver}
+                  aria-label="AI 도시 운영 명령"
+                />
+                <button type="submit" disabled={busy || commandBusy || isGameOver || !commandInput.trim()}>
+                  {commandBusy ? '실행 중' : '명령 실행'}
+                </button>
+              </form>
+            </div>
+          </section>
+        )}
       </aside>
 
       <main className={styles.gameStage}>
@@ -1268,7 +1432,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
           <div className={styles.cityIdentity}>
             <span className={styles.cityName}>{state.city.roomTitle}</span>
             <span>
-              {state.city.name} · {Math.floor(currentTick / TICKS_PER_DAY) + 1}일차{isWeekend ? ' · 주말' : ''} · {formatHour(gameHour)}
+              {state.city.name} · {Math.floor(continuousTick / TICKS_PER_DAY) + 1}일차{isWeekend ? ' · 주말' : ''} · {formatHour(gameHour)}
             </span>
           </div>
           <div className={styles.hudStats}>
@@ -1559,7 +1723,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             {sortedLines.map(line => {
               // 아직 역이 없는 신설 노선은 차고지를 그리지 않는다 (첫 구간 부설 시 종점 옆에 등장)
               if (line.lineStations.length === 0) return null
-              const spareCount = line.vehicles.filter(vehicle => vehicle.status === 'SPARE').length
+              const spareCount = line.vehicles.filter(vehicle => vehicle.isSpare).length
               const isDropTarget = dragTarget?.kind === 'DEPOT' && dragTarget.id === line.id
               return (
                 <g
@@ -1583,24 +1747,19 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
               )
             })}
 
-            {state.city.lines.flatMap(line => line.vehicles
-              .filter(vehicle => vehicle.status === 'OPERATING' && vehicle.currentStationId)
+            {state.city.lines.flatMap(line => orderedVehicles(line)
+              .filter(vehicle => vehicle.status === 'OPERATING' && !vehicle.isSpare && vehicle.currentStationId)
               .map(vehicle => {
-                const station = stationById.get(vehicle.currentStationId!)
-                if (!station) return null
-                const scheduledToMove = line.status === 'OPERATING' && shouldVehicleMove(vehicle.id, currentTick + 1, line.mode)
-                // 정차 중에도 다음에 갈 방향으로 기수를 유지한다
-                const headingStation = nextStationOnLine(line, vehicle)
-                const nextStation = scheduledToMove ? headingStation : null
-                const point = stationPoint(station)
-                const nextPoint = nextStation ? stationPoint(nextStation) : point
-                const headingPoint = headingStation ? stationPoint(headingStation) : point
+                const motion = vehicleMotionById.get(vehicle.id)
+                const station = motion?.fromStation
+                const nextStation = motion?.toStation
+                if (!motion || !station || motion.x === null || motion.y === null) return null
                 const lineNo = line.name.match(/\d+/)?.[0] ?? line.name.slice(0, 1)
-                const progress = nextStation ? motionProgress : 0
-                const trainX = point.x + (nextPoint.x - point.x) * progress
-                const trainY = point.y + (nextPoint.y - point.y) * progress
-                const rawAngle = headingStation
-                  ? Math.atan2(headingPoint.y - point.y, headingPoint.x - point.x) * 180 / Math.PI
+                const progress = line.status === 'OPERATING' ? motion.progress : 0
+                const trainX = motion.x
+                const trainY = motion.y
+                const rawAngle = nextStation
+                  ? Math.atan2(nextStation.posY - station.posY, nextStation.posX - station.posX) * 180 / Math.PI
                   : 0
                 // 왼쪽 방향 이동 시 180° 회전으로 뒤집히지 않게 좌우 반전으로 처리
                 const trainFlipped = Math.abs(rawAngle) > 90
@@ -1621,7 +1780,9 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                     data-from-station={station.id}
                     data-to-station={nextStation?.id ?? station.id}
                     data-motion-progress={progress.toFixed(3)}
-                    data-move-interval={vehicleTiming(vehicle.id, line.mode).interval}
+                    data-segment-minutes={motion.segmentDurationMinutes}
+                    data-motion-state={motion.isDwelling ? 'DWELLING' : 'MOVING'}
+                    data-dwell-remaining={motion.dwellRemainingMinutes.toFixed(3)}
                     data-map-interactive="true"
                   >
                     {line.mode === 'BUS' ? (

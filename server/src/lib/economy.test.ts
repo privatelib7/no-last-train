@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { ECONOMY, calculateTickEconomy, segmentBuildCost } from './economy'
+import { ECONOMY, calculateTickEconomy, managementGoalForLevel, segmentBuildCost } from './economy'
 
 const baseInput = {
   transported: 100,
@@ -32,6 +32,12 @@ test('매출 목표를 처음 넘을 때 한 번만 보상한다', () => {
 
   assert.equal(result.goalReachedNow, true)
   assert.equal(result.goalReachedAtTick, 1)
+  assert.equal(result.goalsCompleted, 1)
+  assert.equal(result.goalLevel, 2)
+  assert.deepEqual(
+    { revenueGoal: result.revenueGoal, deadlineDay: result.goalDeadlineDay },
+    { revenueGoal: 180_000_000, deadlineDay: 7 },
+  )
   assert.equal(result.cashBalance, 10_000_000 + 160_000 + ECONOMY.GOAL_REWARD_CASH)
   assert.ok(result.score >= ECONOMY.GOAL_REWARD_SCORE)
 
@@ -39,11 +45,43 @@ test('매출 목표를 처음 넘을 때 한 번만 보상한다', () => {
     ...baseInput,
     cashBalance: result.cashBalance,
     totalRevenue: result.totalRevenue,
+    revenueGoal: result.revenueGoal,
     goalReachedAtTick: result.goalReachedAtTick,
     transported: 0,
   })
   assert.equal(next.goalReachedNow, false)
   assert.equal(next.cashBalance, result.cashBalance)
+})
+
+test('경영 목표는 단계마다 매출과 달성 기한을 높여 계속 이어진다', () => {
+  assert.deepEqual(managementGoalForLevel(1), { level: 1, revenueGoal: 80_000_000, deadlineDay: 3 })
+  assert.deepEqual(managementGoalForLevel(2), { level: 2, revenueGoal: 180_000_000, deadlineDay: 7 })
+  assert.deepEqual(managementGoalForLevel(3), { level: 3, revenueGoal: 300_000_000, deadlineDay: 12 })
+
+  const secondGoal = calculateTickEconomy({
+    ...baseInput,
+    totalRevenue: 179_900_000,
+    revenueGoal: 180_000_000,
+  })
+  assert.equal(secondGoal.completedGoalLevel, 2)
+  assert.equal(secondGoal.goalLevel, 3)
+  assert.equal(secondGoal.revenueGoal, 300_000_000)
+  assert.equal(secondGoal.goalDeadlineDay, 12)
+  assert.equal(secondGoal.goalsCompleted, 2)
+})
+
+test('기존 단일 목표 달성 도시는 보상을 중복 지급하지 않고 다음 목표로 승계한다', () => {
+  const migrated = calculateTickEconomy({
+    ...baseInput,
+    transported: 0,
+    totalRevenue: ECONOMY.REVENUE_GOAL,
+    goalReachedAtTick: 100,
+  })
+  assert.equal(migrated.goalReachedNow, false)
+  assert.equal(migrated.goalLevel, 2)
+  assert.equal(migrated.goalsCompleted, 1)
+  assert.equal(migrated.revenueGoal, 180_000_000)
+  assert.equal(migrated.cashBalance, baseInput.cashBalance)
 })
 
 test('행복도는 서비스가 나빠도 틱당 최대 0.25만 하락한다', () => {

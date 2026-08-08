@@ -101,8 +101,9 @@ export interface RouteSegment {
 // ─── 시뮬레이션 파라미터 ─────────────────────────────────────────────────
 
 export const SIM = {
-  TICKS_PER_GAME_HOUR: 6,       // 10분 실게임 = 1 게임시간
+  TICKS_PER_GAME_HOUR: 6,       // 틱당 게임 10분, 6틱 = 게임 1시간
   GAME_HOURS_PER_DAY: 24,
+  GAME_MINUTES_PER_TICK: 10,    // 경제 집계 틱과 별개로 차량은 이 시간을 연속 이동한다
   LIVE_TICK_MS: 3000,            // 실시간 웹 운행: 3초마다 1틱
   MAX_OFFLINE_HOURS: 12,         // 오프라인 보상 최대 12시간
   BASE_PASSENGER_RATE: 10,       // 기본 승객 생성 (틱당 역당)

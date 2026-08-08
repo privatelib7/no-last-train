@@ -555,6 +555,185 @@
 
 .stoppedStatus b { color: #9f3e2f; }
 
+.aiCommandSection {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.aiCommandSection .sectionHeading > small {
+  margin-left: auto;
+  color: var(--gp-text-accent);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.aiCommandPanel {
+  overflow: hidden;
+  border: 1px solid var(--gp-border-card);
+  border-radius: 10px;
+  background: var(--gp-surface-soft);
+  box-shadow: 3px 3px 0 var(--gp-relief-soft);
+}
+
+.aiChatLog {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 220px;
+  min-height: 82px;
+  padding: 11px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.aiMessage {
+  max-width: 92%;
+  padding: 8px 9px;
+  border-radius: 8px;
+  white-space: pre-wrap;
+}
+
+.aiMessage small {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.aiMessage p {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.5;
+  word-break: keep-all;
+}
+
+.aiMessageAssistant {
+  align-self: flex-start;
+  border: 1px solid var(--gp-border-form);
+  border-bottom-left-radius: 3px;
+  background: var(--gp-surface);
+  color: var(--gp-text-body);
+}
+
+.aiMessageAssistant small { color: var(--gp-text-accent); }
+
+.aiMessageUser {
+  align-self: flex-end;
+  border-bottom-right-radius: 3px;
+  background: var(--gp-accent-solid);
+  color: #fff;
+}
+
+.aiMessageUser small { color: rgba(255, 255, 255, 0.72); }
+
+.aiMessageError {
+  border-color: rgba(179, 74, 56, 0.35);
+  background: rgba(179, 74, 56, 0.08);
+  color: #a24334;
+}
+
+.aiMessagePending p {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.aiMessagePending i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gp-accent-solid);
+  animation: aiCommandPulse 0.9s ease-in-out infinite alternate;
+}
+
+@keyframes aiCommandPulse {
+  from { opacity: 0.35; transform: scale(0.75); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.aiCommandExamples {
+  display: flex;
+  gap: 5px;
+  padding: 0 10px 9px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.aiCommandExamples::-webkit-scrollbar { display: none; }
+
+.aiCommandExamples button {
+  flex: 0 0 auto;
+  max-width: 250px;
+  padding: 6px 8px;
+  overflow: hidden;
+  border: 1px solid var(--gp-border-muted);
+  border-radius: 999px;
+  background: var(--gp-surface);
+  color: var(--gp-text-soft);
+  font-size: 9px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aiCommandExamples button:hover:not(:disabled) {
+  border-color: var(--gp-border-active);
+  color: var(--gp-text-accent-hover);
+}
+
+.aiCommandExamples button:disabled { opacity: 0.45; }
+
+.aiCommandForm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 70px;
+  gap: 7px;
+  padding: 10px;
+  border-top: 1px solid var(--gp-border-form);
+  background: var(--gp-surface);
+}
+
+.aiCommandForm textarea {
+  width: 100%;
+  min-height: 52px;
+  padding: 9px 10px;
+  resize: vertical;
+  border: 1px solid var(--gp-border-input);
+  border-radius: 7px;
+  outline: none;
+  background: var(--gp-surface-soft);
+  color: var(--gp-text-input);
+  font: 700 11px/1.45 var(--font);
+}
+
+.aiCommandForm textarea:focus {
+  border-color: var(--gp-border-focus);
+  box-shadow: 0 0 0 3px var(--gp-focus-ring);
+}
+
+.aiCommandForm textarea::placeholder { color: var(--gp-text-hint); }
+
+.aiCommandForm button {
+  border: 0;
+  border-radius: 7px;
+  background: var(--gp-accent-solid);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.aiCommandForm button:hover:not(:disabled) { background: var(--gp-accent-hover); }
+
+.aiCommandForm textarea:disabled,
+.aiCommandForm button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .controlSection {
   margin-top: 17px;
   padding-top: 16px;
@@ -604,6 +783,30 @@
 .goalCardTop small {
   color: #8c8278;
   font-size: 12.5px;
+}
+
+.goalMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  color: #746a61;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.goalMeta b {
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: #986413;
+  background: rgba(220, 155, 39, 0.13);
+  font-size: 11px;
+}
+
+.goalMetaOverdue b {
+  color: #a84033;
+  background: rgba(179, 74, 56, 0.12);
 }
 
 .progressTrack,

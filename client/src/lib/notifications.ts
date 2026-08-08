@@ -16,7 +16,6 @@ const MAJOR_EVENT_MESSAGES = [
 ]
 
 let pending: PendingNotification | null = null
-let timerId: number | null = null
 const listeners = new Set<Listener>()
 
 function isSupported() {
@@ -43,16 +42,6 @@ async function ensurePermission(): Promise<NotificationPermission> {
   if (!isSupported()) return 'denied'
   if (Notification.permission !== 'default') return Notification.permission
   return Notification.requestPermission()
-}
-
-// 예약 알림 취소용 (외부 사용 대비 export — 미사용 로컬 함수로 두면 tsc가 실패)
-export function clearPending() {
-  if (timerId !== null) {
-    window.clearTimeout(timerId)
-    timerId = null
-  }
-  pending = null
-  emit()
 }
 
 function fireNotification(roomTitle: string) {
@@ -87,9 +76,10 @@ export async function scheduleMajorEventNotification(
   }
   emit()
 
-  timerId = window.setTimeout(() => {
+  window.setTimeout(() => {
     fireNotification(title)
-    clearPending()
+    pending = null
+    emit()
   }, delayMs)
 
   return 'scheduled'

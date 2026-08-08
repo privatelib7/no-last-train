@@ -18,11 +18,13 @@ export type StationStat = {
 
 export type Vehicle = {
   id: string
+  capacity: number
   status: 'OPERATING' | 'SPARE' | 'LOANED' | 'MAINTENANCE' | 'BROKEN'
   isSpare: boolean
   currentStationId: string | null
   headwayMinutes: number
   direction: number
+  segmentProgressMinutes: number
 }
 
 export type Policy = {
@@ -70,6 +72,9 @@ export type GameCity = {
   cashBalance: number
   totalRevenue: number
   revenueGoal: number
+  goalLevel: number
+  goalDeadlineDay: number
+  goalsCompleted: number
   happiness: number
   score: number
   insolvencyTicks: number
@@ -221,13 +226,18 @@ export type CityAction =
   | { type: 'MOVE_STATION'; stationId: string; posX: number; posY: number }
   | { type: 'REMOVE_STATION'; stationId: string }
   | { type: 'CREATE_LINE'; mode: 'SUBWAY' | 'BUS' }
+  | {
+      type: 'CREATE_CONNECTED_LINE'
+      mode: 'SUBWAY' | 'BUS'
+      fromStationId: string
+      toStationId: string
+    }
   | { type: 'REMOVE_LINE'; lineId: string }
   | { type: 'DETACH_STATION'; lineId: string; stationId: string }
   | { type: 'INSERT_STATION'; lineId: string; fromStationId: string; toStationId: string; stationId: string }
   | { type: 'BUILD_SEGMENT'; lineId: string; fromStationId: string; toStationId: string }
   | { type: 'SET_LINE_STATUS'; lineId: string; status: 'OPERATING' | 'SUSPENDED' }
   | { type: 'SET_VEHICLE_SERVICE'; lineId: string; vehicleId: string; inService: boolean }
-  | { type: 'DEPLOY_VEHICLE'; lineId: string; vehicleId: string; stationId: string }
   | { type: 'TRANSFER_VEHICLE'; lineId: string; vehicleId: string; targetLineId: string }
   | { type: 'REMOVE_VEHICLE'; lineId: string; vehicleId: string }
 
@@ -236,5 +246,17 @@ export function executeCityAction(cityId: string, action: CityAction, playerToke
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders(playerToken) },
     body: JSON.stringify(action),
+  })
+}
+
+export type CityCommandPlanResult =
+  | { ok: true; summary: string; actions: CityAction[] }
+  | { ok: false; reason: string; suggestion: string }
+
+export function planCityCommand(cityId: string, rawInput: string, playerToken?: string) {
+  return request<CityCommandPlanResult>(`/api/cities/${cityId}/commands/parse`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(playerToken) },
+    body: JSON.stringify({ rawInput }),
   })
 }
