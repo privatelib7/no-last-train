@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap');
-
 :root {
   --bg: #F0EDE8;
   --bg-card: #FAFAF7;
@@ -19,7 +17,8 @@
   --shadow-lg: 0 10px 30px rgba(0,0,0,0.12), 0 4px 8px rgba(0,0,0,0.06);
   --radius: 12px;
   --radius-sm: 8px;
-  --font: 'Noto Sans KR', system-ui, sans-serif;
+  /* 외부 폰트 CDN을 쓰지 않아 HTTPS 혼합/인증서 경고를 막는다 */
+  --font: "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Nanum Gothic", system-ui, sans-serif;
 }
 
 /* 다크모드 — 공통 CSS 변수만 덮어써서 var(--*)를 쓰는 모든 페이지에 자동 반영된다. */

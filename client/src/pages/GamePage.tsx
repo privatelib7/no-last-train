@@ -16,6 +16,7 @@ import {
 } from '../api/game'
 import type { AuthSession } from '../api/auth'
 import { updateRoomTitle } from '../api/cities'
+import { fetchCursors, leaveCursor, syncCursor, type RemoteCursor } from '../api/cursors'
 import { scheduleMajorEventNotification, subscribePendingNotification } from '../lib/notifications'
 import InviteModal from './InviteModal'
 import { getCityMap, polyPath } from '../maps'
@@ -80,6 +81,8 @@ type CityCommandMessage = {
 }
 
 const LIVE_TICK_MS = 3000
+const CURSOR_SYNC_MS = 45
+const CURSOR_IDLE_TIMEOUT_MS = 2500
 const CITIZEN_TIME_SCALE = 0.72
 const GAME_MINUTES_PER_TICK = 60 / TICKS_PER_HOUR
 const INITIAL_MAP_VIEW: MapView = { x: 0, y: 0, width: 100, height: 100 }
@@ -207,7 +210,10 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     role: 'assistant',
     text: '역과 노선 이름을 사용해 운영 명령을 내려주세요. 실행 결과를 바로 보고드릴게요.',
   }])
+  const [remoteCursors, setRemoteCursors] = useState<RemoteCursor[]>([])
   const ticking = useRef(false)
+  const cursorPosRef = useRef<{ x: number; y: number; ts: number } | null>(null)
+  const cursorLastSentRef = useRef<{ x: number; y: number } | null>(null)
   const vehicleDragRef = useRef<VehicleDragState | null>(null)
   const stationDragRef = useRef<StationLinkDrag | null>(null)
   const segmentDragRef = useRef<SegmentDrag | null>(null)
@@ -298,6 +304,69 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
       window.clearInterval(timer)
     }
   }, [busy, cityId, session?.token])
+
+  // 브라우저 창 전체 포인터 추적 (지도만이 아니라 페이지 전역, 뷰포트 % 좌표 0~100)
+  useEffect(() => {
+    if (!session) return
+    const onMove = (event: globalThis.PointerEvent) => {
+      const width = window.innerWidth || 1
+      const height = window.innerHeight || 1
+      cursorPosRef.current = {
+        x: Math.max(0, Math.min(100, (event.clientX / width) * 100)),
+        y: Math.max(0, Math.min(100, (event.clientY / height) * 100)),
+        ts: Date.now(),
+      }
+    }
+    const onLeaveWindow = () => {
+      cursorPosRef.current = null
+    }
+    window.addEventListener('pointermove', onMove, { passive: true })
+    document.documentElement.addEventListener('mouseleave', onLeaveWindow)
+    window.addEventListener('blur', onLeaveWindow)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      document.documentElement.removeEventListener('mouseleave', onLeaveWindow)
+      window.removeEventListener('blur', onLeaveWindow)
+    }
+  }, [session])
+
+  // 실시간 커서 동기화 — 창 안이면 POST, 창 밖이면 GET으로 상대 커서만 유지
+  useEffect(() => {
+    const token = session?.token
+    if (!token) return
+    let cancelled = false
+    let inflight = false
+
+    const pushCursors = async () => {
+      if (cancelled || inflight) return
+      inflight = true
+      try {
+        const pos = cursorPosRef.current
+        const active = !!pos && Date.now() - pos.ts <= CURSOR_IDLE_TIMEOUT_MS
+        const result = active && pos
+          ? await syncCursor(cityId, token, pos.x, pos.y)
+          : await fetchCursors(cityId, token)
+        if (cancelled) return
+        if (active && pos) cursorLastSentRef.current = { x: pos.x, y: pos.y }
+        setRemoteCursors(result.cursors)
+      } catch {
+        // 일시 네트워크 오류는 다음 틱에서 재시도 — 기존 표시는 유지
+      } finally {
+        inflight = false
+      }
+    }
+
+    const timer = window.setInterval(() => { void pushCursors() }, CURSOR_SYNC_MS)
+    void pushCursors()
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+      cursorPosRef.current = null
+      cursorLastSentRef.current = null
+      setRemoteCursors([])
+      void leaveCursor(cityId, token)
+    }
+  }, [cityId, session?.token])
 
   useEffect(() => {
     let animationFrame = 0
@@ -535,7 +604,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     setBusy(true)
     setError(null)
     try {
-      const result = await executeCityAction(cityId, { type: 'CREATE_LINE', mode })
+      const result = await executeCityAction(cityId, { type: 'CREATE_LINE', mode }, session?.token)
       await loadCity()
       if (result.line?.id) {
         setSelectedLineId(result.line.id)
@@ -1823,6 +1892,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                 >{station.name}</text>
               ))}
             </g>
+
           </svg>
 
           <div className={styles.mapPanel}>
@@ -1898,6 +1968,32 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
           {selectedVehicleLine?.name} 차량
         </div>
       )}
+
+      {/* 브라우저 창 전체(뷰포트)에 다른 사용자 커서 표시 */}
+      <div className={styles.pageCursorLayer} aria-hidden="true">
+        {remoteCursors.map(cursor => (
+          <div
+            key={cursor.playerId}
+            className={styles.pageRemoteCursor}
+            style={{
+              left: `${cursor.x}%`,
+              top: `${cursor.y}%`,
+              ['--cursor-color' as string]: cursor.color,
+            }}
+          >
+            <div className={styles.pageRemoteCursorBob}>
+              <svg width="28" height="28" viewBox="0 0 28 28" className={styles.pageRemoteCursorSvg}>
+                <path d="M4 2 L22 12.5 L11 14.5 Z" fill="var(--cursor-color)" stroke="rgba(255,255,255,.92)" strokeWidth="1.6" strokeLinejoin="round" />
+                <circle cx="14.5" cy="17.5" r="7.2" fill="var(--cursor-color)" stroke="rgba(255,255,255,.92)" strokeWidth="1.5" />
+                <circle cx="12.2" cy="16.6" r="1.15" fill="#26201a" />
+                <circle cx="16.8" cy="16.6" r="1.15" fill="#26201a" />
+                <path d="M12.2 19.4 Q14.5 21.1 16.8 19.4" fill="none" stroke="#26201a" strokeWidth="1.2" strokeLinecap="round" />
+              </svg>
+            </div>
+            <span className={styles.pageRemoteCursorLabel}>{cursor.nickname}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
