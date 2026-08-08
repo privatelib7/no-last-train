@@ -36,6 +36,7 @@ export async function GET(req: NextRequest) {
       createdAt: { gte: since },
       city: {
         OR: [
+          { ownerPlayerId: player.id },
           { lines: { some: { playerId: player.id } } },
           ...(player.email ? [{ invites: { some: { email: player.email } } }] : []),
         ],

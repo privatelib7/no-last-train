@@ -70,7 +70,22 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
     },
   })
 
-  const rng = mulberry32(city.seed + city.currentTick)
+  // 중간에 죽은 시뮬레이션으로 SimTick만 앞서 있으면 currentTick을 맞춰 재진입 500을 막는다.
+  const latestTick = await db.simTick.findFirst({
+    where: { cityId },
+    orderBy: { tickNumber: 'desc' },
+    select: { tickNumber: true },
+  })
+  let baseTick = city.currentTick
+  if (latestTick && latestTick.tickNumber > baseTick) {
+    baseTick = latestTick.tickNumber
+    await db.city.update({
+      where: { id: cityId },
+      data: { currentTick: baseTick },
+    })
+  }
+
+  const rng = mulberry32(city.seed + baseTick)
   const highlights: TickHighlight[] = []
   let totalTransported = 0
   let revenueEarned = 0
@@ -92,7 +107,7 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
   const allActionLogs: Awaited<ReturnType<typeof evaluatePolicies>> = []
 
   for (let i = 0; i < count; i++) {
-    const tickNumber = city.currentTick + ticksProcessed + 1
+    const tickNumber = baseTick + ticksProcessed + 1
     const gameTimeHour = (tickNumber / SIM.TICKS_PER_GAME_HOUR) % 24
     const weekend = isWeekendTick(tickNumber)
     const period = periodOfHour(gameTimeHour)
@@ -207,7 +222,7 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
   await db.city.update({
     where: { id: cityId },
     data: {
-      currentTick: city.currentTick + ticksProcessed,
+      currentTick: baseTick + ticksProcessed,
       lastTickAt,
       cashBalance,
       totalRevenue,

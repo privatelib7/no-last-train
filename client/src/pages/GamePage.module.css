@@ -344,15 +344,7 @@
   min-width: 0;
 }
 
-.headerActions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.inviteButton,
-.notifyButton {
+.inviteButton {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -368,22 +360,15 @@
   white-space: nowrap;
 }
 
-.inviteButton svg,
-.notifyButton svg {
+.inviteButton svg {
   width: 15px;
   height: 15px;
   flex-shrink: 0;
 }
 
-.inviteButton:hover,
-.notifyButton:hover:not(:disabled) {
+.inviteButton:hover {
   transform: scale(1.03);
   background: var(--gp-surface-hover);
-}
-
-.notifyButton:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 .accessActionBtn {

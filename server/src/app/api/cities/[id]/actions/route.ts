@@ -544,31 +544,11 @@ export async function POST(
     await db.support.deleteMany({
       where: { OR: [{ fromLineId: line.id }, { toLineId: line.id }] },
     })
-    const ownerPlayerId = line.playerId
     await db.line.delete({ where: { id: line.id } })
-
-    // 접근 권한은 "소유 노선 1개 이상"으로 판별한다.
-    // 마지막 소유 노선을 지우면 관제장이 도시에서 잠기므로, 남은 노선으로 소유권을 넘긴다.
-    if (ownerPlayerId) {
-      const stillOwns = await db.line.findFirst({
-        where: { cityId: id, playerId: ownerPlayerId },
-        select: { id: true },
-      })
-      if (!stillOwns) {
-        const successor = await db.line.findFirst({
-          where: { cityId: id, playerId: null },
-          orderBy: { name: 'asc' },
-          select: { id: true },
-        })
-        if (successor) {
-          await db.line.update({
-            where: { id: successor.id },
-            data: { playerId: ownerPlayerId },
-          })
-        }
-      }
-    }
-
+    // 관제장은 City.ownerPlayerId에 묶여 있어 노선 삭제와 무관하다.
+    await db.activityLog.create({
+      data: { cityId: id, playerId: auth.player.id, message: `${line.name} 노선을 삭제했습니다.` },
+    })
     return NextResponse.json({ message: `${line.name} 노선을 삭제했습니다.` })
   }
 

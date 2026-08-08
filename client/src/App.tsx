@@ -9,7 +9,6 @@ import SettingsPage from './pages/SettingsPage'
 import LobbyPage from './pages/LobbyPage'
 import GamePage from './pages/GamePage'
 import { fetchMe, type AuthSession } from './api/auth'
-import { subscribePendingNotification } from './lib/notifications'
 import './App.css'
 
 type Page = 'title' | 'login' | 'register' | 'verify' | 'forgot' | 'reset' | 'settings' | 'lobby' | 'game'
@@ -64,8 +63,6 @@ export default function App() {
     if (readResetToken()) return 'reset'
     return readCityIdFromUrl() ? 'game' : 'title'
   })
-  const [notifyBanner, setNotifyBanner] = useState<{ roomTitle: string; secondsLeft: number } | null>(null)
-
   const applyNavState = (next: NavState) => {
     if (next.page === 'game') {
       window.localStorage.setItem(ACTIVE_CITY_KEY, next.cityId)
@@ -106,32 +103,6 @@ export default function App() {
     return () => window.removeEventListener('popstate', onPopState)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  useEffect(() => {
-    return subscribePendingNotification((next) => {
-      if (!next) {
-        setNotifyBanner(null)
-        return
-      }
-      setNotifyBanner({
-        roomTitle: next.roomTitle,
-        secondsLeft: Math.max(0, Math.ceil((next.firesAt - Date.now()) / 1000)),
-      })
-    })
-  }, [])
-
-  useEffect(() => {
-    if (!notifyBanner) return
-    const timer = window.setInterval(() => {
-      setNotifyBanner((prev) => {
-        if (!prev) return null
-        const next = prev.secondsLeft - 1
-        if (next <= 0) return { ...prev, secondsLeft: 0 }
-        return { ...prev, secondsLeft: next }
-      })
-    }, 1000)
-    return () => window.clearInterval(timer)
-  }, [notifyBanner?.roomTitle])
 
   useEffect(() => {
     // 공유/새로고침용: URL에 city가 있을 때만 로컬에도 남겨 둔다.
@@ -199,14 +170,6 @@ export default function App() {
 
   return (
     <>
-      {notifyBanner && (
-        <div className="notifyBanner" role="status">
-          <span className="notifyBannerDot" />
-          <span>
-            <b>{notifyBanner.roomTitle}</b> 알림 {Math.max(notifyBanner.secondsLeft, 1)}초 후 전송
-          </span>
-        </div>
-      )}
       {page === 'title' && <TitlePage onStart={handleStart} onOpenSettings={() => setPage('settings')} />}
       {page === 'settings' && <SettingsPage onBack={() => setPage('title')} />}
       {page === 'verify' && verifyToken && (
