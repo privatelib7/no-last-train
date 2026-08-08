@@ -1,0 +1,22 @@
+{
+  // 백엔드(Next.js API 라우트) 전용 Cloudflare Workers 설정.
+  //
+  // 클라이언트 Worker와 반드시 다른 name을 쓴다. 같은 name이면 한쪽 배포가
+  // 다른 쪽 Worker를 덮어쓴다.
+  //
+  // Cloudflare 빌드 설정 (서버 Worker):
+  //   Root directory : server
+  //   Build command  : npm run build:cf
+  //   Deploy command : npx wrangler deploy
+  "name": "no-last-train-server",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-08-08",
+
+  // Prisma, nodemailer 등 Node 내장 모듈에 의존하는 코드가 있어 필요하다.
+  "compatibility_flags": ["nodejs_compat"],
+
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  }
+}
