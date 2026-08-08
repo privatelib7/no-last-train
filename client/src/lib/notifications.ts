@@ -78,7 +78,8 @@ export async function scheduleMajorEventNotification(
 
   window.setTimeout(() => {
     fireNotification(title)
-    clearPending()
+    pending = null
+    emit()
   }, delayMs)
 
   return 'scheduled'

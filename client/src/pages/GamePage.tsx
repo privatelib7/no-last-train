@@ -133,11 +133,15 @@ function linePoints(line: GameLine) {
 }
 
 function trainStatus(vehicle: Vehicle) {
+  if (vehicle.isSpare) return '차고지 대기'
   if (vehicle.status === 'OPERATING') return '운행 중'
-  if (vehicle.status === 'SPARE') return '차고지 대기'
   if (vehicle.status === 'LOANED') return '지원 운행'
   if (vehicle.status === 'MAINTENANCE') return '정비 중'
   return '운행 불가'
+}
+
+function orderedVehicles(line: GameLine) {
+  return line.vehicles.slice().sort((a, b) => a.id.localeCompare(b.id))
 }
 
 function lineHasStation(line: GameLine, stationId: string) {
@@ -667,11 +671,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
         setDragTarget({ kind: 'DEPOT', id: depot.getAttribute('data-depot-line-id') ?? '' })
         return
       }
-      const station = element?.closest('[data-station-id]')
-      if (station) {
-        setDragTarget({ kind: 'STATION', id: station.getAttribute('data-station-id') ?? '' })
-        return
-      }
       setDragTarget(null)
     }
 
@@ -697,9 +696,12 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
       const vehicle = sourceLine?.vehicles.find(item => item.id === current.vehicleId)
       const element = document.elementFromPoint(event.clientX, event.clientY)
       const depotLineId = element?.closest('[data-depot-line-id]')?.getAttribute('data-depot-line-id')
-      const stationId = element?.closest('[data-station-id]')?.getAttribute('data-station-id')
 
       if (sourceLine && vehicle && depotLineId && depotLineId !== sourceLine.id) {
+        if (vehicle.status !== 'SPARE' || !vehicle.isSpare) {
+          setError('운행 차량은 입고 버튼을 누른 뒤 다른 차고지로 이동해주세요.')
+          return
+        }
         const runAction = performActionRef.current
         if (!runAction) return
         void runAction({
@@ -713,15 +715,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
           setSelectedVehicleId(vehicle.id)
         })
         return
-      }
-
-      if (sourceLine && vehicle?.status === 'SPARE' && stationId && lineHasStation(sourceLine, stationId)) {
-        void performActionRef.current?.({
-          type: 'DEPLOY_VEHICLE',
-          lineId: sourceLine.id,
-          vehicleId: vehicle.id,
-          stationId,
-        })
       }
     }
 
@@ -866,6 +859,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     ? Math.max(0, (clockNowMs - lastTickAtMs) / LIVE_TICK_MS)
     : 0
   const continuousTick = currentTick + liveElapsedTicks
+  const currentGameDay = Math.floor(continuousTick / TICKS_PER_DAY) + 1
   const liveElapsedGameMinutes = liveElapsedTicks * GAME_MINUTES_PER_TICK
   // 확대해도 역·글씨·점이 화면 기준 크기를 유지하도록 counter-scale
   const mapScale = mapView.width / 100
@@ -880,7 +874,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     position: locateCitizen(journey, journeyTime),
   }))
   const vehicleMotionById = new Map(
-    state.city.lines.flatMap(line => line.vehicles.map(vehicle => [
+    state.city.lines.flatMap(line => orderedVehicles(line).map(vehicle => [
       vehicle.id,
       locateVehicle(
         line,
@@ -895,8 +889,16 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const serviceScore = latestMetric?.serviceScore ?? 100
   const totalVehicles = state.city.lines.reduce((sum, line) => sum + line.vehicles.length, 0)
   const waitingPassengers = state.stationStats.reduce((sum, station) => sum + station.waitingCount, 0)
-  const goalProgress = Math.min(100, (state.city.totalRevenue / state.city.revenueGoal) * 100)
-  const goalReached = state.city.goalReachedAtTick !== null
+  const goalProgress = state.city.revenueGoal > 0
+    ? Math.min(100, (state.city.totalRevenue / state.city.revenueGoal) * 100)
+    : 0
+  const goalJustReached = state.city.goalsCompleted > 0 && state.city.goalReachedAtTick === currentTick
+  const goalDaysRemaining = state.city.goalDeadlineDay - currentGameDay
+  const goalDeadlineStatus = goalDaysRemaining > 0
+    ? `D-${goalDaysRemaining}`
+    : goalDaysRemaining === 0
+      ? '오늘 마감'
+      : `${Math.abs(goalDaysRemaining)}일 초과`
   const isGameOver = state.city.status === 'GAME_OVER'
   const bankruptcyRisk = state.city.cashBalance <= state.economyRules.bankruptLimit
   const happinessRisk = state.city.happiness <= state.economyRules.criticalHappiness
@@ -1006,22 +1008,31 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
           />
         )}
 
-        <div className={`${styles.liveStatus} ${goalReached ? styles.goalLiveStatus : ''} ${isGameOver ? styles.stoppedStatus : ''}`}>
+        <div className={`${styles.liveStatus} ${goalJustReached ? styles.goalLiveStatus : ''} ${isGameOver ? styles.stoppedStatus : ''}`}>
           <span className={styles.liveDot} />
-          <b>{isGameOver ? '경영 종료' : goalReached ? '목표 달성 · 자동 운행 계속' : '실시간 자동 운행'}</b>
+          <b>{isGameOver ? '경영 종료' : goalJustReached ? `${state.city.goalsCompleted}개 목표 완료 · 새 목표 시작` : `${state.city.goalLevel}단계 목표 진행 중`}</b>
         </div>
 
         <section className={`${styles.controlSection} ${styles.goalSection}`}>
           <div className={styles.sectionHeading}><span>★</span><h2>이번 경영 목표</h2></div>
-          <div className={`${styles.goalCard} ${goalReached ? styles.goalCardReached : ''}`}>
+          <div className={`${styles.goalCard} ${goalJustReached ? styles.goalCardReached : ''}`}>
             <div className={styles.goalCardTop}>
-              <span>{goalReached ? '달성 완료' : '누적 매출'}</span>
+              <span>{state.city.goalLevel}단계 · {state.city.goalDeadlineDay}일차까지</span>
               <b>{formatMoney(state.city.totalRevenue)} <small>/ {formatMoney(state.city.revenueGoal)}</small></b>
+            </div>
+            <div className={`${styles.goalMeta} ${goalDaysRemaining < 0 ? styles.goalMetaOverdue : ''}`}>
+              <span>현재 {currentGameDay}일차</span>
+              <b>{goalDeadlineStatus}</b>
+              <span>완료 {state.city.goalsCompleted}개</span>
             </div>
             <div className={styles.progressTrack} aria-label={`매출 목표 ${Math.round(goalProgress)}%`}>
               <i style={{ width: `${goalProgress}%` }} />
             </div>
-            <p>{goalReached ? '지원금 2,000만 원을 받았습니다. 이제 기록을 더 높여보세요.' : '목표 달성 시 운영 지원금 2,000만 원과 5,000점을 받습니다.'}</p>
+            <p>{goalJustReached
+              ? '이전 목표 보상을 지급하고 더 높은 다음 목표를 설정했습니다.'
+              : goalDaysRemaining < 0
+                ? '기한이 지났습니다. 매출 목표를 달성하면 다음 단계로 계속 진행할 수 있습니다.'
+                : '기한 안에 목표를 달성하면 지원금 2,000만 원과 5,000점을 받고 다음 목표가 열립니다.'}</p>
           </div>
           <div className={styles.economyGrid}>
             <span><small>운영 자금</small><b className={state.city.cashBalance < 0 ? styles.dangerValue : ''}>{formatMoney(state.city.cashBalance)}</b></span>
@@ -1090,7 +1101,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
           <section className={styles.controlSection}>
             <div className={styles.sectionHeading}><span>02</span><h2>{selectedLine.mode === 'BUS' ? '차량' : '철도 차량'}</h2></div>
             <div className={styles.vehicleList}>
-              {selectedLine.vehicles.map((vehicle, index) => {
+              {orderedVehicles(selectedLine).map((vehicle, index) => {
                 const motion = vehicleMotionById.get(vehicle.id)
                 const station = motion?.fromStation
                 const isDwelling = selectedLine.status === 'OPERATING' && vehicle.status === 'OPERATING' && motion?.isDwelling
@@ -1115,15 +1126,15 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                       </span>
                     </button>
                     <button
-                      className={vehicle.status === 'OPERATING' ? styles.storeVehicleButton : styles.startVehicleButton}
+                      className={vehicle.status === 'OPERATING' && !vehicle.isSpare ? styles.storeVehicleButton : styles.startVehicleButton}
                       onClick={() => void performAction({
                         type: 'SET_VEHICLE_SERVICE',
                         lineId: selectedLine.id,
                         vehicleId: vehicle.id,
-                        inService: vehicle.status !== 'OPERATING',
+                        inService: !(vehicle.status === 'OPERATING' && !vehicle.isSpare),
                       })}
                       disabled={busy || !['OPERATING', 'SPARE'].includes(vehicle.status)}
-                    >{vehicle.status === 'OPERATING' ? '입고' : '운행'}</button>
+                    >{vehicle.status === 'OPERATING' && !vehicle.isSpare ? '입고' : '운행'}</button>
                   </div>
                 )
               })}
@@ -1503,7 +1514,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             {sortedLines.map(line => {
               // 아직 역이 없는 신설 노선은 차고지를 그리지 않는다 (첫 구간 부설 시 종점 옆에 등장)
               if (line.lineStations.length === 0) return null
-              const spareCount = line.vehicles.filter(vehicle => vehicle.status === 'SPARE').length
+              const spareCount = line.vehicles.filter(vehicle => vehicle.isSpare).length
               const isDropTarget = dragTarget?.kind === 'DEPOT' && dragTarget.id === line.id
               return (
                 <g
@@ -1527,8 +1538,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
               )
             })}
 
-            {state.city.lines.flatMap(line => line.vehicles
-              .filter(vehicle => vehicle.status === 'OPERATING' && vehicle.currentStationId)
+            {state.city.lines.flatMap(line => orderedVehicles(line)
+              .filter(vehicle => vehicle.status === 'OPERATING' && !vehicle.isSpare && vehicle.currentStationId)
               .map(vehicle => {
                 const motion = vehicleMotionById.get(vehicle.id)
                 const station = motion?.fromStation

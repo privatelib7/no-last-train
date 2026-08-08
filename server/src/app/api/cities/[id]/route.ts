@@ -3,7 +3,7 @@ import { db } from '@/lib/db'
 import { SIM } from '@/types/game'
 import { syncCityClock } from '@/lib/simulation'
 import { authorizeCityAccess, authorizeCityOwner } from '@/lib/access'
-import { ECONOMY } from '@/lib/economy'
+import { ECONOMY, resolveManagementGoal } from '@/lib/economy'
 import { z } from 'zod'
 
 const UpdateCitySchema = z.object({
@@ -32,7 +32,7 @@ export async function GET(
             include: { station: true },
             orderBy: { order: 'asc' },
           },
-          vehicles: true,
+          vehicles: { orderBy: { id: 'asc' } },
           policies: { where: { isActive: true } },
           actionLogs: {
             orderBy: { createdAt: 'desc' },
@@ -70,9 +70,15 @@ export async function GET(
   const elapsedMs = Date.now() - city.lastTickAt.getTime()
   const elapsedGameHours = elapsedMs / SIM.LIVE_TICK_MS / SIM.TICKS_PER_GAME_HOUR
   const isOwner = city.lines.some(line => line.playerId === auth.player.id)
+  const managementGoal = resolveManagementGoal(city.revenueGoal, city.goalReachedAtTick)
 
   return NextResponse.json({
-    city,
+    city: {
+      ...city,
+      goalLevel: managementGoal.level,
+      goalDeadlineDay: managementGoal.deadlineDay,
+      goalsCompleted: managementGoal.level - 1,
+    },
     elapsedGameHours,
     stationStats,
     isOwner,

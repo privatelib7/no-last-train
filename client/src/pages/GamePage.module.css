@@ -606,6 +606,30 @@
   font-size: 11px;
 }
 
+.goalMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  color: #746a61;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.goalMeta b {
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: #986413;
+  background: rgba(220, 155, 39, 0.13);
+  font-size: 11px;
+}
+
+.goalMetaOverdue b {
+  color: #a84033;
+  background: rgba(179, 74, 56, 0.12);
+}
+
 .progressTrack,
 .happinessTrack {
   height: 6px;

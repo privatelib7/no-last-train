@@ -1,7 +1,8 @@
 import { db } from './db'
 import { evaluatePolicies } from './policy-engine'
-import { calculateTickEconomy } from './economy'
+import { calculateTickEconomy, resolveManagementGoal } from './economy'
 import { advanceVehicleMotion } from './vehicle-motion'
+import { isVehicleInService } from './vehicle-service'
 import { SIM, TIME_DEMAND_MULTIPLIER, ORIGIN_WEIGHT, DEST_WEIGHT, periodOfHour, isWeekendTick } from '@/types/game'
 import type { SimResult, TickHighlight, StationSnapshot, DayPeriod } from '@/types/game'
 import type { Passenger, Vehicle, Station, Line, GameEvent } from '@prisma/client'
@@ -60,7 +61,7 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
       lines: {
         include: {
           lineStations: { include: { station: true }, orderBy: { order: 'asc' } },
-          vehicles: true,
+          vehicles: { orderBy: { id: 'asc' } },
           policies: { where: { isActive: true } },
         },
       },
@@ -78,6 +79,10 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
   let ticksProcessed = 0
   let cashBalance = city.cashBalance
   let totalRevenue = city.totalRevenue
+  let revenueGoal = city.revenueGoal
+  const initialGoal = resolveManagementGoal(city.revenueGoal, city.goalReachedAtTick)
+  let goalLevel = initialGoal.level
+  let goalsCompleted = initialGoal.level - 1
   let happiness = city.happiness
   let score = city.score
   let insolvencyTicks = city.insolvencyTicks
@@ -130,7 +135,7 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
       serviceScore,
       cashBalance,
       totalRevenue,
-      revenueGoal: city.revenueGoal,
+      revenueGoal,
       happiness,
       score,
       insolvencyTicks,
@@ -143,6 +148,9 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
     operatingCost += economy.operatingCost
     cashBalance = economy.cashBalance
     totalRevenue = economy.totalRevenue
+    revenueGoal = economy.revenueGoal
+    goalLevel = economy.goalLevel
+    goalsCompleted = economy.goalsCompleted
     happiness = economy.happiness
     score = economy.score
     insolvencyTicks = economy.insolvencyTicks
@@ -180,7 +188,7 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
         tickNumber,
         gameTimeHour,
         type: 'GOAL',
-        description: '첫 매출 목표를 달성해 운영 지원금 2천만 원을 받았습니다.',
+        description: `${economy.completedGoalLevel}단계 경영 목표를 달성해 지원금 2천만 원을 받고 ${economy.goalLevel}단계 목표가 설정되었습니다.`,
         severity: 'INFO',
       })
     }
@@ -203,6 +211,7 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
       lastTickAt,
       cashBalance,
       totalRevenue,
+      revenueGoal,
       happiness,
       score,
       insolvencyTicks,
@@ -228,7 +237,7 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
     cashBalance,
     happiness,
     score,
-    goalReached: goalReachedAtTick !== null,
+    goalReached: goalsCompleted > 0,
     gameOverReason,
     actionsFired: allActionLogs,
     highlights: highlights.slice(0, 3),
@@ -334,7 +343,7 @@ async function buildStationSnapshots(stations: Station[], cityId: string): Promi
 
   const vehicleCounts = await db.vehicle.groupBy({
     by: ['currentStationId'],
-    where: { line: { cityId }, status: 'OPERATING' },
+    where: { line: { cityId }, status: 'OPERATING', isSpare: false },
     _count: { id: true },
   })
   const vehicleMap = new Map(vehicleCounts.map(r => [r.currentStationId!, r._count.id]))
@@ -368,7 +377,7 @@ async function moveVehiclesAndBoard(
 
     const orderedVehicles = line.vehicles.slice().sort((a, b) => a.id.localeCompare(b.id))
     for (const vehicle of orderedVehicles) {
-      if (vehicle.status !== 'OPERATING' || vehicle.isSpare) continue
+      if (!isVehicleInService(vehicle)) continue
 
       const motion = advanceVehicleMotion(stationOrder, {
         currentStationId: vehicle.currentStationId ?? stationOrder[0].id,

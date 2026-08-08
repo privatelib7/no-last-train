@@ -19,7 +19,7 @@ export async function evaluatePolicies(
       const conditionMet = checkCondition(policy, snapshotMap)
       if (!conditionMet.triggered) continue
 
-      const result = await executeAction(policy, line, lines, tickId, conditionMet.description)
+      const result = await executeAction(policy, line, tickId, conditionMet.description)
       if (result) firedActions.push(result)
     }
   }
@@ -79,74 +79,15 @@ function checkCondition(
 async function executeAction(
   policy: Policy,
   line: LineWithPolicies,
-  allLines: LineWithPolicies[],
   tickId: string,
   conditionDescription: string,
 ): Promise<{ description: string; actionType: string } | null> {
   switch (policy.actionType) {
-    case 'DEPLOY_SPARE': {
-      const spare = line.vehicles.find(v => v.status === 'SPARE' && v.isSpare)
-      if (!spare) return null
-
-      await db.vehicle.update({
-        where: { id: spare.id },
-        data: { status: 'OPERATING' },
-      })
-      spare.status = 'OPERATING'
-      const description = `예비 차량 1대를 투입했습니다. 조건: ${conditionDescription}`
-      await db.actionLog.create({
-        data: {
-          lineId: line.id,
-          tickId,
-          actionType: 'DEPLOY_SPARE',
-          description,
-          conditionMet: conditionDescription,
-          resourceUsed: 1,
-        },
-      })
-      await db.activityLog.create({
-        data: { cityId: line.cityId, playerId: null, message: `[${line.name}] ${description}` },
-      })
-      return { description, actionType: 'DEPLOY_SPARE' }
-    }
-
-    case 'LEND_VEHICLE': {
-      if (!policy.actionTargetLineId) return null
-      const targetLine = allLines.find(l => l.id === policy.actionTargetLineId)
-      if (!targetLine) return null
-
-      const spare = line.vehicles.find(v => v.status === 'SPARE' && v.isSpare)
-      if (!spare) return null
-
-      await db.$transaction([
-        db.vehicle.update({ where: { id: spare.id }, data: { status: 'LOANED' } }),
-        db.support.create({
-          data: {
-            fromLineId: line.id,
-            toLineId: targetLine.id,
-            vehicleId: spare.id,
-            durationTicks: policy.resourceLimit * 12, // 기본 2시간 (12틱)
-          },
-        }),
-      ])
-      spare.status = 'LOANED'
-      const targetName = targetLine.name ?? `${targetLine.color} 노선`
-      const description = `${targetName}에 예비 차량 1대를 ${policy.resourceLimit * 2}시간 대여했습니다. 조건: ${conditionDescription}`
-      await db.actionLog.create({
-        data: {
-          lineId: line.id,
-          tickId,
-          actionType: 'LEND_VEHICLE',
-          description,
-          conditionMet: conditionDescription,
-          resourceUsed: 1,
-        },
-      })
-      await db.activityLog.create({
-        data: { cityId: line.cityId, playerId: null, message: `[${line.name}] ${description}` },
-      })
-      return { description, actionType: 'LEND_VEHICLE' }
-    }
+    // 차량의 운행/대기 상태는 관제실의 운행·입고 버튼으로만 바꾼다.
+    // 기존 저장 정책은 보존하되 자동 투입·대여로 상태를 덮어쓰지 않는다.
+    case 'DEPLOY_SPARE':
+    case 'LEND_VEHICLE':
+      return null
 
     case 'ADJUST_HEADWAY': {
       const newHeadway = Math.max(2, Math.round((line.vehicles[0]?.headwayMinutes ?? 5) * 0.7))
