@@ -329,11 +329,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
       map: mapDef,
     })
   }, [state, mapDef])
-  const waitingByStation = useMemo(
-    () => new Map(state?.stationStats.map(stat => [stat.stationId, stat.waitingCount]) ?? []),
-    [state],
-  )
-
   const beginEditTitle = () => {
     if (!state?.isOwner || !session) return
     setTitleDraft(state.city.roomTitle)
@@ -885,10 +880,24 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
       ),
     ] as const)),
   )
+  // 서버는 3초 경제 틱 끝에 승차를 확정한다. 화면에서는 차량이 역에 실제로
+  // 도착한 프레임부터 예상 승차 인원을 먼저 반영해 대기열이 늦게 사라지지 않게 한다.
+  const waitingByStation = new Map(state.stationStats.map(stat => [stat.stationId, stat.waitingCount]))
+  for (const line of state.city.lines) {
+    if (line.status !== 'OPERATING') continue
+    for (const vehicle of orderedVehicles(line)) {
+      if (vehicle.status !== 'OPERATING' || vehicle.isSpare) continue
+      const motion = vehicleMotionById.get(vehicle.id)
+      for (const stationId of motion?.arrivedStationIds ?? []) {
+        const waiting = waitingByStation.get(stationId) ?? 0
+        waitingByStation.set(stationId, Math.max(0, waiting - vehicle.capacity))
+      }
+    }
+  }
   const latestMetric = state.city.ticks[0]
   const serviceScore = latestMetric?.serviceScore ?? 100
   const totalVehicles = state.city.lines.reduce((sum, line) => sum + line.vehicles.length, 0)
-  const waitingPassengers = state.stationStats.reduce((sum, station) => sum + station.waitingCount, 0)
+  const waitingPassengers = [...waitingByStation.values()].reduce((sum, waiting) => sum + waiting, 0)
   const goalProgress = state.city.revenueGoal > 0
     ? Math.min(100, (state.city.totalRevenue / state.city.revenueGoal) * 100)
     : 0

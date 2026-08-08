@@ -3,6 +3,7 @@ import type { GameLine, Station, Vehicle } from './api/game'
 export type RenderedVehicleMotion = {
   fromStation: Station | null
   toStation: Station | null
+  arrivedStationIds: string[]
   direction: number
   segmentDurationMinutes: number
   segmentProgressMinutes: number
@@ -65,6 +66,7 @@ export function locateVehicle(
     return {
       fromStation: null,
       toStation: null,
+      arrivedStationIds: [],
       direction: vehicle.direction >= 0 ? 1 : -1,
       segmentDurationMinutes: 0,
       segmentProgressMinutes: 0,
@@ -83,6 +85,7 @@ export function locateVehicle(
   let dwellRemainingMinutes = storedProgressMinutes < 0 ? -storedProgressMinutes : 0
   let segmentProgressMinutes = Math.max(0, storedProgressMinutes)
   let remainingMinutes = Math.max(0, elapsedGameMinutes)
+  const arrivedStationIds: string[] = []
   let guard = 0
 
   if (stations.length === 1) {
@@ -90,6 +93,7 @@ export function locateVehicle(
     return {
       fromStation: station,
       toStation: null,
+      arrivedStationIds,
       direction,
       segmentDurationMinutes: 0,
       segmentProgressMinutes: 0,
@@ -132,6 +136,7 @@ export function locateVehicle(
     currentIndex = next.nextIndex
     segmentProgressMinutes = 0
     dwellRemainingMinutes = stationDwellMinutes(line.mode)
+    arrivedStationIds.push(stations[currentIndex].id)
     if (remainingMinutes === 0) break
   }
 
@@ -149,6 +154,7 @@ export function locateVehicle(
   return {
     fromStation,
     toStation,
+    arrivedStationIds,
     direction,
     segmentDurationMinutes,
     segmentProgressMinutes: persistedProgressMinutes,

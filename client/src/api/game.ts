@@ -18,6 +18,7 @@ export type StationStat = {
 
 export type Vehicle = {
   id: string
+  capacity: number
   status: 'OPERATING' | 'SPARE' | 'LOANED' | 'MAINTENANCE' | 'BROKEN'
   isSpare: boolean
   currentStationId: string | null
