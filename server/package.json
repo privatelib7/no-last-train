@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "npm run db:prepare && node scripts/next-with-env.mjs dev",
-    "build": "prisma generate && next build",
-    "build:cf": "prisma generate && opennextjs-cloudflare build",
+    "build": "prisma generate && opennextjs-cloudflare build",
+    "build:cf": "npm run build",
+    "build:next": "next build",
     "test": "tsx --test src/lib/economy.test.ts",
     "start": "node scripts/next-with-env.mjs start",
     "db:prepare": "prisma generate && prisma db push && tsx prisma/seed.ts",
