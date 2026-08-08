@@ -45,7 +45,8 @@ async function ensurePermission(): Promise<NotificationPermission> {
   return Notification.requestPermission()
 }
 
-function clearPending() {
+// 예약 알림 취소용 (외부 사용 대비 export — 미사용 로컬 함수로 두면 tsc가 실패)
+export function clearPending() {
   if (timerId !== null) {
     window.clearTimeout(timerId)
     timerId = null
