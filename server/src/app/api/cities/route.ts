@@ -12,7 +12,6 @@ const CreateCitySchema = z.object({
   roomTitle: z.string().trim().min(1).max(24).optional(),
   playerToken: z.string().uuid(),
   lineColor: z.enum(['RED', 'BLUE', 'GREEN', 'YELLOW', 'PURPLE']),
-  mapKey: z.enum(['BUSAN', 'SEOUL']).default('BUSAN'),
 })
 
 type StationDef = {
@@ -113,11 +112,13 @@ export async function POST(req: NextRequest) {
   const seed = Math.floor(Math.random() * 1_000_000)
   const cityName = parsed.data.name
   const roomTitle = parsed.data.roomTitle ?? pickRandomRoomTitle()
-  const layout = MAP_LAYOUTS[parsed.data.mapKey]
+  // 도시 이름이 곧 맵 선택 — 클라이언트는 mapKey를 따로 보내지 않는다
+  const mapKey = cityName === '서울' ? 'SEOUL' : 'BUSAN'
+  const layout = MAP_LAYOUTS[mapKey]
 
   const city = await db.$transaction(async (tx) => {
     const city = await tx.city.create({
-      data: { name: cityName, roomTitle, mapKey: parsed.data.mapKey, seed },
+      data: { name: cityName, roomTitle, mapKey, seed },
     })
 
     const stations = await Promise.all(

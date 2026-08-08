@@ -2,14 +2,6 @@
 export const CITY_NAMES = [
   '부산',
   '서울',
-  '인천',
-  '대구',
-  '광주',
-  '대전',
-  '울산',
-  '수원',
-  '창원',
-  '청주',
 ] as const
 
 export type CityName = (typeof CITY_NAMES)[number]
