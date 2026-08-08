@@ -28,16 +28,37 @@ export async function authorizeCityAccess(
       : Promise.resolve(null),
   ])
 
-  if (!ownsLine && !invited) {
-    return {
-      error: NextResponse.json(
-        { error: '이 도시에 접근 권한이 없습니다. 초대받은 이메일 계정으로 로그인했는지 확인해주세요.' },
-        { status: 403 },
-      ),
+  if (ownsLine || invited) {
+    return { player }
+  }
+
+  // 소유 노선을 모두 지워 잠긴 관제장 복구:
+  // 이 도시에 활동 기록이 있고 아직 소유자가 아무도 없으면, 남은 노선 하나에 소유권을 붙인다.
+  const [acted, anyOwner] = await Promise.all([
+    db.activityLog.findFirst({ where: { cityId, playerId: player.id }, select: { id: true } }),
+    db.line.findFirst({ where: { cityId, playerId: { not: null } }, select: { id: true } }),
+  ])
+  if (acted && !anyOwner) {
+    const successor = await db.line.findFirst({
+      where: { cityId, playerId: null },
+      orderBy: { name: 'asc' },
+      select: { id: true },
+    })
+    if (successor) {
+      await db.line.update({
+        where: { id: successor.id },
+        data: { playerId: player.id },
+      })
+      return { player }
     }
   }
 
-  return { player }
+  return {
+    error: NextResponse.json(
+      { error: '이 도시에 접근 권한이 없습니다. 초대받은 이메일 계정으로 로그인했는지 확인해주세요.' },
+      { status: 403 },
+    ),
+  }
 }
 
 /** 관제장(해당 도시에 노선을 소유한 플레이어)만 통과 */

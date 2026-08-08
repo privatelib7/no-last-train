@@ -248,7 +248,15 @@ export async function POST(
     const cost = lineBuildCost(action.mode)
     const created = await runPaidConstruction(id, cost, async tx => {
       const nextLine = await tx.line.create({
-        data: { cityId: id, mode: action.mode, name, color, depotX: 50, depotY: 50 },
+        data: {
+          cityId: id,
+          playerId: auth.player.id,
+          mode: action.mode,
+          name,
+          color,
+          depotX: 50,
+          depotY: 50,
+        },
       })
       await tx.vehicle.create({
         data: {
@@ -287,7 +295,14 @@ export async function POST(
     const depot = depotBeyondTerminus(fromStation, toStation)
     const created = await runPaidConstruction(id, cost, async tx => {
       const nextLine = await tx.line.create({
-        data: { cityId: id, mode: action.mode, name, color, ...depot },
+        data: {
+          cityId: id,
+          playerId: auth.player.id,
+          mode: action.mode,
+          name,
+          color,
+          ...depot,
+        },
       })
       await tx.lineStation.createMany({
         data: [
@@ -529,7 +544,31 @@ export async function POST(
     await db.support.deleteMany({
       where: { OR: [{ fromLineId: line.id }, { toLineId: line.id }] },
     })
+    const ownerPlayerId = line.playerId
     await db.line.delete({ where: { id: line.id } })
+
+    // 접근 권한은 "소유 노선 1개 이상"으로 판별한다.
+    // 마지막 소유 노선을 지우면 관제장이 도시에서 잠기므로, 남은 노선으로 소유권을 넘긴다.
+    if (ownerPlayerId) {
+      const stillOwns = await db.line.findFirst({
+        where: { cityId: id, playerId: ownerPlayerId },
+        select: { id: true },
+      })
+      if (!stillOwns) {
+        const successor = await db.line.findFirst({
+          where: { cityId: id, playerId: null },
+          orderBy: { name: 'asc' },
+          select: { id: true },
+        })
+        if (successor) {
+          await db.line.update({
+            where: { id: successor.id },
+            data: { playerId: ownerPlayerId },
+          })
+        }
+      }
+    }
+
     return NextResponse.json({ message: `${line.name} 노선을 삭제했습니다.` })
   }
 
