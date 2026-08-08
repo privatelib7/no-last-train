@@ -17,10 +17,18 @@ export async function GET(
   const auth = await authorizeCityAccess(req, id)
   if (auth.error) return auth.error
 
-  const [ownerLine, invites] = await Promise.all([
-    db.line.findFirst({
-      where: { cityId: id, playerId: { not: null } },
-      select: { player: { select: { email: true } } },
+  const [city, invites] = await Promise.all([
+    db.city.findUnique({
+      where: { id },
+      select: {
+        ownerPlayerId: true,
+        owner: { select: { email: true } },
+        lines: {
+          where: { playerId: { not: null } },
+          take: 1,
+          select: { player: { select: { email: true } } },
+        },
+      },
     }),
     db.cityInvite.findMany({
       where: { cityId: id },
@@ -29,8 +37,11 @@ export async function GET(
     }),
   ])
 
+  // 관제장은 City.ownerPlayerId 우선. 예전 데이터는 소유 노선으로 폴백.
+  const ownerEmail = city?.owner?.email ?? city?.lines[0]?.player?.email ?? null
+
   return NextResponse.json({
-    ownerEmail: ownerLine?.player?.email ?? null,
+    ownerEmail,
     invites,
   })
 }

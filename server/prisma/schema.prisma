@@ -25,6 +25,7 @@ model Player {
   createdAt       DateTime  @default(now())
 
   lines               Line[]
+  ownedCities         City[]  @relation("CityOwner")
   verificationTokens  EmailVerificationToken[]
   passwordResetTokens PasswordResetToken[]
   activityLogs        ActivityLog[]
@@ -71,14 +72,19 @@ model City {
   unhappyTicks      Int             @default(0)          // 낮은 행복도 연속 틱
   gameOverReason    GameOverReason?
   goalReachedAtTick Int?                                 // 가장 최근 목표를 달성한 틱
+  // 관제장 — 노선 삭제와 무관하게 방에 귀속되는 소유자
+  ownerPlayerId     String?
   createdAt         DateTime        @default(now())
 
+  owner        Player?       @relation("CityOwner", fields: [ownerPlayerId], references: [id], onDelete: SetNull)
   lines        Line[]
   stations     Station[]
   events       GameEvent[]
   ticks        SimTick[]
   invites      CityInvite[]
   activityLogs ActivityLog[]
+
+  @@index([ownerPlayerId])
 }
 
 // 로비 "최근 활동" 피드용 — 플레이어 버튼 액션 + AI 정책 액션을 방(City) 단위로 합쳐서 기록한다.

@@ -5,8 +5,16 @@ import type { Player } from '@prisma/client'
 type AuthorizedResult = { player: Player; error?: undefined }
 type UnauthorizedResult = { player?: undefined; error: NextResponse }
 
+async function isCityOwner(cityId: string, playerId: string) {
+  const city = await db.city.findUnique({
+    where: { id: cityId },
+    select: { ownerPlayerId: true },
+  })
+  return !!city?.ownerPlayerId && city.ownerPlayerId === playerId
+}
+
 // 도시 데이터에 접근하는 모든 요청은 이 검사를 통과해야 한다:
-// 로그인(x-player-token) + (해당 도시에 노선을 가진 소유자이거나, 초대된 이메일)이어야 한다.
+// 로그인 + (관제장 ownerPlayerId / 소유 노선 / 초대 이메일)
 export async function authorizeCityAccess(
   req: NextRequest,
   cityId: string,
@@ -21,36 +29,29 @@ export async function authorizeCityAccess(
     return { error: NextResponse.json({ error: '세션이 만료되었습니다. 다시 로그인해주세요.' }, { status: 401 }) }
   }
 
-  const [ownsLine, invited] = await Promise.all([
+  const [owner, ownsLine, invited] = await Promise.all([
+    isCityOwner(cityId, player.id),
     db.line.findFirst({ where: { cityId, playerId: player.id }, select: { id: true } }),
     player.email
       ? db.cityInvite.findUnique({ where: { cityId_email: { cityId, email: player.email } } })
       : Promise.resolve(null),
   ])
 
-  if (ownsLine || invited) {
+  if (owner || ownsLine || invited) {
     return { player }
   }
 
-  // 소유 노선을 모두 지워 잠긴 관제장 복구:
-  // 이 도시에 활동 기록이 있고 아직 소유자가 아무도 없으면, 남은 노선 하나에 소유권을 붙인다.
-  const [acted, anyOwner] = await Promise.all([
+  // 예전 데이터 복구: 활동 기록이 있는데 owner가 비어 있으면 관제장으로 승격
+  const [acted, city] = await Promise.all([
     db.activityLog.findFirst({ where: { cityId, playerId: player.id }, select: { id: true } }),
-    db.line.findFirst({ where: { cityId, playerId: { not: null } }, select: { id: true } }),
+    db.city.findUnique({ where: { id: cityId }, select: { ownerPlayerId: true } }),
   ])
-  if (acted && !anyOwner) {
-    const successor = await db.line.findFirst({
-      where: { cityId, playerId: null },
-      orderBy: { name: 'asc' },
-      select: { id: true },
+  if (acted && !city?.ownerPlayerId) {
+    await db.city.update({
+      where: { id: cityId },
+      data: { ownerPlayerId: player.id },
     })
-    if (successor) {
-      await db.line.update({
-        where: { id: successor.id },
-        data: { playerId: player.id },
-      })
-      return { player }
-    }
+    return { player }
   }
 
   return {
@@ -61,7 +62,7 @@ export async function authorizeCityAccess(
   }
 }
 
-/** 관제장(해당 도시에 노선을 소유한 플레이어)만 통과 */
+/** 관제장(City.ownerPlayerId)만 통과 */
 export async function authorizeCityOwner(
   req: NextRequest,
   cityId: string,
@@ -69,11 +70,7 @@ export async function authorizeCityOwner(
   const auth = await authorizeCityAccess(req, cityId)
   if (auth.error) return auth
 
-  const ownsLine = await db.line.findFirst({
-    where: { cityId, playerId: auth.player.id },
-    select: { id: true },
-  })
-  if (!ownsLine) {
+  if (!(await isCityOwner(cityId, auth.player.id))) {
     return {
       error: NextResponse.json({ error: '관제장만 변경할 수 있습니다.' }, { status: 403 }),
     }

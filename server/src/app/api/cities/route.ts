@@ -117,7 +117,13 @@ export async function POST(req: NextRequest) {
 
   const city = await db.$transaction(async (tx) => {
     const city = await tx.city.create({
-      data: { name: cityName, roomTitle, mapKey: parsed.data.mapKey, seed },
+      data: {
+        name: cityName,
+        roomTitle,
+        mapKey: parsed.data.mapKey,
+        seed,
+        ownerPlayerId: player.id,
+      },
     })
 
     const stations = await Promise.all(
@@ -224,11 +230,12 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // 로그인 상태면 "내가 소유한 노선이 있는 도시" + "이메일로 초대받은 도시"만 보여준다.
+  // 로그인 상태면 관제장 도시 + 소유 노선 도시 + 초대받은 도시만 보여준다.
   const cities = await db.city.findMany({
     where: player
       ? {
           OR: [
+            { ownerPlayerId: player.id },
             { lines: { some: { playerId: player.id } } },
             ...(player.email ? [{ invites: { some: { email: player.email } } }] : []),
           ],

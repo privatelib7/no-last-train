@@ -21,7 +21,12 @@ export async function GET(
   if (auth.error) return auth.error
 
   // 여러 화면이 동시에 열려 있어도 서버 시계 하나만 틱을 진행한다.
-  await syncCityClock(id)
+  // 시계 동기화 실패가 도시 조회 자체를 막지 않게 한다.
+  try {
+    await syncCityClock(id)
+  } catch (err) {
+    console.error(`[cities/${id}] syncCityClock failed`, err)
+  }
 
   const city = await db.city.findUnique({
     where: { id },
@@ -69,7 +74,8 @@ export async function GET(
   // 오프라인 시간 계산 (게임시간 기준)
   const elapsedMs = Date.now() - city.lastTickAt.getTime()
   const elapsedGameHours = elapsedMs / SIM.LIVE_TICK_MS / SIM.TICKS_PER_GAME_HOUR
-  const isOwner = city.lines.some(line => line.playerId === auth.player.id)
+  const isOwner = city.ownerPlayerId === auth.player.id
+    || (!city.ownerPlayerId && city.lines.some(line => line.playerId === auth.player.id))
   const managementGoal = resolveManagementGoal(city.revenueGoal, city.goalReachedAtTick)
 
   return NextResponse.json({

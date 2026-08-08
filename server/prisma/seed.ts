@@ -59,7 +59,14 @@ async function seedSeoul(playerId: string) {
   }
 
   const city = await db.city.create({
-    data: { name: '서울', mapKey: 'SEOUL', seed: 84, seasonDay: 1, status: 'ACTIVE' },
+    data: {
+      name: '서울',
+      mapKey: 'SEOUL',
+      seed: 84,
+      seasonDay: 1,
+      status: 'ACTIVE',
+      ownerPlayerId: playerId,
+    },
   })
   const stations = await Promise.all(
     SEOUL_LAYOUT.stations.map(station => db.station.create({ data: { ...station, cityId: city.id } })),
@@ -300,7 +307,14 @@ async function main() {
         data: { seed: 42, seasonDay: 1, status: 'ACTIVE', currentTick: 0, lastTickAt: new Date() },
       })
     : await db.city.create({
-        data: { name: '부산', roomTitle: '데모 운영실', seed: 42, seasonDay: 1, status: 'ACTIVE' },
+        data: {
+          name: '부산',
+          roomTitle: '데모 운영실',
+          seed: 42,
+          seasonDay: 1,
+          status: 'ACTIVE',
+          ownerPlayerId: player.id,
+        },
       })
 
   // 이전 와이어프레임용 빈 시드가 남아 있으면 데모 도시만 플레이 가능 상태로 보강한다.
