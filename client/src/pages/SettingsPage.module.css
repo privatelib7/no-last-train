@@ -84,7 +84,7 @@
 }
 
 .subtitle {
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   color: var(--text-muted);
   line-height: 1.5;
   word-break: keep-all;
@@ -103,7 +103,7 @@
 }
 
 .sectionTitle {
-  font-size: 0.78rem;
+  font-size: 0.88rem;
   font-weight: 700;
   color: var(--text-muted);
   letter-spacing: 0.02em;
@@ -132,7 +132,7 @@
 }
 
 .rowHint {
-  font-size: 0.76rem;
+  font-size: 0.86rem;
   color: var(--text-muted);
 }
 
@@ -224,7 +224,7 @@
 }
 
 .volumeValue {
-  font-size: 0.82rem;
+  font-size: 0.92rem;
   font-weight: 700;
   color: var(--text-muted);
   min-width: 2.4em;

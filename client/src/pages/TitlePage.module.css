@@ -161,7 +161,7 @@
   position: absolute;
   bottom: clamp(16px, 3vh, 28px);
   right: clamp(20px, 3vw, 36px);
-  font-size: 11px;
+  font-size: 13.5px;
   color: var(--text-light);
   letter-spacing: 0.08em;
 }

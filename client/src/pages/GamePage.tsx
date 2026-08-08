@@ -1912,12 +1912,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                   <span><i className={styles.zoneMarkCommercial} />상업</span>
                   <span><i className={styles.zoneMarkIndustrial} />산업·오피스</span>
                 </div>
-                <div className={styles.legendRow} aria-label="시민 이동 상태">
-                  <b>시민</b>
-                  <span><i className={styles.walkingCitizenMark} />도보</span>
-                  <span><i className={styles.waitingCitizenMark} />역 대기</span>
-                  <span><i className={styles.boardingCitizenMark} />탑승</span>
-                </div>
               </div>
             )}
           </div>
