@@ -3,6 +3,7 @@ import {
   ApiError,
   executeCityAction,
   fetchCity,
+  planCityCommand,
   TICKS_PER_DAY,
   TICKS_PER_HOUR,
   type CityAction,
@@ -67,6 +68,13 @@ type MapPanState = {
   startY: number
   startView: MapView
   moved: boolean
+}
+
+type CityCommandMessage = {
+  id: number
+  role: 'assistant' | 'user'
+  text: string
+  isError?: boolean
 }
 
 const LIVE_TICK_MS = 3000
@@ -194,6 +202,13 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const [titleSaving, setTitleSaving] = useState(false)
   const [notifyStatus, setNotifyStatus] = useState<'idle' | 'pending' | 'sent' | 'denied' | 'unsupported' | 'busy'>('idle')
   const [notifySecondsLeft, setNotifySecondsLeft] = useState(0)
+  const [commandInput, setCommandInput] = useState('')
+  const [commandBusy, setCommandBusy] = useState(false)
+  const [commandMessages, setCommandMessages] = useState<CityCommandMessage[]>([{
+    id: 0,
+    role: 'assistant',
+    text: '역과 노선 이름을 사용해 운영 명령을 내려주세요. 실행 결과를 바로 보고드릴게요.',
+  }])
   const ticking = useRef(false)
   const vehicleDragRef = useRef<VehicleDragState | null>(null)
   const stationDragRef = useRef<StationLinkDrag | null>(null)
@@ -205,10 +220,17 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const mapRef = useRef<SVGSVGElement | null>(null)
   const stateRef = useRef<CityState | null>(null)
   const performActionRef = useRef<((action: CityAction) => Promise<CityState | null>) | null>(null)
+  const commandMessageId = useRef(0)
+  const commandLogRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     stateRef.current = state
   }, [state])
+
+  useEffect(() => {
+    const log = commandLogRef.current
+    if (log) log.scrollTop = log.scrollHeight
+  }, [commandMessages, commandBusy])
 
   const loadCity = async () => {
     const next = await fetchCity(cityId, session?.token)
@@ -437,6 +459,61 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     }
   }
   performActionRef.current = performAction
+
+  const appendCommandMessage = (message: Omit<CityCommandMessage, 'id'>) => {
+    commandMessageId.current += 1
+    setCommandMessages(current => [...current, { ...message, id: commandMessageId.current }])
+  }
+
+  const runCityCommand = async (rawCommand: string) => {
+    const command = rawCommand.trim()
+    if (!command || busy || commandBusy || !state?.isOwner) return
+
+    appendCommandMessage({ role: 'user', text: command })
+    setCommandInput('')
+    setCommandBusy(true)
+    setBusy(true)
+    setError(null)
+
+    try {
+      const plan = await planCityCommand(cityId, command, session?.token)
+      if (!plan.ok) {
+        appendCommandMessage({
+          role: 'assistant',
+          text: `${plan.reason}\n${plan.suggestion}`,
+          isError: true,
+        })
+        return
+      }
+
+      const results: string[] = []
+      let createdLineId = ''
+      for (const action of plan.actions) {
+        const result = await executeCityAction(cityId, action, session?.token)
+        results.push(result.message)
+        if (result.line?.id) createdLineId = result.line.id
+      }
+      await loadCity()
+      if (createdLineId) {
+        setSelectedLineId(createdLineId)
+        setSelectedVehicleId('')
+        setSelectedStationId('')
+      }
+      appendCommandMessage({
+        role: 'assistant',
+        text: results.join('\n') || plan.summary,
+      })
+    } catch (err) {
+      appendCommandMessage({
+        role: 'assistant',
+        text: err instanceof Error ? err.message : '명령을 실행하지 못했습니다.',
+        isError: true,
+      })
+    } finally {
+      setCommandBusy(false)
+      setBusy(false)
+    }
+  }
 
   const createLine = async (mode: 'SUBWAY' | 'BUS') => {
     setBusy(true)
@@ -914,6 +991,18 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const riskTicks = bankruptcyRisk ? state.city.insolvencyTicks : happinessRisk ? state.city.unhappyTicks : 0
   const graceRemaining = Math.max(0, state.economyRules.gameOverGraceTicks - riskTicks)
   const graceHours = Math.ceil(graceRemaining / TICKS_PER_HOUR)
+  const commandExamples: string[] = []
+  const [firstCommandStation, secondCommandStation] = state.city.stations
+  if (firstCommandStation && secondCommandStation) {
+    commandExamples.push(`${firstCommandStation.name}과 ${secondCommandStation.name} 사이에 새로운 노선을 건설해 줘.`)
+  }
+  for (const line of sortedLines) {
+    if (line.lineStations.length === 0) continue
+    const target = state.city.stations.find(station => !lineHasStation(line, station.id))
+    if (!target) continue
+    commandExamples.push(`${line.name}을 ${target.name} 방향으로 연장해줘.`)
+    break
+  }
 
   return (
     <div className={styles.page}>
@@ -1231,6 +1320,74 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
         )}
 
         {error && <div className={styles.operationError} role="alert">! {error}</div>}
+
+        {state.isOwner && (
+          <section className={`${styles.controlSection} ${styles.aiCommandSection}`}>
+            <div className={styles.sectionHeading}>
+              <span>AI</span>
+              <h2>도시 운영관</h2>
+              <small>명령 즉시 실행</small>
+            </div>
+            <div className={styles.aiCommandPanel}>
+              <div className={styles.aiChatLog} role="log" aria-live="polite" ref={commandLogRef}>
+                {commandMessages.map(message => (
+                  <div
+                    key={message.id}
+                    className={`${styles.aiMessage} ${message.role === 'user' ? styles.aiMessageUser : styles.aiMessageAssistant} ${message.isError ? styles.aiMessageError : ''}`}
+                  >
+                    <small>{message.role === 'user' ? '나' : 'AI 운영관'}</small>
+                    <p>{message.text}</p>
+                  </div>
+                ))}
+                {commandBusy && (
+                  <div className={`${styles.aiMessage} ${styles.aiMessageAssistant} ${styles.aiMessagePending}`}>
+                    <small>AI 운영관</small>
+                    <p><i /> 명령을 검토하고 있습니다.</p>
+                  </div>
+                )}
+              </div>
+              {commandExamples.length > 0 && (
+                <div className={styles.aiCommandExamples} aria-label="도시 운영 명령 예시">
+                  {commandExamples.slice(0, 2).map(example => (
+                    <button
+                      key={example}
+                      type="button"
+                      onClick={() => setCommandInput(example)}
+                      disabled={busy || commandBusy || isGameOver}
+                    >
+                      {example}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <form
+                className={styles.aiCommandForm}
+                onSubmit={event => {
+                  event.preventDefault()
+                  void runCityCommand(commandInput)
+                }}
+              >
+                <textarea
+                  value={commandInput}
+                  onChange={event => setCommandInput(event.target.value)}
+                  onKeyDown={event => {
+                    if (event.key !== 'Enter' || event.shiftKey) return
+                    event.preventDefault()
+                    void runCityCommand(commandInput)
+                  }}
+                  placeholder="예: 1호선을 시청역 방향으로 연장해줘."
+                  maxLength={300}
+                  rows={2}
+                  disabled={busy || commandBusy || isGameOver}
+                  aria-label="AI 도시 운영 명령"
+                />
+                <button type="submit" disabled={busy || commandBusy || isGameOver || !commandInput.trim()}>
+                  {commandBusy ? '실행 중' : '명령 실행'}
+                </button>
+              </form>
+            </div>
+          </section>
+        )}
       </aside>
 
       <main className={styles.gameStage}>
