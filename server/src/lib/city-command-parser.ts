@@ -1,4 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
+import { zodTextFormat } from 'openai/helpers/zod'
 import { z } from 'zod'
 
 export type CityCommandStation = {
@@ -47,7 +48,7 @@ export type CityCommandPlanResult =
 const CommandIntentSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('CREATE_LINE_BETWEEN_STATIONS'),
-    mode: z.enum(['SUBWAY', 'BUS']).default('SUBWAY'),
+    mode: z.enum(['SUBWAY', 'BUS']),
     fromStationName: z.string().min(1),
     toStationName: z.string().min(1),
   }),
@@ -61,31 +62,40 @@ const CommandIntentSchema = z.discriminatedUnion('type', [
     lineName: z.string().min(1),
     status: z.enum(['OPERATING', 'SUSPENDED']),
   }),
+  z.object({
+    type: z.literal('UNSUPPORTED'),
+  }),
 ])
 
-type CommandIntent = z.infer<typeof CommandIntentSchema>
+const AiCommandResponseSchema = z.object({
+  command: CommandIntentSchema,
+})
 
-const apiKey = process.env.ANTHROPIC_API_KEY
-const client = apiKey && !apiKey.includes('...') ? new Anthropic({ apiKey }) : null
+type CommandIntent = Exclude<z.infer<typeof CommandIntentSchema>, { type: 'UNSUPPORTED' }>
+
+const apiKey = process.env.OPENAI_API_KEY
+const model = process.env.OPENAI_MODEL?.trim() || 'gpt-5.4-nano'
+const client = apiKey && !apiKey.includes('...')
+  ? new OpenAI({ apiKey, timeout: 8_000, maxRetries: 0 })
+  : null
 
 const SYSTEM_PROMPT = `
 당신은 도시 교통 운영 게임의 명령 해석기입니다.
-사용자의 한국어 명령을 아래 JSON 객체 중 정확히 하나로 변환하세요.
+사용자의 한국어 명령을 아래 command 객체 중 정확히 하나로 변환하세요.
 
 1. 두 기존 역 사이에 새 노선 건설
-{"type":"CREATE_LINE_BETWEEN_STATIONS","mode":"SUBWAY|BUS","fromStationName":"실제 역 이름","toStationName":"실제 역 이름"}
+{"command":{"type":"CREATE_LINE_BETWEEN_STATIONS","mode":"SUBWAY|BUS","fromStationName":"실제 역 이름","toStationName":"실제 역 이름"}}
 
 2. 기존 노선을 기존 역 방향으로 연장
-{"type":"EXTEND_LINE_TO_STATION","lineName":"실제 노선 이름","stationName":"실제 역 이름"}
+{"command":{"type":"EXTEND_LINE_TO_STATION","lineName":"실제 노선 이름","stationName":"실제 역 이름"}}
 
 3. 기존 노선 운행 중단 또는 재개
-{"type":"SET_LINE_STATUS","lineName":"실제 노선 이름","status":"OPERATING|SUSPENDED"}
+{"command":{"type":"SET_LINE_STATUS","lineName":"실제 노선 이름","status":"OPERATING|SUSPENDED"}}
 
 규칙:
 - 제공된 역과 노선 이름만 그대로 사용하세요. ID, 좌표, 공사비는 만들지 마세요.
 - 사용자가 버스를 명시하지 않은 새 노선은 SUBWAY입니다.
-- 설명이나 마크다운 없이 JSON 객체만 출력하세요.
-- 지원하지 않거나 대상이 불명확한 명령은 {"unsupported":true}를 출력하세요.
+- 지원하지 않거나 대상이 불명확한 명령은 {"command":{"type":"UNSUPPORTED"}}로 분류하세요.
 `.trim()
 
 export async function parseCityCommand(
@@ -141,29 +151,22 @@ async function parseWithAi(rawInput: string, context: CityCommandContext): Promi
     return `${line.name}(${line.mode}, ${endpoints})`
   }).join(', ')
 
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-5',
-    max_tokens: 300,
-    system: SYSTEM_PROMPT,
-    messages: [{
-      role: 'user',
-      content: `역: ${stationList}\n노선: ${lineList}\n명령: ${rawInput}`,
-    }],
-  }, {
-    timeout: 8_000,
-    maxRetries: 0,
+  const response = await client.responses.parse({
+    model,
+    max_output_tokens: 300,
+    input: [
+      { role: 'system', content: SYSTEM_PROMPT },
+      {
+        role: 'user',
+        content: `역: ${stationList}\n노선: ${lineList}\n명령: ${rawInput}`,
+      },
+    ],
+    text: {
+      format: zodTextFormat(AiCommandResponseSchema, 'city_command_intent'),
+    },
   })
-  const text = response.content
-    .filter(block => block.type === 'text')
-    .map(block => block.type === 'text' ? block.text : '')
-    .join('\n')
-  const jsonMatch = text.match(/\{[\s\S]*\}/)
-  if (!jsonMatch) return null
-
-  const parsed = JSON.parse(jsonMatch[0])
-  if (parsed?.unsupported === true) return null
-  const result = CommandIntentSchema.safeParse(parsed)
-  return result.success ? result.data : null
+  const parsed = response.output_parsed?.command
+  return parsed && parsed.type !== 'UNSUPPORTED' ? parsed : null
 }
 
 function resolveCityCommandIntent(
