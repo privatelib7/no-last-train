@@ -23,6 +23,7 @@ export type Vehicle = {
   currentStationId: string | null
   headwayMinutes: number
   direction: number
+  segmentProgressMinutes: number
 }
 
 export type Policy = {

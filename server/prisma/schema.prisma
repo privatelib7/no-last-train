@@ -206,6 +206,7 @@ model Vehicle {
   currentStationId String?
   headwayMinutes   Int           @default(5)   // 배차 간격
   direction        Int           @default(1)   // 1 정방향, -1 역방향
+  segmentProgressMinutes Float   @default(0)   // 0 이상=구간 진행, 음수=역 정차 남은 게임 시간(분)
 
   line           Line     @relation(fields: [lineId], references: [id], onDelete: Cascade)
   currentStation Station? @relation("CurrentStation", fields: [currentStationId], references: [id])

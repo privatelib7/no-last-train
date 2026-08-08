@@ -17,6 +17,7 @@ import { scheduleMajorEventNotification, subscribePendingNotification } from '..
 import InviteModal from './InviteModal'
 import { getCityMap, polyPath } from '../maps'
 import { createCitizenJourneys, locateCitizen, type CitizenTravelMode } from '../mobility'
+import { locateVehicle } from '../vehicle-motion'
 import styles from './GamePage.module.css'
 
 interface Props {
@@ -70,6 +71,7 @@ type MapPanState = {
 
 const LIVE_TICK_MS = 3000
 const CITIZEN_TIME_SCALE = 0.72
+const GAME_MINUTES_PER_TICK = 60 / TICKS_PER_HOUR
 const INITIAL_MAP_VIEW: MapView = { x: 0, y: 0, width: 100, height: 100 }
 
 const LINE_COLORS: Record<string, string> = {
@@ -95,7 +97,7 @@ const CITIZEN_MODE_CLASSES: Record<CitizenTravelMode, string> = {
 function formatHour(hour: number) {
   const normalized = ((hour % 24) + 24) % 24
   const h = Math.floor(normalized)
-  const m = Math.round((normalized - h) * 60)
+  const m = Math.floor((normalized - h) * 60)
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 
@@ -142,39 +144,6 @@ function lineHasStation(line: GameLine, stationId: string) {
   return line.lineStations.some(item => item.stationId === stationId)
 }
 
-// 서버 simulation.ts의 vehicleTiming과 동일해야 함
-function vehicleTiming(vehicleId: string, mode: string = 'SUBWAY') {
-  let hash = 2166136261
-  for (let index = 0; index < vehicleId.length; index++) {
-    hash ^= vehicleId.charCodeAt(index)
-    hash = Math.imul(hash, 16777619)
-  }
-  const unsigned = hash >>> 0
-  // 버스는 지하철보다 한 단계 느림 (2~4틱)
-  const interval = 1 + (unsigned % 3) + (mode === 'BUS' ? 1 : 0)
-  const phase = Math.floor(unsigned / 3) % interval
-  return { interval, phase }
-}
-
-function shouldVehicleMove(vehicleId: string, tick: number, mode: string = 'SUBWAY') {
-  const { interval, phase } = vehicleTiming(vehicleId, mode)
-  return tick % interval === phase
-}
-
-function nextStationOnLine(line: GameLine, vehicle: Vehicle) {
-  const stations = orderedStations(line)
-  if (!vehicle.currentStationId || stations.length < 2) return null
-  const currentIndex = stations.findIndex(station => station.id === vehicle.currentStationId)
-  if (currentIndex < 0) return null
-  let direction = vehicle.direction >= 0 ? 1 : -1
-  let nextIndex = currentIndex + direction
-  if (nextIndex < 0 || nextIndex >= stations.length) {
-    direction *= -1
-    nextIndex = currentIndex + direction
-  }
-  return stations[nextIndex] ?? null
-}
-
 function nearestStationToDepot(line: GameLine) {
   return orderedStations(line).reduce<Station | null>((nearest, station) => {
     if (!nearest) return station
@@ -214,7 +183,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const [error, setError] = useState<string | null>(null)
   const [errorStatus, setErrorStatus] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
-  const [motionProgress, setMotionProgress] = useState(0)
+  const [clockNowMs, setClockNowMs] = useState(() => Date.now())
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
@@ -293,22 +262,16 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     }
   }, [busy, cityId, session?.token])
 
-  const motionTick = state?.city.currentTick ?? -1
   useEffect(() => {
-    if (motionTick < 0) return
     let animationFrame = 0
-    const startedAt = performance.now()
-    setMotionProgress(0)
-
-    const animate = (now: number) => {
-      const progress = Math.min((now - startedAt) / (LIVE_TICK_MS - 180), 1)
-      setMotionProgress(progress)
-      if (progress < 1) animationFrame = window.requestAnimationFrame(animate)
+    const animate = () => {
+      setClockNowMs(Date.now())
+      animationFrame = window.requestAnimationFrame(animate)
     }
 
     animationFrame = window.requestAnimationFrame(animate)
     return () => window.cancelAnimationFrame(animationFrame)
-  }, [motionTick])
+  }, [])
 
   const sortedLines = useMemo(
     () => state?.city.lines.slice().sort((a, b) => a.name.localeCompare(b.name, 'ko')) ?? [],
@@ -898,18 +861,36 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   }
 
   const currentTick = state.city.currentTick
+  const lastTickAtMs = Date.parse(state.city.lastTickAt)
+  const liveElapsedTicks = state.city.status === 'ACTIVE' && Number.isFinite(lastTickAtMs)
+    ? Math.max(0, (clockNowMs - lastTickAtMs) / LIVE_TICK_MS)
+    : 0
+  const continuousTick = currentTick + liveElapsedTicks
+  const liveElapsedGameMinutes = liveElapsedTicks * GAME_MINUTES_PER_TICK
   // 확대해도 역·글씨·점이 화면 기준 크기를 유지하도록 counter-scale
   const mapScale = mapView.width / 100
   const selectedStation = stationById.get(selectedStationId) ?? null
-  const gameHour = (currentTick / TICKS_PER_HOUR) % 24
+  const gameHour = (continuousTick / TICKS_PER_HOUR) % 24
   // 서버 isWeekendTick과 동일 공식 (1게임일 = 144틱, 7일 주기 중 6·7일차)
-  const isWeekend = Math.floor(currentTick / TICKS_PER_DAY) % 7 >= 5
-  const elapsedSeconds = currentTick * (LIVE_TICK_MS / 1000) + motionProgress * (LIVE_TICK_MS / 1000)
-  const journeyTime = (currentTick + motionProgress) * CITIZEN_TIME_SCALE
+  const isWeekend = Math.floor(continuousTick / TICKS_PER_DAY) % 7 >= 5
+  const elapsedSeconds = continuousTick * (LIVE_TICK_MS / 1000)
+  const journeyTime = continuousTick * CITIZEN_TIME_SCALE
   const movingCitizens = citizenJourneys.map(journey => ({
     ...journey,
     position: locateCitizen(journey, journeyTime),
   }))
+  const vehicleMotionById = new Map(
+    state.city.lines.flatMap(line => line.vehicles.map(vehicle => [
+      vehicle.id,
+      locateVehicle(
+        line,
+        vehicle,
+        line.status === 'OPERATING' && vehicle.status === 'OPERATING' && !vehicle.isSpare
+          ? liveElapsedGameMinutes
+          : 0,
+      ),
+    ] as const)),
+  )
   const latestMetric = state.city.ticks[0]
   const serviceScore = latestMetric?.serviceScore ?? 100
   const totalVehicles = state.city.lines.reduce((sum, line) => sum + line.vehicles.length, 0)
@@ -1110,8 +1091,13 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             <div className={styles.sectionHeading}><span>02</span><h2>{selectedLine.mode === 'BUS' ? '차량' : '철도 차량'}</h2></div>
             <div className={styles.vehicleList}>
               {selectedLine.vehicles.map((vehicle, index) => {
-                const station = vehicle.currentStationId ? stationById.get(vehicle.currentStationId) : null
-                const intervalSeconds = vehicleTiming(vehicle.id, selectedLine.mode).interval * (LIVE_TICK_MS / 1000)
+                const motion = vehicleMotionById.get(vehicle.id)
+                const station = motion?.fromStation
+                const isDwelling = selectedLine.status === 'OPERATING' && vehicle.status === 'OPERATING' && motion?.isDwelling
+                const isMoving = selectedLine.status === 'OPERATING' && vehicle.status === 'OPERATING' && motion?.toStation && !isDwelling
+                const routeStatus = isMoving
+                  ? `${station?.name} → ${motion.toStation?.name}`
+                  : station?.name ?? `${selectedLine.name} 차고지`
                 return (
                   <div key={vehicle.id} className={styles.vehicleRow}>
                     <button
@@ -1125,7 +1111,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                       </span>
                       <span>
                         <b>{selectedLine.name} 차량 {index + 1}</b>
-                        <small>{station?.name ?? `${selectedLine.name} 차고지`} · {trainStatus(vehicle)} · {intervalSeconds}초</small>
+                        <small>{routeStatus} · {trainStatus(vehicle)}</small>
                       </span>
                     </button>
                     <button
@@ -1232,7 +1218,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
           <div className={styles.cityIdentity}>
             <span className={styles.cityName}>{state.city.roomTitle}</span>
             <span>
-              {state.city.name} · {Math.floor(currentTick / TICKS_PER_DAY) + 1}일차{isWeekend ? ' · 주말' : ''} · {formatHour(gameHour)}
+              {state.city.name} · {Math.floor(continuousTick / TICKS_PER_DAY) + 1}일차{isWeekend ? ' · 주말' : ''} · {formatHour(gameHour)}
             </span>
           </div>
           <div className={styles.hudStats}>
@@ -1544,21 +1530,16 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             {state.city.lines.flatMap(line => line.vehicles
               .filter(vehicle => vehicle.status === 'OPERATING' && vehicle.currentStationId)
               .map(vehicle => {
-                const station = stationById.get(vehicle.currentStationId!)
-                if (!station) return null
-                const scheduledToMove = line.status === 'OPERATING' && shouldVehicleMove(vehicle.id, currentTick + 1, line.mode)
-                // 정차 중에도 다음에 갈 방향으로 기수를 유지한다
-                const headingStation = nextStationOnLine(line, vehicle)
-                const nextStation = scheduledToMove ? headingStation : null
-                const point = stationPoint(station)
-                const nextPoint = nextStation ? stationPoint(nextStation) : point
-                const headingPoint = headingStation ? stationPoint(headingStation) : point
+                const motion = vehicleMotionById.get(vehicle.id)
+                const station = motion?.fromStation
+                const nextStation = motion?.toStation
+                if (!motion || !station || motion.x === null || motion.y === null) return null
                 const lineNo = line.name.match(/\d+/)?.[0] ?? line.name.slice(0, 1)
-                const progress = nextStation ? motionProgress : 0
-                const trainX = point.x + (nextPoint.x - point.x) * progress
-                const trainY = point.y + (nextPoint.y - point.y) * progress
-                const rawAngle = headingStation
-                  ? Math.atan2(headingPoint.y - point.y, headingPoint.x - point.x) * 180 / Math.PI
+                const progress = line.status === 'OPERATING' ? motion.progress : 0
+                const trainX = motion.x
+                const trainY = motion.y
+                const rawAngle = nextStation
+                  ? Math.atan2(nextStation.posY - station.posY, nextStation.posX - station.posX) * 180 / Math.PI
                   : 0
                 // 왼쪽 방향 이동 시 180° 회전으로 뒤집히지 않게 좌우 반전으로 처리
                 const trainFlipped = Math.abs(rawAngle) > 90
@@ -1579,7 +1560,9 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                     data-from-station={station.id}
                     data-to-station={nextStation?.id ?? station.id}
                     data-motion-progress={progress.toFixed(3)}
-                    data-move-interval={vehicleTiming(vehicle.id, line.mode).interval}
+                    data-segment-minutes={motion.segmentDurationMinutes}
+                    data-motion-state={motion.isDwelling ? 'DWELLING' : 'MOVING'}
+                    data-dwell-remaining={motion.dwellRemainingMinutes.toFixed(3)}
                     data-map-interactive="true"
                   >
                     <rect x="-3.7" y="-2" width="7.4" height="4" rx="1.2" fill={LINE_COLORS[line.color]} className={styles.trainBody} />

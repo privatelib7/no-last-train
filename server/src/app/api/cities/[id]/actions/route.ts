@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { authorizeCityAccess } from '@/lib/access'
 import { ECONOMY, lineBuildCost, segmentBuildCost, stationInsertCost, vehiclePurchaseCost } from '@/lib/economy'
+import { stationDwellMinutes } from '@/lib/vehicle-motion'
 import type { Prisma } from '@prisma/client'
 import { z } from 'zod'
 
@@ -266,7 +267,7 @@ export async function POST(
     // 이 역에 있던 운행 차량은 차고지 대기로 전환 (lineStations·대기 승객은 cascade 삭제)
     await db.vehicle.updateMany({
       where: { currentStationId: station.id },
-      data: { status: 'SPARE', isSpare: true, currentStationId: null, direction: 1 },
+      data: { status: 'SPARE', isSpare: true, currentStationId: null, direction: 1, segmentProgressMinutes: 0 },
     })
     const memberships = await db.lineStation.findMany({ where: { stationId: station.id } })
     await db.station.delete({ where: { id: station.id } })
@@ -408,7 +409,7 @@ export async function POST(
     // 제거된 역에 있던 이 노선의 차량은 차고지 대기로 전환
     await db.vehicle.updateMany({
       where: { lineId: line.id, currentStationId: action.stationId },
-      data: { status: 'SPARE', isSpare: true, currentStationId: null, direction: 1 },
+      data: { status: 'SPARE', isSpare: true, currentStationId: null, direction: 1, segmentProgressMinutes: 0 },
     })
     await repositionDepot(line.id)
     return NextResponse.json({ message: `${membership.station.name}을 ${line.name}에서 제거했습니다.` })
@@ -445,7 +446,13 @@ export async function POST(
     const vehicle = spare
       ? await db.vehicle.update({
           where: { id: spare.id },
-          data: { status: 'OPERATING', isSpare: false, currentStationId: stationId, direction: 1 },
+          data: {
+            status: 'OPERATING',
+            isSpare: false,
+            currentStationId: stationId,
+            direction: 1,
+            segmentProgressMinutes: -stationDwellMinutes(line.mode),
+          },
         })
       : await runPaidConstruction(id, vehiclePurchaseCost(line.mode), tx => tx.vehicle.create({
           data: {
@@ -454,6 +461,7 @@ export async function POST(
             status: 'OPERATING',
             currentStationId: stationId,
             direction: 1,
+            segmentProgressMinutes: -stationDwellMinutes(line.mode),
           },
         }))
     const station = await db.station.findUniqueOrThrow({ where: { id: stationId } })
@@ -469,7 +477,7 @@ export async function POST(
     if (!action.inService) {
       const updatedVehicle = await db.vehicle.update({
         where: { id: vehicle.id },
-        data: { status: 'SPARE', isSpare: true, currentStationId: null },
+        data: { status: 'SPARE', isSpare: true, currentStationId: null, segmentProgressMinutes: 0 },
       })
       const message = `${line.name} 차량을 차고지에 입고했습니다.`
       await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
@@ -492,6 +500,7 @@ export async function POST(
         isSpare: false,
         currentStationId: depotStation.stationId,
         direction,
+        segmentProgressMinutes: -stationDwellMinutes(line.mode),
       },
     })
     const message = `${line.name} 차량 운행을 시작했습니다.`
@@ -513,6 +522,7 @@ export async function POST(
         isSpare: true,
         currentStationId: null,
         direction: 1,
+        segmentProgressMinutes: 0,
       },
     })
     const message = `차량을 ${targetLine.name} 차고지로 이동했습니다.`

@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "npm run db:prepare && next dev --port 3001",
     "build": "prisma generate && next build",
-    "test": "tsx --test src/lib/economy.test.ts",
+    "test": "tsx --test src/lib/*.test.ts",
     "start": "next start --port 3001",
     "db:prepare": "prisma generate && prisma db push && tsx prisma/seed.ts",
     "db:migrate": "prisma migrate dev",

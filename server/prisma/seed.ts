@@ -1,4 +1,5 @@
 import { PrismaClient, LineColor } from '@prisma/client'
+import { stationDwellMinutes } from '../src/lib/vehicle-motion'
 
 const db = new PrismaClient()
 
@@ -83,7 +84,7 @@ async function seedSeoul(playerId: string) {
     })
     await db.vehicle.createMany({
       data: [
-        { lineId: line.id, capacity: 120, status: 'OPERATING', currentStationId: stationIds[0], headwayMinutes: 3 },
+        { lineId: line.id, capacity: 120, status: 'OPERATING', currentStationId: stationIds[0], headwayMinutes: 3, segmentProgressMinutes: -stationDwellMinutes('SUBWAY') },
         { lineId: line.id, capacity: 120, status: 'SPARE', isSpare: true, headwayMinutes: 6, direction: -1 },
       ],
     })
@@ -165,7 +166,7 @@ async function ensureBusLine(cityId: string, mapKey: string) {
     data: routeIds.map((stationId, order) => ({ lineId: line.id, stationId, order })),
   })
   await db.vehicle.create({
-    data: { lineId: line.id, capacity: 60, status: 'OPERATING', currentStationId: routeIds[0], headwayMinutes: 6 },
+    data: { lineId: line.id, capacity: 60, status: 'OPERATING', currentStationId: routeIds[0], headwayMinutes: 6, segmentProgressMinutes: -stationDwellMinutes('BUS') },
   })
   console.log(`버스 A 추가: ${mapKey}`)
 }
@@ -206,7 +207,7 @@ async function main() {
       }),
       db.vehicle.updateMany({
         where: { line: { cityId: existing.id }, status: 'LOANED' },
-        data: { status: 'SPARE', isSpare: true, currentStationId: null, direction: 1 },
+        data: { status: 'SPARE', isSpare: true, currentStationId: null, direction: 1, segmentProgressMinutes: 0 },
       }),
     ])
 
@@ -361,7 +362,7 @@ async function main() {
     })
     await db.vehicle.createMany({
       data: [
-        { lineId: line.id, capacity: 120, status: 'OPERATING', currentStationId: lineDef.stations[0].id, headwayMinutes: 3 },
+        { lineId: line.id, capacity: 120, status: 'OPERATING', currentStationId: lineDef.stations[0].id, headwayMinutes: 3, segmentProgressMinutes: -stationDwellMinutes('SUBWAY') },
         { lineId: line.id, capacity: 120, status: 'SPARE', isSpare: true, headwayMinutes: 6, direction: -1 },
       ],
     })
