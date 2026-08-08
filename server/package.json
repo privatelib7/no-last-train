@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "npm run db:prepare && node scripts/next-with-env.mjs dev",
-    "build": "prisma generate && opennextjs-cloudflare build",
+    "build": "prisma db push && prisma generate && opennextjs-cloudflare build",
     "build:cf": "npm run build",
     "build:next": "next build",
     "deploy": "opennextjs-cloudflare deploy",
