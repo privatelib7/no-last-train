@@ -19,8 +19,7 @@ jobs:
           script: |
             cd /home/opc/no-last-train
 
-            git fetch origin
-            git reset --hard origin/main
+            git pull origin main
 
             npm install
 
