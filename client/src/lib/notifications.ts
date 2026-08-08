@@ -16,7 +16,6 @@ const MAJOR_EVENT_MESSAGES = [
 ]
 
 let pending: PendingNotification | null = null
-let timerId: number | null = null
 const listeners = new Set<Listener>()
 
 function isSupported() {
@@ -43,15 +42,6 @@ async function ensurePermission(): Promise<NotificationPermission> {
   if (!isSupported()) return 'denied'
   if (Notification.permission !== 'default') return Notification.permission
   return Notification.requestPermission()
-}
-
-function clearPending() {
-  if (timerId !== null) {
-    window.clearTimeout(timerId)
-    timerId = null
-  }
-  pending = null
-  emit()
 }
 
 function fireNotification(roomTitle: string) {
@@ -86,9 +76,10 @@ export async function scheduleMajorEventNotification(
   }
   emit()
 
-  timerId = window.setTimeout(() => {
+  window.setTimeout(() => {
     fireNotification(title)
-    clearPending()
+    pending = null
+    emit()
   }, delayMs)
 
   return 'scheduled'

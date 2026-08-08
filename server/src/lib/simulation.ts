@@ -1,6 +1,8 @@
 import { db } from './db'
 import { evaluatePolicies } from './policy-engine'
-import { calculateTickEconomy } from './economy'
+import { calculateTickEconomy, resolveManagementGoal } from './economy'
+import { advanceVehicleMotion } from './vehicle-motion'
+import { isVehicleInService } from './vehicle-service'
 import { SIM, TIME_DEMAND_MULTIPLIER, ORIGIN_WEIGHT, DEST_WEIGHT, periodOfHour, isWeekendTick } from '@/types/game'
 import type { SimResult, TickHighlight, StationSnapshot, DayPeriod } from '@/types/game'
 import type { Passenger, Vehicle, Station, Line, GameEvent } from '@prisma/client'
@@ -59,7 +61,7 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
       lines: {
         include: {
           lineStations: { include: { station: true }, orderBy: { order: 'asc' } },
-          vehicles: true,
+          vehicles: { orderBy: { id: 'asc' } },
           policies: { where: { isActive: true } },
         },
       },
@@ -77,6 +79,10 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
   let ticksProcessed = 0
   let cashBalance = city.cashBalance
   let totalRevenue = city.totalRevenue
+  let revenueGoal = city.revenueGoal
+  const initialGoal = resolveManagementGoal(city.revenueGoal, city.goalReachedAtTick)
+  let goalLevel = initialGoal.level
+  let goalsCompleted = initialGoal.level - 1
   let happiness = city.happiness
   let score = city.score
   let insolvencyTicks = city.insolvencyTicks
@@ -129,7 +135,7 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
       serviceScore,
       cashBalance,
       totalRevenue,
-      revenueGoal: city.revenueGoal,
+      revenueGoal,
       happiness,
       score,
       insolvencyTicks,
@@ -142,6 +148,9 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
     operatingCost += economy.operatingCost
     cashBalance = economy.cashBalance
     totalRevenue = economy.totalRevenue
+    revenueGoal = economy.revenueGoal
+    goalLevel = economy.goalLevel
+    goalsCompleted = economy.goalsCompleted
     happiness = economy.happiness
     score = economy.score
     insolvencyTicks = economy.insolvencyTicks
@@ -179,7 +188,7 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
         tickNumber,
         gameTimeHour,
         type: 'GOAL',
-        description: '첫 매출 목표를 달성해 운영 지원금 2천만 원을 받았습니다.',
+        description: `${economy.completedGoalLevel}단계 경영 목표를 달성해 지원금 ₵2,000을 받고 ${economy.goalLevel}단계 목표가 설정되었습니다.`,
         severity: 'INFO',
       })
     }
@@ -188,14 +197,21 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
     if (gameOverReason) break
   }
 
-  // 도시 틱 카운터 업데이트
+  // 도시 틱 카운터 업데이트. 처리 시각을 현재로 덮지 않고 틱 길이만큼 전진시켜
+  // 폴링 사이에 남은 실제 시간이 사라지지 않게 한다.
+  const advancedClockMs = city.lastTickAt.getTime() + ticksProcessed * SIM.LIVE_TICK_MS
+  const lastTickAt = new Date(Math.max(
+    city.lastTickAt.getTime(),
+    Math.min(Date.now(), advancedClockMs),
+  ))
   await db.city.update({
     where: { id: cityId },
     data: {
       currentTick: city.currentTick + ticksProcessed,
-      lastTickAt: new Date(),
+      lastTickAt,
       cashBalance,
       totalRevenue,
+      revenueGoal,
       happiness,
       score,
       insolvencyTicks,
@@ -221,7 +237,7 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
     cashBalance,
     happiness,
     score,
-    goalReached: goalReachedAtTick !== null,
+    goalReached: goalsCompleted > 0,
     gameOverReason,
     actionsFired: allActionLogs,
     highlights: highlights.slice(0, 3),
@@ -327,7 +343,7 @@ async function buildStationSnapshots(stations: Station[], cityId: string): Promi
 
   const vehicleCounts = await db.vehicle.groupBy({
     by: ['currentStationId'],
-    where: { line: { cityId }, status: 'OPERATING' },
+    where: { line: { cityId }, status: 'OPERATING', isSpare: false },
     _count: { id: true },
   })
   const vehicleMap = new Map(vehicleCounts.map(r => [r.currentStationId!, r._count.id]))
@@ -361,61 +377,52 @@ async function moveVehiclesAndBoard(
 
     const orderedVehicles = line.vehicles.slice().sort((a, b) => a.id.localeCompare(b.id))
     for (const vehicle of orderedVehicles) {
-      if (vehicle.status !== 'OPERATING' || vehicle.isSpare) continue
-      if (!shouldVehicleMove(vehicle.id, tick, line.mode)) continue
+      if (!isVehicleInService(vehicle)) continue
 
-      // 차량마다 3~9초의 서로 다른 운행 주기를 가지며, 끝역에서는 방향을 바꾼다.
-      const currentIndex = stationOrder.findIndex(station => station.id === vehicle.currentStationId)
-      let direction = vehicle.direction >= 0 ? 1 : -1
-      let nextIndex = currentIndex >= 0 ? currentIndex + direction : 0
-      if (nextIndex < 0 || nextIndex >= stationOrder.length) {
-        direction *= -1
-        nextIndex = Math.max(0, Math.min(stationOrder.length - 1, currentIndex + direction))
-      }
-      const nextStation = stationOrder[nextIndex]
+      const motion = advanceVehicleMotion(stationOrder, {
+        currentStationId: vehicle.currentStationId ?? stationOrder[0].id,
+        direction: vehicle.direction,
+        segmentProgressMinutes: vehicle.segmentProgressMinutes,
+      }, SIM.GAME_MINUTES_PER_TICK, line.mode)
 
-      // 승하차 처리
-      const snap = snapshotMap.get(nextStation.id)
-      if (snap && snap.waitingCount > 0) {
+      // 한 경제 틱 안에 도착한 모든 역에서 승하차를 처리한다.
+      for (const arrivedStationId of motion.arrivedStationIds) {
+        const snap = snapshotMap.get(arrivedStationId)
+        if (!snap || snap.waitingCount <= 0) continue
         const boarding = Math.min(snap.waitingCount, vehicle.capacity)
         const boardingPassengers = await db.passenger.findMany({
-          where: { originStationId: nextStation.id, boardedAtTick: null },
+          where: { originStationId: arrivedStationId, boardedAtTick: null },
           select: { id: true },
           orderBy: [{ createdAtTick: 'asc' }, { id: 'asc' }],
           take: boarding,
         })
-        await db.passenger.updateMany({
-          where: { id: { in: boardingPassengers.map(passenger => passenger.id) } },
-          data: { boardedAtTick: tick },
-        })
-        transported += boarding
+        if (boardingPassengers.length > 0) {
+          await db.passenger.updateMany({
+            where: { id: { in: boardingPassengers.map(passenger => passenger.id) } },
+            data: { boardedAtTick: tick },
+          })
+          snap.waitingCount -= boardingPassengers.length
+          snap.congestion = Math.min(snap.waitingCount / snap.station.capacity, 1)
+          transported += boardingPassengers.length
+        }
       }
 
       await db.vehicle.update({
         where: { id: vehicle.id },
-        data: { currentStationId: nextStation.id, direction },
+        data: {
+          currentStationId: motion.currentStationId,
+          direction: motion.direction,
+          segmentProgressMinutes: motion.segmentProgressMinutes,
+        },
       })
+      // 오프라인 복귀처럼 여러 틱을 한 번에 처리할 때 다음 반복이 방금 저장한
+      // 구간 상태에서 계속 출발하도록 메모리 스냅샷도 함께 갱신한다.
+      vehicle.currentStationId = motion.currentStationId
+      vehicle.direction = motion.direction
+      vehicle.segmentProgressMinutes = motion.segmentProgressMinutes
     }
   }
   return transported
-}
-
-function vehicleTiming(vehicleId: string, mode: string = 'SUBWAY') {
-  let hash = 2166136261
-  for (let index = 0; index < vehicleId.length; index++) {
-    hash ^= vehicleId.charCodeAt(index)
-    hash = Math.imul(hash, 16777619)
-  }
-  const unsigned = hash >>> 0
-  // 버스는 지하철보다 한 단계 느림 (2~4틱)
-  const interval = 1 + (unsigned % 3) + (mode === 'BUS' ? 1 : 0)
-  const phase = Math.floor(unsigned / 3) % interval
-  return { interval, phase }
-}
-
-function shouldVehicleMove(vehicleId: string, tick: number, mode: string = 'SUBWAY') {
-  const { interval, phase } = vehicleTiming(vehicleId, mode)
-  return tick % interval === phase
 }
 
 // ─── 서비스 점수 계산 ────────────────────────────────────────────────────

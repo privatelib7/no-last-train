@@ -1,5 +1,8 @@
 # Logs
 logs
+.logs/
+!server/src/app/api/debug/logs/
+!server/src/app/api/debug/logs/route.ts
 *.log
 npm-debug.log*
 yarn-debug.log*

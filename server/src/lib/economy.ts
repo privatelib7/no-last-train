@@ -1,4 +1,5 @@
 import { SIM } from '@/types/game'
+import { isVehicleInService } from './vehicle-service'
 
 export const ECONOMY = {
   INITIAL_CASH: 120_000_000,
@@ -58,13 +59,46 @@ export type TickEconomyResult = {
   operatingCost: number
   cashBalance: number
   totalRevenue: number
+  revenueGoal: number
+  goalLevel: number
+  goalDeadlineDay: number
+  goalsCompleted: number
   happiness: number
   score: number
   insolvencyTicks: number
   unhappyTicks: number
   goalReachedAtTick: number | null
   goalReachedNow: boolean
+  completedGoalLevel: number | null
   gameOverReason: 'BANKRUPT' | 'HAPPINESS' | null
+}
+
+export type ManagementGoal = {
+  level: number
+  revenueGoal: number
+  deadlineDay: number
+}
+
+// 목표는 누적 매출 기준으로 커지고, 달성 기한도 단계마다 4일, 5일, 6일…씩 넓어진다.
+// 1단계 8,000만/3일 → 2단계 1억 8,000만/7일 → 3단계 3억/12일.
+export function managementGoalForLevel(level: number): ManagementGoal {
+  const safeLevel = Math.max(1, Math.floor(level))
+  return {
+    level: safeLevel,
+    revenueGoal: 10_000_000 * safeLevel * (safeLevel + 7),
+    deadlineDay: safeLevel * (safeLevel + 5) / 2,
+  }
+}
+
+export function resolveManagementGoal(
+  revenueGoal: number,
+  lastGoalReachedAtTick: number | null,
+): ManagementGoal {
+  let level = 1
+  while (level < 100 && managementGoalForLevel(level).revenueGoal < revenueGoal) level += 1
+  // 단일 목표만 있던 기존 저장 데이터는 이미 받은 1단계 보상을 중복 지급하지 않는다.
+  if (level === 1 && lastGoalReachedAtTick !== null) level = 2
+  return managementGoalForLevel(level)
 }
 
 export function segmentBuildCost(mode: string, distance: number): number {
@@ -98,7 +132,7 @@ export function calculateOperatingCost(lines: EconomyLine[]): number {
     const lineCost = isBus
       ? ECONOMY.OPERATING_COST.BUS_LINE
       : ECONOMY.OPERATING_COST.SUBWAY_LINE
-    const activeVehicles = line.vehicles.filter(vehicle => vehicle.status === 'OPERATING' && !vehicle.isSpare).length
+    const activeVehicles = line.vehicles.filter(isVehicleInService).length
     const vehicleCost = isBus
       ? ECONOMY.OPERATING_COST.BUS_VEHICLE
       : ECONOMY.OPERATING_COST.SUBWAY_VEHICLE
@@ -110,9 +144,25 @@ export function calculateTickEconomy(input: TickEconomyInput): TickEconomyResult
   const revenue = input.transported * ECONOMY.FARE_PER_PASSENGER
   const operatingCost = calculateOperatingCost(input.lines)
   const totalRevenue = input.totalRevenue + revenue
-  const goalReachedNow = input.goalReachedAtTick === null && totalRevenue >= input.revenueGoal
+
+  const currentGoal = resolveManagementGoal(input.revenueGoal, input.goalReachedAtTick)
+  let goalLevel = currentGoal.level
+  let goalsCompleted = goalLevel - 1
+  let revenueGoal = currentGoal.revenueGoal
+  let goalDeadlineDay = currentGoal.deadlineDay
+
+  const completedGoalLevel = totalRevenue >= revenueGoal ? goalLevel : null
+  const goalReachedNow = completedGoalLevel !== null
   const goalReward = goalReachedNow ? ECONOMY.GOAL_REWARD_CASH : 0
   const cashBalance = input.cashBalance + revenue - operatingCost + goalReward
+
+  if (goalReachedNow) {
+    goalsCompleted += 1
+    goalLevel += 1
+    const nextGoal = managementGoalForLevel(goalLevel)
+    revenueGoal = nextGoal.revenueGoal
+    goalDeadlineDay = nextGoal.deadlineDay
+  }
 
   // 행복도는 서비스 품질을 천천히 따라간다. 최악의 상황에서도 틱당 0.25만 하락한다.
   const happinessDelta = clamp((input.serviceScore - input.happiness) * 0.02, -0.25, 0.18)
@@ -137,12 +187,17 @@ export function calculateTickEconomy(input: TickEconomyInput): TickEconomyResult
     operatingCost,
     cashBalance,
     totalRevenue,
+    revenueGoal,
+    goalLevel,
+    goalDeadlineDay,
+    goalsCompleted,
     happiness,
     score,
     insolvencyTicks,
     unhappyTicks,
     goalReachedAtTick: goalReachedNow ? input.tickNumber : input.goalReachedAtTick,
     goalReachedNow,
+    completedGoalLevel,
     gameOverReason,
   }
 }

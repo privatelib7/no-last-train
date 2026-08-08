@@ -423,7 +423,7 @@
 .controlIdentity > span {
   display: block;
   color: var(--gp-text-accent);
-  font-size: 8px;
+  font-size: 9.5px;
   font-weight: 900;
   letter-spacing: 0.16em;
 }
@@ -456,7 +456,7 @@
   border-radius: 999px;
   background: var(--gp-surface);
   color: var(--gp-text-soft);
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 800;
 }
 
@@ -490,7 +490,7 @@
   flex: 0 0 auto;
   padding: 4px 7px;
   border-radius: 6px;
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 800;
 }
 
@@ -555,6 +555,185 @@
 
 .stoppedStatus b { color: #9f3e2f; }
 
+.aiCommandSection {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.aiCommandSection .sectionHeading > small {
+  margin-left: auto;
+  color: var(--gp-text-accent);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.aiCommandPanel {
+  overflow: hidden;
+  border: 1px solid var(--gp-border-card);
+  border-radius: 10px;
+  background: var(--gp-surface-soft);
+  box-shadow: 3px 3px 0 var(--gp-relief-soft);
+}
+
+.aiChatLog {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 220px;
+  min-height: 82px;
+  padding: 11px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.aiMessage {
+  max-width: 92%;
+  padding: 8px 9px;
+  border-radius: 8px;
+  white-space: pre-wrap;
+}
+
+.aiMessage small {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.aiMessage p {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.5;
+  word-break: keep-all;
+}
+
+.aiMessageAssistant {
+  align-self: flex-start;
+  border: 1px solid var(--gp-border-form);
+  border-bottom-left-radius: 3px;
+  background: var(--gp-surface);
+  color: var(--gp-text-body);
+}
+
+.aiMessageAssistant small { color: var(--gp-text-accent); }
+
+.aiMessageUser {
+  align-self: flex-end;
+  border-bottom-right-radius: 3px;
+  background: var(--gp-accent-solid);
+  color: #fff;
+}
+
+.aiMessageUser small { color: rgba(255, 255, 255, 0.72); }
+
+.aiMessageError {
+  border-color: rgba(179, 74, 56, 0.35);
+  background: rgba(179, 74, 56, 0.08);
+  color: #a24334;
+}
+
+.aiMessagePending p {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.aiMessagePending i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gp-accent-solid);
+  animation: aiCommandPulse 0.9s ease-in-out infinite alternate;
+}
+
+@keyframes aiCommandPulse {
+  from { opacity: 0.35; transform: scale(0.75); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.aiCommandExamples {
+  display: flex;
+  gap: 5px;
+  padding: 0 10px 9px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.aiCommandExamples::-webkit-scrollbar { display: none; }
+
+.aiCommandExamples button {
+  flex: 0 0 auto;
+  max-width: 250px;
+  padding: 6px 8px;
+  overflow: hidden;
+  border: 1px solid var(--gp-border-muted);
+  border-radius: 999px;
+  background: var(--gp-surface);
+  color: var(--gp-text-soft);
+  font-size: 9px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aiCommandExamples button:hover:not(:disabled) {
+  border-color: var(--gp-border-active);
+  color: var(--gp-text-accent-hover);
+}
+
+.aiCommandExamples button:disabled { opacity: 0.45; }
+
+.aiCommandForm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 70px;
+  gap: 7px;
+  padding: 10px;
+  border-top: 1px solid var(--gp-border-form);
+  background: var(--gp-surface);
+}
+
+.aiCommandForm textarea {
+  width: 100%;
+  min-height: 52px;
+  padding: 9px 10px;
+  resize: vertical;
+  border: 1px solid var(--gp-border-input);
+  border-radius: 7px;
+  outline: none;
+  background: var(--gp-surface-soft);
+  color: var(--gp-text-input);
+  font: 700 11px/1.45 var(--font);
+}
+
+.aiCommandForm textarea:focus {
+  border-color: var(--gp-border-focus);
+  box-shadow: 0 0 0 3px var(--gp-focus-ring);
+}
+
+.aiCommandForm textarea::placeholder { color: var(--gp-text-hint); }
+
+.aiCommandForm button {
+  border: 0;
+  border-radius: 7px;
+  background: var(--gp-accent-solid);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.aiCommandForm button:hover:not(:disabled) { background: var(--gp-accent-hover); }
+
+.aiCommandForm textarea:disabled,
+.aiCommandForm button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .controlSection {
   margin-top: 17px;
   padding-top: 16px;
@@ -603,7 +782,31 @@
 
 .goalCardTop small {
   color: #8c8278;
+  font-size: 12.5px;
+}
+
+.goalMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  color: #746a61;
   font-size: 11px;
+  font-weight: 800;
+}
+
+.goalMeta b {
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: #986413;
+  background: rgba(220, 155, 39, 0.13);
+  font-size: 11px;
+}
+
+.goalMetaOverdue b {
+  color: #a84033;
+  background: rgba(179, 74, 56, 0.12);
 }
 
 .progressTrack,
@@ -629,7 +832,7 @@
 .goalCard p {
   margin-top: 7px;
   color: #7b7167;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 700;
   line-height: 1.5;
 }
@@ -652,7 +855,7 @@
 
 .economyGrid small {
   color: #91877d;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 800;
 }
 
@@ -677,7 +880,7 @@
   border-radius: 5px;
   background: rgba(179, 74, 56, 0.09);
   color: #a24334;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 900;
 }
 
@@ -696,13 +899,13 @@
   border-radius: 50%;
   background: var(--gp-surface-chip);
   color: var(--gp-text-accent-chip);
-  font-size: 8px;
+  font-size: 9.5px;
   font-weight: 900;
 }
 
 .sectionHeading h2 {
   color: var(--gp-text-secondary);
-  font-size: 11px;
+  font-size: 12.5px;
   letter-spacing: 0.02em;
 }
 
@@ -733,6 +936,80 @@
   transform: translate(-1px, -1px);
 }
 
+.deselectButton {
+  margin-left: auto;
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgba(58, 52, 46, 0.3);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.8);
+  color: #6e665d;
+  font-size: 11.5px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.deselectButton:hover {
+  border-color: #37312b;
+  color: #37312b;
+}
+
+.busDoor {
+  fill: rgba(255, 255, 255, 0.82);
+  stroke: rgba(31, 26, 21, 0.35);
+  stroke-width: 0.14;
+}
+
+.pantograph {
+  fill: none;
+  stroke: var(--gp-train-wheel);
+  stroke-width: 0.24;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* 사이드바 버스 배지: 둥근 차체 + 넓은 단일 창 */
+.busBadge {
+  border-radius: 14px 14px 8px 8px;
+}
+
+.busBadge i:first-child {
+  width: 16px;
+}
+
+.busBadge i:last-of-type {
+  width: 5px;
+}
+
+.warnRing {
+  fill: none;
+  stroke: #e8a13c;
+  stroke-width: 0.4;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.saturatedRing {
+  fill: none;
+  stroke: #d64541;
+  stroke-width: 0.55;
+  pointer-events: none;
+  animation: saturatedPulse 1s ease-in-out infinite;
+}
+
+@keyframes saturatedPulse {
+  0%, 100% { opacity: 0.95; }
+  50% { opacity: 0.3; }
+}
+
+.saturatedMark {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #d64541;
+  border-radius: 50%;
+}
+
 .newLineRow {
   display: flex;
   gap: 6px;
@@ -746,7 +1023,7 @@
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.6);
   color: #504942;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
 }
 
@@ -762,14 +1039,14 @@
 }
 
 .lineTabs span {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 900;
 }
 
 .lineTabs small {
   grid-column: 2;
   color: var(--gp-text-faint);
-  font-size: 8px;
+  font-size: 8.5px;
 }
 
 .closeButton,
@@ -805,7 +1082,7 @@
   border-radius: 6px;
   background: var(--gp-surface);
   color: var(--gp-text-button);
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 800;
 }
 
@@ -844,7 +1121,7 @@
   display: block;
   margin-bottom: 6px;
   color: var(--gp-text-label);
-  font-size: 8px;
+  font-size: 9.5px;
   font-weight: 800;
 }
 
@@ -864,7 +1141,7 @@
   outline: none;
   background: var(--gp-surface);
   color: var(--gp-text-input);
-  font: 500 9px var(--font);
+  font: 500 10.5px var(--font);
 }
 
 .actionForm button,
@@ -873,7 +1150,7 @@
   border-radius: 5px;
   background: var(--gp-surface);
   color: var(--gp-text-control);
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 800;
 }
 
@@ -893,7 +1170,7 @@
   display: block;
   margin-top: 6px;
   color: var(--gp-text-hint);
-  font-size: 8px;
+  font-size: 9.5px;
 }
 
 .vehicleList {
@@ -941,7 +1218,7 @@
   outline: none;
   background: var(--gp-surface);
   color: var(--gp-text-body);
-  font: 700 10px var(--font);
+  font: 700 11.5px var(--font);
 }
 
 .stationNameInput:focus {
@@ -962,7 +1239,7 @@
   border-radius: 6px;
   background: var(--gp-surface);
   color: var(--gp-text-button);
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 800;
 }
 
@@ -984,7 +1261,7 @@
   border-radius: 5px;
   background: var(--gp-surface-muted);
   color: var(--gp-text-step);
-  font-size: 8px;
+  font-size: 9.5px;
   font-weight: 800;
 }
 
@@ -1020,7 +1297,7 @@
   right: 4px;
   bottom: 2px;
   color: white;
-  font-size: 7px;
+  font-size: 8.5px;
 }
 
 .trainBadge::before,
@@ -1045,13 +1322,13 @@
 
 .vehicleCard > span:nth-child(2) b {
   color: var(--gp-text-card);
-  font-size: 9px;
+  font-size: 10.5px;
 }
 
 .vehicleCard > span:nth-child(2) small {
   margin-top: 3px;
   color: var(--gp-text-faint);
-  font-size: 8px;
+  font-size: 9.5px;
 }
 
 .startVehicleButton,
@@ -1061,7 +1338,7 @@
   border-radius: 7px;
   background: rgba(79, 142, 92, 0.08);
   color: #39754a;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 900;
 }
 
@@ -1110,7 +1387,7 @@
 .depotHeading {
   margin-top: 14px;
   color: var(--gp-text-depot);
-  font-size: 8px;
+  font-size: 9.5px;
   font-weight: 800;
 }
 
@@ -1130,7 +1407,7 @@
   border-radius: 7px;
   padding: 8px 10px;
   color: var(--gp-text-depot-empty);
-  font-size: 8px;
+  font-size: 9.5px;
   transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
 
@@ -1147,13 +1424,13 @@
 
 .vehicleDepot b {
   color: var(--gp-text-depot-title);
-  font-size: 9px;
+  font-size: 10.5px;
 }
 
 .vehicleDepot small {
   margin-top: 2px;
   color: var(--gp-text-depot-sub);
-  font-size: 8px;
+  font-size: 9.5px;
 }
 
 .vehicleDepotReady {
@@ -1178,7 +1455,7 @@
   border-radius: 7px;
   background: rgba(79, 142, 92, 0.06);
   color: #4d7455;
-  font-size: 11px;
+  font-size: 12.5px;
   line-height: 1.5;
 }
 
@@ -1191,7 +1468,7 @@
   border-radius: 50%;
   background: #4f8e5c;
   color: white;
-  font-size: 8px;
+  font-size: 9.5px;
 }
 
 .operationError {
@@ -1233,7 +1510,7 @@
   align-items: baseline;
   gap: 10px;
   color: var(--gp-text-soft);
-  font-size: 10px;
+  font-size: 11.5px;
 }
 
 .cityIdentity .cityName {
@@ -1259,7 +1536,7 @@
 
 .hudStats small {
   color: var(--gp-text-hud-label);
-  font-size: 8px;
+  font-size: 9.5px;
   font-weight: 700;
 }
 
@@ -1297,7 +1574,10 @@
   right: 14px;
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  border: 1px solid var(--gp-border-overlay);
+  border-radius: 8px;
+  background: var(--gp-overlay);
+  backdrop-filter: blur(8px);
 }
 
 .stationBuilder {
@@ -1308,15 +1588,18 @@
 
 .stationBuilder > button,
 .zoomControls button {
-  min-height: 30px;
-  padding: 0 9px;
-  border: 1px solid var(--gp-border-overlay);
-  border-radius: 6px;
-  background: var(--gp-overlay);
+  min-height: 38px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px 0 0 8px;
+  background: transparent;
   color: var(--gp-text-builder);
-  font-size: 9px;
+  font-size: 13px;
   font-weight: 900;
-  backdrop-filter: blur(8px);
+}
+
+.stationBuilder > button:hover {
+  background: var(--gp-zoom-hover);
 }
 
 .stationBuilder .stationBuilderActive {
@@ -1346,12 +1629,12 @@
   outline: none;
   background: var(--gp-surface);
   color: var(--gp-text-input);
-  font: 700 9px var(--font);
+  font: 700 10.5px var(--font);
 }
 
 .stationBuilder small {
   color: var(--gp-text-builder-hint);
-  font-size: 7px;
+  font-size: 8.5px;
   font-weight: 800;
 }
 
@@ -1360,10 +1643,7 @@
   align-items: center;
   height: 36px;
   overflow: hidden;
-  border: 1px solid var(--gp-border-overlay);
-  border-radius: 6px;
-  background: var(--gp-overlay);
-  backdrop-filter: blur(8px);
+  border-left: 1px solid var(--gp-border-legend-soft);
 }
 
 .zoomControls button {
@@ -1778,7 +2058,7 @@
   background: var(--gp-ghost-bg);
   box-shadow: var(--gp-shadow-ghost);
   color: var(--gp-text-ghost);
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 900;
   pointer-events: none;
 }
@@ -1791,100 +2071,92 @@
   box-shadow: 0 0 0 1px var(--gp-border-ghost-mark);
 }
 
-.mapLegend {
+/* 지도 좌상단 통합 패널: 노선 칩 + 접이식 범례 (박스 하나로 통일) */
+.mapPanel {
   position: absolute;
   left: 14px;
   top: 14px;
-  display: flex;
+  max-width: min(72%, 560px);
+  display: grid;
   gap: 7px;
+  padding: 7px;
+  border: 1px solid var(--gp-border-overlay);
+  border-radius: 8px;
+  background: var(--gp-overlay);
+  backdrop-filter: blur(8px);
 }
 
-.mapLegend button {
+.mapPanelLines {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.mapPanelLines button {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 6px 8px;
-  border: 1px solid var(--gp-border-legend);
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid transparent;
   border-radius: 5px;
-  background: var(--gp-overlay-soft);
+  background: transparent;
   color: var(--gp-text-button);
-  font-size: 9px;
-  backdrop-filter: blur(8px);
+  font-size: 13px;
+  font-weight: 800;
   cursor: pointer;
 }
 
-.mapLegend i {
-  width: 16px;
-  height: 3px;
+.mapPanelLines button:hover {
+  background: var(--gp-zoom-hover);
+}
+
+.mapPanelLines i {
+  width: 17px;
+  height: 3.5px;
   border-radius: 99px;
 }
 
-.mapLegend .mapLegendActive {
+.mapPanelLines .mapLegendActive {
   border-color: var(--gp-border-strong);
+  background: var(--gp-surface);
   box-shadow: 2px 2px 0 var(--gp-shadow-legend);
 }
 
-.stationLegend {
-  position: absolute;
-  top: 60px;
-  left: 14px;
-  display: flex;
-  gap: 11px;
-  padding: 6px 8px;
-  border: 1px solid var(--gp-border-legend-soft);
-  border-radius: 5px;
-  background: var(--gp-overlay-faint);
+.legendToggle {
+  margin-left: 2px;
+  padding: 5px 7px !important;
+  color: var(--gp-text-muted) !important;
+  font-weight: 800;
+}
+
+.legendBody {
+  display: grid;
+  gap: 6px;
+  padding: 8px 5px 4px;
+  border-top: 1px solid var(--gp-border-legend-soft);
   color: var(--gp-text-legend);
-  font-size: 8px;
-  backdrop-filter: blur(8px);
+  font-size: 12px;
 }
 
-.stationLegend span {
+.legendRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+}
+
+.legendRow > b {
+  min-width: 30px;
+  color: var(--gp-text-label);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.legendRow span {
   display: flex;
   align-items: center;
-  gap: 5px;
-}
-
-.zoneLegend {
-  position: absolute;
-  top: 100px;
-  left: 14px;
-  display: flex;
-  gap: 11px;
-  padding: 8px 10px;
-  border: 1px solid rgba(67, 60, 54, 0.24);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.82);
-  color: #746c63;
-  font-size: 10px;
-  backdrop-filter: blur(8px);
-}
-
-.zoneLegend span {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.mobilityLegend {
-  position: absolute;
-  top: 123px;
-  left: 14px;
-  display: flex;
-  gap: 11px;
-  padding: 6px 8px;
-  border: 1px solid rgba(67, 60, 54, 0.24);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.82);
-  color: #746c63;
-  font-size: 8px;
-  backdrop-filter: blur(8px);
-}
-
-.mobilityLegend span {
-  display: flex;
-  align-items: center;
-  gap: 5px;
+  gap: 4px;
 }
 
 .walkingCitizenMark,
@@ -1990,7 +2262,7 @@
 
 .gameOverEyebrow {
   color: #ba543b;
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 900;
   letter-spacing: 0.18em;
 }
@@ -2006,7 +2278,7 @@
   max-width: 350px;
   margin: 14px auto 0;
   color: #6c6259;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 700;
   line-height: 1.65;
 }
@@ -2029,7 +2301,7 @@
 
 .gameOverStats small {
   color: #94887d;
-  font-size: 9px;
+  font-size: 10.5px;
   font-weight: 800;
 }
 
@@ -2042,7 +2314,7 @@
 .restartHint {
   margin-top: 15px;
   color: #8a8076;
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 700;
 }
 
@@ -2059,7 +2331,7 @@
   border-radius: 7px;
   background: #fff;
   color: #574f48;
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 900;
 }
 
@@ -2090,7 +2362,7 @@
     width: 100%;
     justify-content: space-between;
     gap: 6px;
-    font-size: 11px;
+    font-size: 12.5px;
     flex-wrap: wrap;
   }
 }

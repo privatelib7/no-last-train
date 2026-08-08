@@ -9,7 +9,7 @@
     "build:next": "next build",
     "deploy": "opennextjs-cloudflare deploy",
     "preview": "opennextjs-cloudflare preview",
-    "test": "tsx --test src/lib/economy.test.ts",
+    "test": "tsx --test src/lib/*.test.ts",
     "start": "node scripts/next-with-env.mjs start",
     "db:prepare": "prisma generate && prisma db push && tsx prisma/seed.ts",
     "db:migrate": "prisma migrate dev",
@@ -27,8 +27,9 @@
     "@prisma/client": "^6.19.3",
     "next": "^15.0.0",
     "nodemailer": "^9.0.4",
+    "openai": "^7.4.0",
     "pg": "^8.22.0",
-    "zod": "^3.23.8"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@opennextjs/cloudflare": "^1.20.2",

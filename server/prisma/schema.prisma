@@ -64,13 +64,13 @@ model City {
   lastTickAt        DateTime        @default(now())      // 마지막 시뮬레이션 시각
   cashBalance       Int             @default(120000000)  // 현재 운영 자금 (원)
   totalRevenue      Int             @default(0)          // 누적 운송 매출 (원)
-  revenueGoal       Int             @default(80000000)   // 첫 경영 목표 (원)
+  revenueGoal       Int             @default(80000000)   // 현재 경영 목표의 누적 매출 (원)
   happiness         Float           @default(78)         // 시민 행복도 0~100
   score             Int             @default(0)          // 누적 경영 점수
   insolvencyTicks   Int             @default(0)          // 파산 위험 연속 틱
   unhappyTicks      Int             @default(0)          // 낮은 행복도 연속 틱
   gameOverReason    GameOverReason?
-  goalReachedAtTick Int?
+  goalReachedAtTick Int?                                 // 가장 최근 목표를 달성한 틱
   createdAt         DateTime        @default(now())
 
   lines        Line[]
@@ -211,6 +211,7 @@ model Vehicle {
   currentStationId String?
   headwayMinutes   Int           @default(5)   // 배차 간격
   direction        Int           @default(1)   // 1 정방향, -1 역방향
+  segmentProgressMinutes Float   @default(0)   // 0 이상=구간 진행, 음수=역 정차 남은 게임 시간(분)
 
   line           Line     @relation(fields: [lineId], references: [id], onDelete: Cascade)
   currentStation Station? @relation("CurrentStation", fields: [currentStationId], references: [id])

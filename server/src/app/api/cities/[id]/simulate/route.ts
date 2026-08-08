@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { syncCityClock } from '@/lib/simulation'
+import { resolveManagementGoal } from '@/lib/economy'
 import { authorizeCityAccess } from '@/lib/access'
 import { z } from 'zod'
 
@@ -39,7 +40,7 @@ export async function POST(
     cashBalance: city.cashBalance,
     happiness: city.happiness,
     score: city.score,
-    goalReached: city.goalReachedAtTick !== null,
+    goalReached: resolveManagementGoal(city.revenueGoal, city.goalReachedAtTick).level > 1,
     gameOverReason: city.gameOverReason,
     actionsFired: [],
     highlights: [],
