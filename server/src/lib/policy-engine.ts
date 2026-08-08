@@ -1,5 +1,5 @@
 import { db } from './db'
-import type { Line, Policy, Vehicle } from '@prisma/client'
+import type { Line, Policy, Vehicle } from '@/generated/prisma/client'
 import type { StationSnapshot } from '@/types/game'
 
 type LineWithPolicies = Line & { policies: Policy[]; vehicles: Vehicle[] }

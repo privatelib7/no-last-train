@@ -1,5 +1,28 @@
+// Cloudflare Workers(workerd)는 동적 코드 생성을 금지하고 파일시스템도 없다.
+// 그래서 Prisma의 Rust 엔진(eval 사용)도, prisma-client-js + engineType="client"
+// (wasm을 런타임에 파일로 읽음)도 workerd에서는 쓸 수 없다.
+// 새 prisma-client 제너레이터의 runtime="workerd" 출력은 wasm 쿼리 컴파일러를
+// 모듈로 import해서 번들러가 함께 넣어주므로 동작한다.
+//
+// 로컬(Node)에서는 workerd 출력을 쓸 수 없다. 두 제너레이터를 같은 경로로
+// 출력해 두고 `prisma generate --generator <이름>`으로 하나만 실행한다.
+// 앱 코드는 항상 '@/generated/prisma'만 import하므로 번들러 alias가 필요 없다.
+//   로컬/시드:      prisma generate --generator client
+//   Cloudflare 빌드: prisma generate --generator clientWorkerd
 generator client {
-  provider = "prisma-client-js"
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  runtime             = "nodejs"
+  // 확장자를 비워 확장자 없는 import를 만든다. "js"면 webpack이 .ts 파일을
+  // 못 찾고, "none"은 문자 그대로 ".none"이 붙는다.
+  importFileExtension = ""
+}
+
+generator clientWorkerd {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  runtime             = "workerd"
+  importFileExtension = ""
 }
 
 datasource db {

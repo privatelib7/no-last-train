@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { authorizeCityAccess } from '@/lib/access'
 import { ECONOMY, lineBuildCost, segmentBuildCost, stationInsertCost, vehiclePurchaseCost } from '@/lib/economy'
-import type { Prisma } from '@prisma/client'
+import type { Prisma } from '@/generated/prisma/client'
 import { z } from 'zod'
 
 const ActionSchema = z.discriminatedUnion('type', [

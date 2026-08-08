@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import type { Player } from '@prisma/client'
+import type { Player } from '@/generated/prisma/client'
 
 type AuthorizedResult = { player: Player; error?: undefined }
 type UnauthorizedResult = { player?: undefined; error: NextResponse }

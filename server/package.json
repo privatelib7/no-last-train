@@ -4,34 +4,37 @@
   "private": true,
   "scripts": {
     "dev": "npm run db:prepare && node scripts/next-with-env.mjs dev",
-    "build": "prisma generate && opennextjs-cloudflare build",
+    "build": "prisma generate --generator clientWorkerd && opennextjs-cloudflare build",
     "build:cf": "npm run build",
     "build:next": "next build",
     "test": "tsx --test src/lib/economy.test.ts",
     "start": "node scripts/next-with-env.mjs start",
-    "db:prepare": "prisma generate && prisma db push && tsx prisma/seed.ts",
+    "db:prepare": "prisma generate --generator client && prisma db push && tsx prisma/seed.ts",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "db:push": "prisma db push",
-    "db:generate": "prisma generate"
+    "db:generate": "prisma generate --generator client"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
-    "@prisma/client": "^5.22.0",
+    "@prisma/adapter-pg": "^6.19.3",
+    "@prisma/client": "^6.19.3",
     "next": "^15.0.0",
     "nodemailer": "^9.0.4",
+    "pg": "^8.22.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@opennextjs/cloudflare": "^1.20.2",
     "@types/node": "^22.0.0",
     "@types/nodemailer": "^8.0.1",
+    "@types/pg": "^8.21.0",
     "@types/react": "19.2.18",
-    "prisma": "^5.22.0",
+    "prisma": "^6.19.3",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "wrangler": "^4.120.0"

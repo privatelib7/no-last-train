@@ -1,4 +1,4 @@
-import type { City, Line, Station, Vehicle, Passenger, Policy, GameEvent, SimTick, ActionLog } from '@prisma/client'
+import type { City, Line, Station, Vehicle, Passenger, Policy, GameEvent, SimTick, ActionLog } from '@/generated/prisma/client'
 
 // ─── 시뮬레이션 상태 스냅샷 ──────────────────────────────────────────────
 
