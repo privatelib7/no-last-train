@@ -493,7 +493,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
 
     try {
       const plan = await planCityCommand(cityId, command, session?.token)
-      if (!plan.ok) {
+      if (plan.ok === false) {
         appendCommandMessage({
           role: 'assistant',
           text: `${plan.reason}\n${plan.suggestion}`,

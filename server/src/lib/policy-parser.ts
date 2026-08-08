@@ -1,8 +1,35 @@
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
+import { zodTextFormat } from 'openai/helpers/zod'
+import { z } from 'zod'
 import type { PolicyParseResult, ParsedPolicy } from '@/types/game'
 
-const apiKey = process.env.ANTHROPIC_API_KEY
-const client = apiKey && !apiKey.includes('...') ? new Anthropic({ apiKey }) : null
+const PolicyResponseSchema = z.discriminatedUnion('ok', [
+  z.object({
+    ok: z.literal(true),
+    policy: z.object({
+      type: z.enum(['CONGESTION_RESPONSE', 'PASSENGER_PRIORITY', 'SUPPORT_CONDITION']),
+      conditionStationId: z.string().nullable(),
+      conditionThreshold: z.number().min(0).max(100).nullable(),
+      conditionTimeStart: z.number().min(0).max(23).nullable(),
+      conditionTimeEnd: z.number().min(0).max(23).nullable(),
+      actionType: z.enum(['DEPLOY_SPARE', 'ADJUST_HEADWAY', 'LEND_VEHICLE']),
+      actionTargetLineId: z.string().nullable(),
+      resourceLimit: z.number().int().positive(),
+      parsedSummary: z.string().min(1),
+    }),
+  }),
+  z.object({
+    ok: z.literal(false),
+    reason: z.string().min(1),
+    suggestion: z.string().min(1),
+  }),
+])
+
+const apiKey = process.env.OPENAI_API_KEY
+const model = process.env.OPENAI_MODEL?.trim() || 'gpt-5.4-nano'
+const client = apiKey && !apiKey.includes('...')
+  ? new OpenAI({ apiKey, timeout: 8_000, maxRetries: 0 })
+  : null
 
 const SYSTEM_PROMPT = `
 당신은 지하철 운영 게임의 AI 노선 관리자입니다.
@@ -18,10 +45,10 @@ const SYSTEM_PROMPT = `
 - ADJUST_HEADWAY: 배차 간격 조정
 - LEND_VEHICLE: 다른 노선에 차량 대여
 
-응답은 반드시 아래 두 형식 중 하나입니다:
+응답은 반드시 아래 두 형식 중 하나입니다. 적용되지 않는 선택 필드는 null로 채우세요:
 
 성공:
-{"ok": true, "policy": {"type": "...", "conditionThreshold": 70, "actionType": "DEPLOY_SPARE", "resourceLimit": 1, "parsedSummary": "..."}}
+{"ok": true, "policy": {"type": "...", "conditionStationId": null, "conditionThreshold": 70, "conditionTimeStart": null, "conditionTimeEnd": null, "actionType": "DEPLOY_SPARE", "actionTargetLineId": null, "resourceLimit": 1, "parsedSummary": "..."}}
 
 실패 (스키마 밖 요청):
 {"ok": false, "reason": "...", "suggestion": "..."}
@@ -44,16 +71,20 @@ export async function parsePolicy(
   try {
     if (!client) return buildFallback(rawInput)
 
-    const message = await client.messages.create({
-      model: 'claude-sonnet-4-5',
-      max_tokens: 512,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userMessage }],
+    const response = await client.responses.parse({
+      model,
+      max_output_tokens: 512,
+      input: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: userMessage },
+      ],
+      text: {
+        format: zodTextFormat(PolicyResponseSchema, 'policy_parse_result'),
+      },
     })
 
-    const text = message.content[0].type === 'text' ? message.content[0].text : ''
-    const jsonMatch = text.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) {
+    const result = response.output_parsed
+    if (!result) {
       return {
         ok: false,
         reason: 'AI 응답을 파싱할 수 없습니다.',
@@ -61,20 +92,19 @@ export async function parsePolicy(
       }
     }
 
-    const result = JSON.parse(jsonMatch[0])
-    if (result.ok === false) return result as PolicyParseResult
+    if (result.ok === false) return result
 
     // 기본값 보정
     const policy: ParsedPolicy = {
       type: result.policy.type,
-      conditionStationId: result.policy.conditionStationId,
-      conditionThreshold: result.policy.conditionThreshold,
-      conditionTimeStart: result.policy.conditionTimeStart,
-      conditionTimeEnd: result.policy.conditionTimeEnd,
+      conditionStationId: result.policy.conditionStationId ?? undefined,
+      conditionThreshold: result.policy.conditionThreshold ?? undefined,
+      conditionTimeStart: result.policy.conditionTimeStart ?? undefined,
+      conditionTimeEnd: result.policy.conditionTimeEnd ?? undefined,
       actionType: result.policy.actionType,
-      actionTargetLineId: result.policy.actionTargetLineId,
-      resourceLimit: result.policy.resourceLimit ?? 1,
-      parsedSummary: result.policy.parsedSummary ?? rawInput,
+      actionTargetLineId: result.policy.actionTargetLineId ?? undefined,
+      resourceLimit: result.policy.resourceLimit,
+      parsedSummary: result.policy.parsedSummary,
     }
     return { ok: true, policy }
 
