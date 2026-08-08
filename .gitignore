@@ -11,6 +11,7 @@ node_modules
 dist
 dist-ssr
 .next
+.open-next
 .vite
 *.local
 *.tsbuildinfo
@@ -28,3 +29,4 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+.wrangler
