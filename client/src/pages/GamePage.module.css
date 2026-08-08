@@ -288,7 +288,7 @@
   gap: 12px;
   background: var(--gp-loading-bg);
   color: var(--gp-text-muted);
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .accessScreen {
@@ -362,7 +362,7 @@
   border: 1px solid var(--gp-border-btn);
   background: var(--gp-surface);
   color: var(--gp-text-control);
-  font-size: 13px;
+  font-size: 15.5px;
   font-weight: 700;
   transition: transform 0.15s, background 0.15s, opacity 0.15s;
   white-space: nowrap;
@@ -392,7 +392,7 @@
   border: 1px solid var(--gp-border-strong);
   background: var(--gp-accent);
   color: #fff;
-  font-size: 13px;
+  font-size: 15.5px;
   font-weight: 700;
   transition: transform 0.15s, background 0.15s;
 }
@@ -423,7 +423,7 @@
 .controlIdentity > span {
   display: block;
   color: var(--gp-text-accent);
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 900;
   letter-spacing: 0.16em;
 }
@@ -456,7 +456,7 @@
   border-radius: 999px;
   background: var(--gp-surface);
   color: var(--gp-text-soft);
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 800;
 }
 
@@ -481,7 +481,7 @@
   border-radius: 6px;
   background: var(--gp-surface);
   color: var(--gp-text-strong);
-  font-size: 13px;
+  font-size: 15.5px;
   font-weight: 800;
 }
 
@@ -490,7 +490,7 @@
   flex: 0 0 auto;
   padding: 4px 7px;
   border-radius: 6px;
-  font-size: 11.5px;
+  font-size: 14px;
   font-weight: 800;
 }
 
@@ -526,7 +526,7 @@
 
 .liveStatus b {
   color: #3e764a;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 900;
 }
 
@@ -564,7 +564,7 @@
 .aiCommandSection .sectionHeading > small {
   margin-left: auto;
   color: var(--gp-text-accent);
-  font-size: 9px;
+  font-size: 11.5px;
   font-weight: 900;
   letter-spacing: 0.04em;
 }
@@ -599,14 +599,14 @@
 .aiMessage small {
   display: block;
   margin-bottom: 3px;
-  font-size: 8px;
+  font-size: 10.5px;
   font-weight: 900;
   letter-spacing: 0.04em;
 }
 
 .aiMessage p {
   margin: 0;
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 700;
   line-height: 1.5;
   word-break: keep-all;
@@ -675,7 +675,7 @@
   border-radius: 999px;
   background: var(--gp-surface);
   color: var(--gp-text-soft);
-  font-size: 9px;
+  font-size: 11.5px;
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -722,7 +722,7 @@
   border-radius: 7px;
   background: var(--gp-accent-solid);
   color: #fff;
-  font-size: 10px;
+  font-size: 12.5px;
   font-weight: 900;
 }
 
@@ -769,7 +769,7 @@
 
 .goalCardTop > span {
   color: #d36e39;
-  font-size: 12px;
+  font-size: 14.5px;
   font-weight: 900;
   letter-spacing: 0.06em;
 }
@@ -782,7 +782,7 @@
 
 .goalCardTop small {
   color: #8c8278;
-  font-size: 12.5px;
+  font-size: 15px;
 }
 
 .goalMeta {
@@ -792,7 +792,7 @@
   gap: 8px;
   margin-top: 8px;
   color: #746a61;
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 800;
 }
 
@@ -801,7 +801,7 @@
   border-radius: 999px;
   color: #986413;
   background: rgba(220, 155, 39, 0.13);
-  font-size: 11px;
+  font-size: 13.5px;
 }
 
 .goalMetaOverdue b {
@@ -832,7 +832,7 @@
 .goalCard p {
   margin-top: 7px;
   color: #7b7167;
-  font-size: 12.5px;
+  font-size: 15px;
   font-weight: 700;
   line-height: 1.5;
 }
@@ -855,13 +855,13 @@
 
 .economyGrid small {
   color: #91877d;
-  font-size: 12.5px;
+  font-size: 15px;
   font-weight: 800;
 }
 
 .economyGrid b {
   color: #3a342e;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 900;
 }
 
@@ -880,7 +880,7 @@
   border-radius: 5px;
   background: rgba(179, 74, 56, 0.09);
   color: #a24334;
-  font-size: 12.5px;
+  font-size: 15px;
   font-weight: 900;
 }
 
@@ -899,13 +899,13 @@
   border-radius: 50%;
   background: var(--gp-surface-chip);
   color: var(--gp-text-accent-chip);
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 900;
 }
 
 .sectionHeading h2 {
   color: var(--gp-text-secondary);
-  font-size: 12.5px;
+  font-size: 15px;
   letter-spacing: 0.02em;
 }
 
@@ -944,7 +944,7 @@
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.8);
   color: #6e665d;
-  font-size: 11.5px;
+  font-size: 14px;
   font-weight: 800;
   line-height: 1;
 }
@@ -1023,7 +1023,7 @@
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.6);
   color: #504942;
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 800;
 }
 
@@ -1039,14 +1039,14 @@
 }
 
 .lineTabs span {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 900;
 }
 
 .lineTabs small {
   grid-column: 2;
   color: var(--gp-text-faint);
-  font-size: 8.5px;
+  font-size: 11px;
 }
 
 .closeButton,
@@ -1058,7 +1058,7 @@
   border-radius: 6px;
   background: var(--gp-surface);
   color: #b34a38;
-  font-size: 12px;
+  font-size: 14.5px;
   font-weight: 800;
 }
 
@@ -1082,7 +1082,7 @@
   border-radius: 6px;
   background: var(--gp-surface);
   color: var(--gp-text-button);
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 800;
 }
 
@@ -1121,7 +1121,7 @@
   display: block;
   margin-bottom: 6px;
   color: var(--gp-text-label);
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 800;
 }
 
@@ -1150,7 +1150,7 @@
   border-radius: 5px;
   background: var(--gp-surface);
   color: var(--gp-text-control);
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 800;
 }
 
@@ -1170,7 +1170,7 @@
   display: block;
   margin-top: 6px;
   color: var(--gp-text-hint);
-  font-size: 9.5px;
+  font-size: 12px;
 }
 
 .vehicleList {
@@ -1239,7 +1239,7 @@
   border-radius: 6px;
   background: var(--gp-surface);
   color: var(--gp-text-button);
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 800;
 }
 
@@ -1261,7 +1261,7 @@
   border-radius: 5px;
   background: var(--gp-surface-muted);
   color: var(--gp-text-step);
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 800;
 }
 
@@ -1297,7 +1297,7 @@
   right: 4px;
   bottom: 2px;
   color: white;
-  font-size: 8.5px;
+  font-size: 11px;
 }
 
 .trainBadge::before,
@@ -1322,13 +1322,13 @@
 
 .vehicleCard > span:nth-child(2) b {
   color: var(--gp-text-card);
-  font-size: 10.5px;
+  font-size: 13px;
 }
 
 .vehicleCard > span:nth-child(2) small {
   margin-top: 3px;
   color: var(--gp-text-faint);
-  font-size: 9.5px;
+  font-size: 12px;
 }
 
 .startVehicleButton,
@@ -1338,7 +1338,7 @@
   border-radius: 7px;
   background: rgba(79, 142, 92, 0.08);
   color: #39754a;
-  font-size: 12.5px;
+  font-size: 15px;
   font-weight: 900;
 }
 
@@ -1380,14 +1380,14 @@
   border-radius: 6px;
   background: var(--gp-surface);
   color: #b34836;
-  font-size: 12px;
+  font-size: 14.5px;
   font-weight: 800;
 }
 
 .depotHeading {
   margin-top: 14px;
   color: var(--gp-text-depot);
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 800;
 }
 
@@ -1407,7 +1407,7 @@
   border-radius: 7px;
   padding: 8px 10px;
   color: var(--gp-text-depot-empty);
-  font-size: 9.5px;
+  font-size: 12px;
   transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
 
@@ -1424,13 +1424,13 @@
 
 .vehicleDepot b {
   color: var(--gp-text-depot-title);
-  font-size: 10.5px;
+  font-size: 13px;
 }
 
 .vehicleDepot small {
   margin-top: 2px;
   color: var(--gp-text-depot-sub);
-  font-size: 9.5px;
+  font-size: 12px;
 }
 
 .vehicleDepotReady {
@@ -1455,7 +1455,7 @@
   border-radius: 7px;
   background: rgba(79, 142, 92, 0.06);
   color: #4d7455;
-  font-size: 12.5px;
+  font-size: 15px;
   line-height: 1.5;
 }
 
@@ -1468,7 +1468,7 @@
   border-radius: 50%;
   background: #4f8e5c;
   color: white;
-  font-size: 9.5px;
+  font-size: 12px;
 }
 
 .operationError {
@@ -1479,7 +1479,7 @@
   border-color: rgba(181, 70, 50, 0.3);
   background: rgba(181, 70, 50, 0.06);
   color: #a04434;
-  font-size: 12px;
+  font-size: 14.5px;
   line-height: 1.5;
 }
 
@@ -1510,7 +1510,7 @@
   align-items: baseline;
   gap: 10px;
   color: var(--gp-text-soft);
-  font-size: 11.5px;
+  font-size: 15px;
 }
 
 .cityIdentity .cityName {
@@ -1525,7 +1525,7 @@
   align-items: center;
   gap: 22px;
   color: var(--gp-text-hud);
-  font-size: 12px;
+  font-size: 14.5px;
   white-space: nowrap;
 }
 
@@ -1536,13 +1536,13 @@
 
 .hudStats small {
   color: var(--gp-text-hud-label);
-  font-size: 9.5px;
+  font-size: 13px;
   font-weight: 700;
 }
 
 .hudStats b {
   color: var(--gp-text-hud-value);
-  font-size: 13px;
+  font-size: 17px;
   font-weight: 900;
 }
 
@@ -1556,7 +1556,7 @@
 
 .tickNumber b {
   color: var(--gp-text-tick);
-  font: 900 15px/1 monospace;
+  font: 900 17px/1 monospace;
 }
 
 .mapCanvas {
@@ -1594,7 +1594,7 @@
   border-radius: 8px 0 0 8px;
   background: transparent;
   color: var(--gp-text-builder);
-  font-size: 13px;
+  font-size: 15.5px;
   font-weight: 900;
 }
 
@@ -1634,7 +1634,7 @@
 
 .stationBuilder small {
   color: var(--gp-text-builder-hint);
-  font-size: 8.5px;
+  font-size: 11px;
   font-weight: 800;
 }
 
@@ -2058,7 +2058,7 @@
   background: var(--gp-ghost-bg);
   box-shadow: var(--gp-shadow-ghost);
   color: var(--gp-text-ghost);
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 900;
   pointer-events: none;
 }
@@ -2102,7 +2102,7 @@
   border-radius: 5px;
   background: transparent;
   color: var(--gp-text-button);
-  font-size: 13px;
+  font-size: 15.5px;
   font-weight: 800;
   cursor: pointer;
 }
@@ -2136,7 +2136,7 @@
   padding: 8px 5px 4px;
   border-top: 1px solid var(--gp-border-legend-soft);
   color: var(--gp-text-legend);
-  font-size: 12px;
+  font-size: 14.5px;
 }
 
 .legendRow {
@@ -2149,7 +2149,7 @@
 .legendRow > b {
   min-width: 30px;
   color: var(--gp-text-label);
-  font-size: 11px;
+  font-size: 13.5px;
   letter-spacing: 0.06em;
 }
 
@@ -2157,33 +2157,6 @@
   display: flex;
   align-items: center;
   gap: 4px;
-}
-
-.walkingCitizenMark,
-.waitingCitizenMark,
-.boardingCitizenMark {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.walkingCitizenMark {
-  background: #33475c;
-  border: 1px solid #fff;
-  box-shadow: 0 0 0 1px rgba(51, 71, 92, 0.22);
-}
-
-.waitingCitizenMark {
-  background: #efb63f;
-  border: 1px solid #fff8e5;
-  box-shadow: 0 0 0 1px rgba(216, 144, 47, 0.45);
-}
-
-.boardingCitizenMark {
-  background: #8b8177;
-  border: 2px solid #fff;
-  box-shadow: 0 0 0 1px rgba(87, 78, 69, 0.35);
 }
 
 .zoneMarkResidential,
@@ -2262,7 +2235,7 @@
 
 .gameOverEyebrow {
   color: #ba543b;
-  font-size: 11.5px;
+  font-size: 14px;
   font-weight: 900;
   letter-spacing: 0.18em;
 }
@@ -2278,7 +2251,7 @@
   max-width: 350px;
   margin: 14px auto 0;
   color: #6c6259;
-  font-size: 12.5px;
+  font-size: 15px;
   font-weight: 700;
   line-height: 1.65;
 }
@@ -2301,20 +2274,20 @@
 
 .gameOverStats small {
   color: #94887d;
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 800;
 }
 
 .gameOverStats b {
   color: #332d28;
-  font-size: 12px;
+  font-size: 14.5px;
   font-weight: 900;
 }
 
 .restartHint {
   margin-top: 15px;
   color: #8a8076;
-  font-size: 11.5px;
+  font-size: 14px;
   font-weight: 700;
 }
 
@@ -2331,7 +2304,7 @@
   border-radius: 7px;
   background: #fff;
   color: #574f48;
-  font-size: 11.5px;
+  font-size: 14px;
   font-weight: 900;
 }
 
@@ -2362,7 +2335,7 @@
     width: 100%;
     justify-content: space-between;
     gap: 6px;
-    font-size: 12.5px;
+    font-size: 15px;
     flex-wrap: wrap;
   }
 }
