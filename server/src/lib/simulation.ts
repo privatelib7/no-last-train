@@ -3,7 +3,7 @@ import { evaluatePolicies } from './policy-engine'
 import { calculateTickEconomy } from './economy'
 import { SIM, TIME_DEMAND_MULTIPLIER, ORIGIN_WEIGHT, DEST_WEIGHT, periodOfHour, isWeekendTick } from '@/types/game'
 import type { SimResult, TickHighlight, StationSnapshot, DayPeriod } from '@/types/game'
-import type { Passenger, Vehicle, Station, Line, GameEvent } from '@/generated/prisma/client'
+import type { Passenger, Vehicle, Station, Line, GameEvent } from '@prisma/client'
 
 // ─── 결정론적 RNG (seeded) ───────────────────────────────────────────────
 

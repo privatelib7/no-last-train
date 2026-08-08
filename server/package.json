@@ -4,17 +4,19 @@
   "private": true,
   "scripts": {
     "dev": "npm run db:prepare && node scripts/next-with-env.mjs dev",
-    "build": "prisma generate --generator clientWorkerd && opennextjs-cloudflare build",
+    "build": "prisma generate && opennextjs-cloudflare build",
     "build:cf": "npm run build",
     "build:next": "next build",
+    "deploy": "opennextjs-cloudflare deploy",
+    "preview": "opennextjs-cloudflare preview",
     "test": "tsx --test src/lib/economy.test.ts",
     "start": "node scripts/next-with-env.mjs start",
-    "db:prepare": "prisma generate --generator client && prisma db push && tsx prisma/seed.ts",
+    "db:prepare": "prisma generate && prisma db push && tsx prisma/seed.ts",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "db:push": "prisma db push",
-    "db:generate": "prisma generate --generator client"
+    "db:generate": "prisma generate"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

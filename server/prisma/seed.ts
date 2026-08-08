@@ -1,4 +1,4 @@
-import { PrismaClient, LineColor } from '../src/generated/prisma/client'
+import { PrismaClient, LineColor } from '@prisma/client'
 
 const db = new PrismaClient()
 
