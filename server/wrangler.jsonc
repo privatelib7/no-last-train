@@ -21,12 +21,19 @@
   },
 
   // Supabase Postgres — workerd 직접 TLS는 인증서 검증으로 실패하므로
-  // Hyperdrive를 경유한다. 로컬 `wrangler dev`는 .dev.vars의
-  // CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE 를 쓴다.
+  // Hyperdrive를 경유한다.
+  //
+  // localConnectionString:
+  //   - 프로덕션 런타임은 위 id의 Hyperdrive를 쓴다 (이 문자열 아님).
+  //   - OpenNext `deploy`가 getPlatformProxy 때문에 로컬 문자열이 없으면
+  //     Workers Builds에서 실패한다. CI용 placeholder를 둔다.
+  //   - 실제 로컬 개발은 .dev.vars /
+  //     CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE 가 우선한다.
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "426ef7ee1c004ea18d85c1b5d9d2b716"
+      "id": "426ef7ee1c004ea18d85c1b5d9d2b716",
+      "localConnectionString": "postgresql://ci-placeholder:ci-placeholder@127.0.0.1:5432/postgres"
     }
   ],
 
