@@ -97,7 +97,7 @@ async function runPaidConstruction<T>(
       data: { cashBalance: { decrement: cost } },
     })
     if (charged.count === 0) {
-      throw new ConstructionFundsError('공사 후 운영자금이 대출 한도(-2,500만 원)를 넘습니다.')
+      throw new ConstructionFundsError('공사 후 운영자금이 대출 한도(₵-2,500)를 넘습니다.')
     }
     return operation(tx)
   })
@@ -196,7 +196,7 @@ export async function POST(
         posY: action.posY,
       },
     }))
-    const message = `${station.name}을 건설했습니다. (800만 원)`
+    const message = `${station.name}을 건설했습니다. (₵800)`
     await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
     return NextResponse.json({ message, station })
   }
@@ -238,7 +238,7 @@ export async function POST(
       return nextLine
     })
     return NextResponse.json({
-      message: `${name} 노선을 만들었습니다. (${action.mode === 'BUS' ? '600만' : '2,000만'} 원) 역 두 개를 연달아 클릭해 선로를 부설하세요.`,
+      message: `${name} 노선을 만들었습니다. (${action.mode === 'BUS' ? '₵600' : '₵2,000'}) 역 두 개를 연달아 클릭해 선로를 부설하세요.`,
       line: created,
     })
   }
@@ -551,6 +551,7 @@ export async function POST(
   }
 }
 
+// 게임 화폐 ₵ 표기 (₵1 = 1만 원) — 클라이언트 formatMoney와 동일 기준
 function formatWon(value: number): string {
-  return `${Math.round(value / 10_000).toLocaleString('ko-KR')}만 원`
+  return `₵${Math.round(value / 10_000).toLocaleString('ko-KR')}`
 }

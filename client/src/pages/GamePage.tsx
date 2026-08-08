@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type WheelEvent } from 'react'
 import {
   ApiError,
+  CONGESTION_SATURATED,
+  CONGESTION_WARN,
   executeCityAction,
   fetchCity,
   TICKS_PER_DAY,
@@ -109,15 +111,10 @@ function formatElapsed(seconds: number) {
   return [hours, minutes, secs].map(value => String(value).padStart(2, '0')).join(':')
 }
 
+// 게임 화폐 ₵ 표기 (₵1 = 1만 원)
 function formatMoney(value: number) {
   const sign = value < 0 ? '-' : ''
-  const absolute = Math.abs(Math.round(value))
-  const eok = Math.floor(absolute / 100_000_000)
-  const man = Math.round((absolute % 100_000_000) / 10_000)
-  if (eok > 0 && man > 0) return `${sign}${eok}억 ${man.toLocaleString('ko-KR')}만 원`
-  if (eok > 0) return `${sign}${eok}억 원`
-  if (man > 0) return `${sign}${man.toLocaleString('ko-KR')}만 원`
-  return `${sign}${absolute.toLocaleString('ko-KR')}원`
+  return `${sign}₵${Math.round(Math.abs(value) / 10_000).toLocaleString('ko-KR')}`
 }
 
 function stationPoint(station: Station) {
@@ -178,6 +175,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const [selectedStationId, setSelectedStationId] = useState('')
   const [renameValue, setRenameValue] = useState('')
   const [moveStationMode, setMoveStationMode] = useState(false)
+  const [legendOpen, setLegendOpen] = useState(false)
   const [vehicleDrag, setVehicleDrag] = useState<VehicleDragState | null>(null)
   const [stationDrag, setStationDrag] = useState<StationLinkDrag | null>(null)
   const [segmentDrag, setSegmentDrag] = useState<SegmentDrag | null>(null)
@@ -209,6 +207,19 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   useEffect(() => {
     stateRef.current = state
   }, [state])
+
+  // ESC로 역 선택·건설 모드 전부 해제
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setSelectedStationId('')
+      setStationBuildMode(false)
+      setMoveStationMode(false)
+      setError(null)
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   const loadCity = async () => {
     const next = await fetchCity(cityId, session?.token)
@@ -329,6 +340,11 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
       map: mapDef,
     })
   }, [state, mapDef])
+  const congestionByStation = useMemo(
+    () => new Map(state?.stationStats.map(stat => [stat.stationId, stat.congestion]) ?? []),
+    [state],
+  )
+
   const beginEditTitle = () => {
     if (!state?.isOwner || !session) return
     setTitleDraft(state.city.roomTitle)
@@ -568,7 +584,11 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
       })
       return
     }
-    const name = stationName.trim() || `신설역 ${state!.city.stations.length + 1}`
+    // 기본 이름은 비어 있는 신설역 번호를 찾는다 (삭제·중복으로 인한 충돌 방지)
+    const usedNames = new Set(state!.city.stations.map(item => item.name))
+    let nextNumber = state!.city.stations.length + 1
+    while (usedNames.has(`신설역 ${nextNumber}`)) nextNumber++
+    const name = stationName.trim() || `신설역 ${nextNumber}`
     void performAction({ type: 'BUILD_STATION', name, posX, posY }).then(next => {
       if (!next) return
       setStationName('')
@@ -750,6 +770,11 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
       const targetId = document.elementFromPoint(event.clientX, event.clientY)
         ?.closest('[data-station-id]')?.getAttribute('data-station-id')
       if (!targetId || targetId === current.stationId || !selectedLineId) return
+      const cityState = stateRef.current
+      const dragLine = cityState?.city.lines.find(item => item.id === selectedLineId)
+      const fromStation = cityState?.city.stations.find(s => s.id === current.stationId)
+      const toStation = cityState?.city.stations.find(s => s.id === targetId)
+      if (!dragLine || !fromStation || !toStation) return
       void performActionRef.current?.({
         type: 'BUILD_SEGMENT',
         lineId: selectedLineId,
@@ -1041,7 +1066,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
               ? '이전 목표 보상을 지급하고 더 높은 다음 목표를 설정했습니다.'
               : goalDaysRemaining < 0
                 ? '기한이 지났습니다. 매출 목표를 달성하면 다음 단계로 계속 진행할 수 있습니다.'
-                : '기한 안에 목표를 달성하면 지원금 2,000만 원과 5,000점을 받고 다음 목표가 열립니다.'}</p>
+                : '기한 안에 목표를 달성하면 지원금 ₵2,000과 5,000점을 받고 다음 목표가 열립니다.'}</p>
           </div>
           <div className={styles.economyGrid}>
             <span><small>운영 자금</small><b className={state.city.cashBalance < 0 ? styles.dangerValue : ''}>{formatMoney(state.city.cashBalance)}</b></span>
@@ -1073,8 +1098,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             ))}
           </div>
           <div className={styles.newLineRow}>
-            <button onClick={() => void createLine('SUBWAY')} disabled={busy || isGameOver}>＋ 지하철 · 2,000만</button>
-            <button onClick={() => void createLine('BUS')} disabled={busy || isGameOver}>＋ 버스 · 600만</button>
+            <button onClick={() => void createLine('SUBWAY')} disabled={busy || isGameOver}>＋ 지하철 · ₵2,000</button>
+            <button onClick={() => void createLine('BUS')} disabled={busy || isGameOver}>＋ 버스 · ₵600</button>
           </div>
           {selectedLine && (
             <button
@@ -1093,7 +1118,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             <button
               className={styles.removeVehicleButton}
               onClick={() => {
-                if (!window.confirm(`${selectedLine.name} 노선을 완전히 삭제할까요? 소속 차량도 함께 사라집니다.`)) return
                 void performAction({ type: 'REMOVE_LINE', lineId: selectedLine.id }).then(next => {
                   if (!next) return
                   const remaining = next.city.lines.slice().sort((a, b) => a.name.localeCompare(b.name, 'ko'))[0]
@@ -1126,7 +1150,10 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                       onClick={() => selectVehicle(selectedLine.id, vehicle.id)}
                       onPointerDown={event => beginVehiclePointerDrag(event, selectedLine.id, vehicle.id)}
                     >
-                      <span className={styles.trainBadge} style={{ background: LINE_COLORS[selectedLine.color] }}>
+                      <span
+                        className={`${styles.trainBadge} ${selectedLine.mode === 'BUS' ? styles.busBadge : ''}`}
+                        style={{ background: LINE_COLORS[selectedLine.color] }}
+                      >
                         <i /><i /><b>{index + 1}</b>
                       </span>
                       <span>
@@ -1165,7 +1192,18 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
 
         {selectedStation && (
           <section className={styles.controlSection}>
-            <div className={styles.sectionHeading}><span>03</span><h2>역 관리</h2></div>
+            <div className={styles.sectionHeading}>
+              <span>03</span><h2>역 관리</h2>
+              <button
+                className={styles.deselectButton}
+                onClick={() => {
+                  setSelectedStationId('')
+                  setMoveStationMode(false)
+                }}
+                aria-label="역 선택 해제 (ESC)"
+                title="선택 해제 (ESC)"
+              >✕</button>
+            </div>
             <div className={styles.actionForm}>
               <label htmlFor="station-rename">역 이름</label>
               <div>
@@ -1220,7 +1258,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             <button
               className={styles.removeVehicleButton}
               onClick={() => {
-                if (!window.confirm(`${selectedStation.name}을 완전히 삭제할까요? 모든 노선에서 제거됩니다.`)) return
                 void performAction({ type: 'REMOVE_STATION', stationId: selectedStation.id }).then(next => {
                   if (next) setSelectedStationId('')
                 })
@@ -1264,7 +1301,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                   setError(null)
                 }}
                 disabled={isGameOver}
-              >＋ 역 짓기 · 800만</button>
+              >＋ 역 짓기 · ₵800</button>
               {stationBuildMode && (
                 <div>
                   <input
@@ -1475,6 +1512,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
               const isCurrentVehicleStation = selectedVehicle?.currentStationId === station.id
               const isDropTarget = dragTarget?.kind === 'STATION' && dragTarget.id === station.id
               const highlighted = isCurrentVehicleStation || isDropTarget || station.id === selectedStationId
+              const congestion = congestionByStation.get(station.id) ?? 0
               return (
                 <g
                   key={station.id}
@@ -1490,6 +1528,11 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                 >
                   <title>{station.name} · {isBusStop ? '버스 정류장' : isInterchange ? '환승역' : '일반역'}</title>
                   {highlighted && <circle r="3.3" className={styles.stationSelection} />}
+                  {congestion >= CONGESTION_SATURATED ? (
+                    <circle r="3" className={styles.saturatedRing} />
+                  ) : congestion >= CONGESTION_WARN ? (
+                    <circle r="2.8" className={styles.warnRing} />
+                  ) : null}
                   {isBusStop ? (
                     <>
                       <rect x="-1.7" y="-1.7" width="3.4" height="3.4" rx=".5" className={styles.stationHalo} />
@@ -1585,12 +1628,28 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                     data-dwell-remaining={motion.dwellRemainingMinutes.toFixed(3)}
                     data-map-interactive="true"
                   >
-                    <rect x="-3.7" y="-2" width="7.4" height="4" rx="1.2" fill={LINE_COLORS[line.color]} className={styles.trainBody} />
-                    <rect x="-2.8" y="-1.2" width="1.55" height="1.25" rx=".28" className={styles.trainWindow} />
-                    <rect x="-.65" y="-1.2" width="1.55" height="1.25" rx=".28" className={styles.trainWindow} />
-                    <circle cx="-2.15" cy="1.85" r=".56" className={styles.trainWheel} />
-                    <circle cx="2.15" cy="1.85" r=".56" className={styles.trainWheel} />
-                    <text x="2.2" y=".55" textAnchor="middle" className={styles.trainNumber} transform={trainFlipped ? 'scale(-1,1)' : undefined}>{lineNo}</text>
+                    {line.mode === 'BUS' ? (
+                      <>
+                        {/* 버스: 둥근 차체 + 넓은 창 + 문 + 지붕 표시등 */}
+                        <rect x="-3" y="-2.1" width="6" height="4.2" rx="1.6" fill={LINE_COLORS[line.color]} className={styles.trainBody} />
+                        <rect x="-2.2" y="-1.35" width="2.7" height="1.35" rx=".3" className={styles.trainWindow} />
+                        <rect x="1" y="-1.15" width="1.15" height="2.5" rx=".22" className={styles.busDoor} />
+                        <circle cx="-1.6" cy="2.05" r=".56" className={styles.trainWheel} />
+                        <circle cx="1.6" cy="2.05" r=".56" className={styles.trainWheel} />
+                        <text x="-.6" y=".9" textAnchor="middle" className={styles.trainNumber} transform={trainFlipped ? 'scale(-1,1)' : undefined}>{lineNo}</text>
+                      </>
+                    ) : (
+                      <>
+                        {/* 팬터그래프: 지붕 접이식 집전장치 + 가선 접촉봉 */}
+                        <path d="M-1.6 -2.9H1.6M-1.1 -2L0 -2.85L1.1 -2" className={styles.pantograph} />
+                        <rect x="-3.7" y="-2" width="7.4" height="4" rx="1.2" fill={LINE_COLORS[line.color]} className={styles.trainBody} />
+                        <rect x="-2.8" y="-1.2" width="1.55" height="1.25" rx=".28" className={styles.trainWindow} />
+                        <rect x="-.65" y="-1.2" width="1.55" height="1.25" rx=".28" className={styles.trainWindow} />
+                        <circle cx="-2.15" cy="1.85" r=".56" className={styles.trainWheel} />
+                        <circle cx="2.15" cy="1.85" r=".56" className={styles.trainWheel} />
+                        <text x="2.2" y=".55" textAnchor="middle" className={styles.trainNumber} transform={trainFlipped ? 'scale(-1,1)' : undefined}>{lineNo}</text>
+                      </>
+                    )}
                   </g>
                 )
               }))}
@@ -1609,35 +1668,47 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             </g>
           </svg>
 
-          <div className={styles.mapLegend}>
-            {sortedLines.map(line => (
+          <div className={styles.mapPanel}>
+            <div className={styles.mapPanelLines} aria-label="운영 노선 선택">
+              {sortedLines.map(line => (
+                <button
+                  key={line.id}
+                  className={line.id === selectedLineId ? styles.mapLegendActive : ''}
+                  onClick={() => selectLine(line.id)}
+                >
+                  <i style={{ background: LINE_COLORS[line.color] }} />{line.name}{line.status === 'SUSPENDED' ? ' · 폐쇄' : ''}
+                </button>
+              ))}
               <button
-                key={line.id}
-                className={line.id === selectedLineId ? styles.mapLegendActive : ''}
-                onClick={() => selectLine(line.id)}
-              >
-                <i style={{ background: LINE_COLORS[line.color] }} />{line.name}{line.status === 'SUSPENDED' ? ' · 폐쇄' : ''}
-              </button>
-            ))}
-          </div>
-
-          <div className={styles.stationLegend} aria-label="역 종류">
-            <span><i className={styles.regularStationMark} />일반역</span>
-            <span><i className={styles.interchangeStationMark} />환승역</span>
-            <span><i className={styles.busStopMark} />버스 정류장</span>
-            <span><i className={styles.depotMark} />차고지</span>
-          </div>
-
-          <div className={styles.zoneLegend} aria-label="구역 종류">
-            <span><i className={styles.zoneMarkResidential} />주거 구역</span>
-            <span><i className={styles.zoneMarkCommercial} />상업 구역</span>
-            <span><i className={styles.zoneMarkIndustrial} />산업·오피스 구역</span>
-          </div>
-
-          <div className={styles.mobilityLegend} aria-label="시민 이동 상태">
-            <span><i className={styles.walkingCitizenMark} />도보</span>
-            <span><i className={styles.waitingCitizenMark} />역 대기</span>
-            <span><i className={styles.boardingCitizenMark} />탑승</span>
+                className={styles.legendToggle}
+                onClick={() => setLegendOpen(current => !current)}
+                aria-expanded={legendOpen}
+              >범례 {legendOpen ? '▴' : '▾'}</button>
+            </div>
+            {legendOpen && (
+              <div className={styles.legendBody}>
+                <div className={styles.legendRow} aria-label="역 종류">
+                  <b>역</b>
+                  <span><i className={styles.regularStationMark} />일반</span>
+                  <span><i className={styles.interchangeStationMark} />환승</span>
+                  <span><i className={styles.busStopMark} />버스 정류장</span>
+                  <span><i className={styles.depotMark} />차고지</span>
+                  <span><i className={styles.saturatedMark} />포화</span>
+                </div>
+                <div className={styles.legendRow} aria-label="구역 종류">
+                  <b>구역</b>
+                  <span><i className={styles.zoneMarkResidential} />주거</span>
+                  <span><i className={styles.zoneMarkCommercial} />상업</span>
+                  <span><i className={styles.zoneMarkIndustrial} />산업·오피스</span>
+                </div>
+                <div className={styles.legendRow} aria-label="시민 이동 상태">
+                  <b>시민</b>
+                  <span><i className={styles.walkingCitizenMark} />도보</span>
+                  <span><i className={styles.waitingCitizenMark} />역 대기</span>
+                  <span><i className={styles.boardingCitizenMark} />탑승</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </main>

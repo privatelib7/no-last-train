@@ -188,7 +188,7 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
         tickNumber,
         gameTimeHour,
         type: 'GOAL',
-        description: `${economy.completedGoalLevel}단계 경영 목표를 달성해 지원금 2천만 원을 받고 ${economy.goalLevel}단계 목표가 설정되었습니다.`,
+        description: `${economy.completedGoalLevel}단계 경영 목표를 달성해 지원금 ₵2,000을 받고 ${economy.goalLevel}단계 목표가 설정되었습니다.`,
         severity: 'INFO',
       })
     }
