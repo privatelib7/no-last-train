@@ -226,6 +226,12 @@ export type CityAction =
   | { type: 'MOVE_STATION'; stationId: string; posX: number; posY: number }
   | { type: 'REMOVE_STATION'; stationId: string }
   | { type: 'CREATE_LINE'; mode: 'SUBWAY' | 'BUS' }
+  | {
+      type: 'CREATE_CONNECTED_LINE'
+      mode: 'SUBWAY' | 'BUS'
+      fromStationId: string
+      toStationId: string
+    }
   | { type: 'REMOVE_LINE'; lineId: string }
   | { type: 'DETACH_STATION'; lineId: string; stationId: string }
   | { type: 'INSERT_STATION'; lineId: string; fromStationId: string; toStationId: string; stationId: string }
@@ -240,5 +246,17 @@ export function executeCityAction(cityId: string, action: CityAction, playerToke
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders(playerToken) },
     body: JSON.stringify(action),
+  })
+}
+
+export type CityCommandPlanResult =
+  | { ok: true; summary: string; actions: CityAction[] }
+  | { ok: false; reason: string; suggestion: string }
+
+export function planCityCommand(cityId: string, rawInput: string, playerToken?: string) {
+  return request<CityCommandPlanResult>(`/api/cities/${cityId}/commands/parse`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(playerToken) },
+    body: JSON.stringify({ rawInput }),
   })
 }

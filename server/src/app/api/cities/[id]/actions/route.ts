@@ -35,6 +35,12 @@ const ActionSchema = z.discriminatedUnion('type', [
     mode: z.enum(['SUBWAY', 'BUS']),
   }),
   z.object({
+    type: z.literal('CREATE_CONNECTED_LINE'),
+    mode: z.enum(['SUBWAY', 'BUS']),
+    fromStationId: z.string(),
+    toStationId: z.string(),
+  }),
+  z.object({
     type: z.literal('DETACH_STATION'),
     lineId: z.string(),
     stationId: z.string(),
@@ -81,6 +87,41 @@ const ActionSchema = z.discriminatedUnion('type', [
 ])
 
 class ConstructionFundsError extends Error {}
+
+const LINE_COLORS = ['RED', 'BLUE', 'GREEN', 'YELLOW', 'PURPLE'] as const
+
+function nextLineIdentity(
+  lines: Array<{ name: string; mode: string; color: string }>,
+  mode: 'SUBWAY' | 'BUS',
+) {
+  let name: string
+  if (mode === 'SUBWAY') {
+    const maxNumber = lines.reduce((max, item) => {
+      const match = item.name.match(/^(\d+)호선$/)
+      return match ? Math.max(max, Number(match[1])) : max
+    }, 0)
+    name = `${maxNumber + 1}호선`
+  } else {
+    const used = new Set(lines.filter(item => item.mode === 'BUS').map(item => item.name))
+    name = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].find(ch => !used.has(ch)) ?? `버스 ${lines.length + 1}`
+  }
+
+  const color = LINE_COLORS
+    .map(candidate => ({ candidate, count: lines.filter(item => item.color === candidate).length }))
+    .sort((a, b) => a.count - b.count)[0].candidate
+  return { name, color }
+}
+
+function depotBeyondTerminus(
+  terminus: { posX: number; posY: number },
+  inner: { posX: number; posY: number },
+) {
+  const length = Math.hypot(terminus.posX - inner.posX, terminus.posY - inner.posY) || 1
+  return {
+    depotX: Math.max(4, Math.min(96, terminus.posX + ((terminus.posX - inner.posX) / length) * 4.5)),
+    depotY: Math.max(4, Math.min(92, terminus.posY + ((terminus.posY - inner.posY) / length) * 4.5)),
+  }
+}
 
 async function runPaidConstruction<T>(
   cityId: string,
@@ -203,24 +244,7 @@ export async function POST(
 
   if (action.type === 'CREATE_LINE') {
     const lines = await db.line.findMany({ where: { cityId: id } })
-    let name: string
-    if (action.mode === 'SUBWAY') {
-      // 네이밍 규칙: 지하철은 "n호선" — 기존 최대 번호 + 1
-      const maxNumber = lines.reduce((max, item) => {
-        const match = item.name.match(/^(\d+)호선$/)
-        return match ? Math.max(max, Number(match[1])) : max
-      }, 0)
-      name = `${maxNumber + 1}호선`
-    } else {
-      // 버스는 A, B, C…
-      const used = new Set(lines.filter(item => item.mode === 'BUS').map(item => item.name))
-      name = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].find(ch => !used.has(ch)) ?? `버스 ${lines.length + 1}`
-    }
-    // 색상: 도시 내 최소 사용 색 (동률이면 enum 순서 앞이 우선 → 미사용 색 먼저)
-    const COLORS = ['RED', 'BLUE', 'GREEN', 'YELLOW', 'PURPLE'] as const
-    const color = COLORS
-      .map(candidate => ({ candidate, count: lines.filter(item => item.color === candidate).length }))
-      .sort((a, b) => a.count - b.count)[0].candidate
+    const { name, color } = nextLineIdentity(lines, action.mode)
     const cost = lineBuildCost(action.mode)
     const created = await runPaidConstruction(id, cost, async tx => {
       const nextLine = await tx.line.create({
@@ -241,6 +265,51 @@ export async function POST(
       message: `${name} 노선을 만들었습니다. (${action.mode === 'BUS' ? '₵600' : '₵2,000'}) 역 두 개를 연달아 클릭해 선로를 부설하세요.`,
       line: created,
     })
+  }
+
+  if (action.type === 'CREATE_CONNECTED_LINE') {
+    if (action.fromStationId === action.toStationId) {
+      return NextResponse.json({ error: '서로 다른 두 역을 선택해주세요.' }, { status: 400 })
+    }
+    const stations = await db.station.findMany({
+      where: { cityId: id, id: { in: [action.fromStationId, action.toStationId] } },
+    })
+    const fromStation = stations.find(station => station.id === action.fromStationId)
+    const toStation = stations.find(station => station.id === action.toStationId)
+    if (!fromStation || !toStation) {
+      return NextResponse.json({ error: '선택한 역을 찾을 수 없습니다.' }, { status: 404 })
+    }
+
+    const lines = await db.line.findMany({ where: { cityId: id } })
+    const { name, color } = nextLineIdentity(lines, action.mode)
+    const distance = Math.hypot(fromStation.posX - toStation.posX, fromStation.posY - toStation.posY)
+    const cost = lineBuildCost(action.mode) + segmentBuildCost(action.mode, distance)
+    const depot = depotBeyondTerminus(fromStation, toStation)
+    const created = await runPaidConstruction(id, cost, async tx => {
+      const nextLine = await tx.line.create({
+        data: { cityId: id, mode: action.mode, name, color, ...depot },
+      })
+      await tx.lineStation.createMany({
+        data: [
+          { lineId: nextLine.id, stationId: fromStation.id, order: 0 },
+          { lineId: nextLine.id, stationId: toStation.id, order: 1 },
+        ],
+      })
+      await tx.vehicle.create({
+        data: {
+          lineId: nextLine.id,
+          capacity: action.mode === 'BUS' ? 60 : 120,
+          status: 'SPARE',
+          isSpare: true,
+          headwayMinutes: 6,
+        },
+      })
+      return nextLine
+    })
+
+    const message = `${fromStation.name}–${toStation.name} 사이에 ${name}을 건설했습니다. (${formatWon(cost)})`
+    await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
+    return NextResponse.json({ message, line: created })
   }
 
   if (action.type === 'MOVE_STATION') {
