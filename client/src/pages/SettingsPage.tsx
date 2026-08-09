@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import styles from './SettingsPage.module.css'
+import LicensesPage from './LicensesPage'
 import { applyTheme, loadSettings, saveSettings, type GameSettings } from '../lib/settings'
 
 interface Props {
@@ -8,6 +9,8 @@ interface Props {
 
 export default function SettingsPage({ onBack }: Props) {
   const [settings, setSettings] = useState<GameSettings>(() => loadSettings())
+  // 설정 안에서만 오가는 화면이라 App의 페이지 상태 대신 여기서 관리한다.
+  const [view, setView] = useState<'settings' | 'licenses'>('settings')
 
   const update = (patch: Partial<GameSettings>) => {
     setSettings((prev) => {
@@ -17,6 +20,8 @@ export default function SettingsPage({ onBack }: Props) {
       return next
     })
   }
+
+  if (view === 'licenses') return <LicensesPage onBack={() => setView('settings')} />
 
   return (
     <div className={styles.page}>
@@ -77,6 +82,18 @@ export default function SettingsPage({ onBack }: Props) {
               aria-label="배경음악 음량"
             />
           </div>
+        </div>
+
+        <div className={styles.section}>
+          <span className={styles.sectionTitle}>정보</span>
+
+          <button className={styles.linkRow} type="button" onClick={() => setView('licenses')}>
+            <span className={styles.rowLabel}>
+              <span className={styles.rowTitle}>오픈소스 라이선스</span>
+              <span className={styles.rowHint}>이 게임이 사용한 오픈소스와 외부 에셋 고지</span>
+            </span>
+            <span className={styles.rowArrow}>›</span>
+          </button>
         </div>
 
         <button className={styles.doneBtn} type="button" onClick={onBack}>
