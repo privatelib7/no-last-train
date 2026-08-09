@@ -1,6 +1,6 @@
 import { db } from './db'
 import { evaluatePolicies } from './policy-engine'
-import { calculateTickEconomy, resolveManagementGoal } from './economy'
+import { calculateTickEconomy, isManagementGoalDeadlineMissed, resolveManagementGoal } from './economy'
 import { advanceVehicleMotion } from './vehicle-motion'
 import { isVehicleInService } from './vehicle-service'
 import { SIM, TIME_DEMAND_MULTIPLIER, ORIGIN_WEIGHT, DEST_WEIGHT, periodOfHour, isWeekendTick } from '@/types/game'
@@ -103,7 +103,7 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
   let insolvencyTicks = city.insolvencyTicks
   let unhappyTicks = city.unhappyTicks
   let goalReachedAtTick = city.goalReachedAtTick
-  let gameOverReason: 'BANKRUPT' | 'HAPPINESS' | null = null
+  let gameOverReason: 'BANKRUPT' | 'HAPPINESS' | 'GOAL_DEADLINE' | null = null
   const allActionLogs: Awaited<ReturnType<typeof evaluatePolicies>> = []
 
   for (let i = 0; i < count; i++) {
@@ -114,6 +114,26 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
     const baseDemand = TIME_DEMAND_MULTIPLIER[Math.floor(gameTimeHour)] ?? 1.0
     // 주말엔 출퇴근 피크가 없음
     const demandMult = weekend ? Math.min(baseDemand, 1.3) : baseDemand
+
+    // 마감일의 모든 틱이 끝난 뒤 다음 날로 넘어가는 순간 목표 실패를 확정한다.
+    // 실패 판정 틱에서는 승객·차량·경제 상태를 더 진행하지 않는다.
+    if (isManagementGoalDeadlineMissed({
+      tickNumber,
+      totalRevenue,
+      revenueGoal,
+      goalReachedAtTick,
+    })) {
+      gameOverReason = 'GOAL_DEADLINE'
+      highlights.push({
+        tickNumber,
+        gameTimeHour,
+        type: 'GOAL',
+        description: `${goalLevel}단계 경영 목표를 기한 안에 달성하지 못해 경영이 종료되었습니다.`,
+        severity: 'CRITICAL',
+      })
+      ticksProcessed += 1
+      break
+    }
 
     // 1. 사건 활성화
     const activeEvents = activateEvents(city.events, tickNumber)
