@@ -209,6 +209,101 @@ test('표시 번호로 차량 이동과 삭제를 계획한다', () => {
   }
 })
 
+test('두 역 사이 새 역 신설은 중간 지점에 기본 이름으로 계획한다', () => {
+  const result = planFallbackCityCommand('시청역과 강변역 사이에 새 역을 지어줘.', context)
+
+  assert.equal(result.ok, true)
+  if (!result.ok) return
+  assert.deepEqual(result.actions, [{
+    type: 'BUILD_STATION',
+    name: '신설역 4',
+    posX: 25,
+    posY: 20,
+  }])
+})
+
+test('가까운 두 역 사이에는 새 역을 짓지 않는다', () => {
+  const tightContext: CityCommandContext = {
+    ...context,
+    stations: [
+      { id: 'a', name: '가역', posX: 10, posY: 20 },
+      { id: 'b', name: '나역', posX: 13, posY: 20 },
+    ],
+    lines: [],
+  }
+  const result = planFallbackCityCommand('가역과 나역 사이에 새 역을 지어줘.', tightContext)
+
+  assert.equal(result.ok, false)
+  if (!result.ok) assert.match(result.reason, /가까워/)
+})
+
+test('증차 명령은 대수를 읽어 차량 구매로 계획한다', () => {
+  const single = planFallbackCityCommand('1호선에 차량 구매해줘.', context)
+  const double = planFallbackCityCommand('2호선 차량 2대 구입해줘.', context)
+
+  assert.equal(single.ok, true)
+  assert.equal(double.ok, true)
+  if (single.ok) assert.deepEqual(single.actions, [{ type: 'BUY_VEHICLE', lineId: 'line-1', count: 1 }])
+  if (double.ok) assert.deepEqual(double.actions, [{ type: 'BUY_VEHICLE', lineId: 'line-2', count: 2 }])
+})
+
+test('모든 노선 일괄 명령은 상태가 다른 노선만 바꾼다', () => {
+  const suspendAll = planFallbackCityCommand('모든 노선 운행을 중단해줘.', context)
+  const resumeAll = planFallbackCityCommand('모든 노선 운행을 재개해줘.', context)
+
+  assert.equal(suspendAll.ok, true)
+  if (suspendAll.ok) {
+    assert.deepEqual(suspendAll.actions, [
+      { type: 'SET_LINE_STATUS', lineId: 'line-1', status: 'SUSPENDED' },
+      { type: 'SET_LINE_STATUS', lineId: 'line-2', status: 'SUSPENDED' },
+    ])
+  }
+  // 이미 두 노선 모두 운행 중이므로 재개는 바꿀 대상이 없다
+  assert.equal(resumeAll.ok, false)
+  if (!resumeAll.ok) assert.match(resumeAll.reason, /이미/)
+})
+
+test('노선 차량 일괄 투입은 차고지 대기 차량만 계획한다', () => {
+  const result = planFallbackCityCommand('1호선 모든 차량을 투입해줘.', context)
+
+  assert.equal(result.ok, true)
+  if (!result.ok) return
+  assert.deepEqual(result.actions, [{
+    type: 'SET_VEHICLE_SERVICE',
+    lineId: 'line-1',
+    vehicleId: 'vehicle-2',
+    inService: true,
+  }])
+})
+
+test('도시 전체 차량 일괄 입고는 운행 중인 차량만 계획한다', () => {
+  const result = planFallbackCityCommand('모든 차량을 입고해줘.', context)
+
+  assert.equal(result.ok, true)
+  if (!result.ok) return
+  assert.deepEqual(result.actions, [{
+    type: 'SET_VEHICLE_SERVICE',
+    lineId: 'line-1',
+    vehicleId: 'vehicle-1',
+    inService: false,
+  }])
+})
+
+test('한 번에 실행할 액션이 상한을 넘으면 계획을 취소한다', () => {
+  const spare = (id: string) => ({ id, status: 'SPARE' as const, isSpare: true })
+  const crowdedContext: CityCommandContext = {
+    ...context,
+    lines: context.lines.map((line, lineIndex) => ({
+      ...line,
+      vehicles: Array.from({ length: 11 }, (_, index) => spare(`v-${lineIndex}-${index}`)),
+    })),
+  }
+  const result = planFallbackCityCommand('모든 차량을 투입해줘.', crowdedContext)
+
+  assert.equal(result.ok, false)
+  if (!result.ok) assert.match(result.reason, /20개까지/)
+})
+
 test('존재하지 않는 차량 번호는 실행하지 않는다', () => {
   const result = planFallbackCityCommand('1호선 9번 차량을 삭제해줘.', context)
 
