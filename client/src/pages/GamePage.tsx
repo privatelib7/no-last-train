@@ -2157,21 +2157,19 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                       {depotLabel}
                     </text>
                   )}
-                  {(waitingByStation.get(station.id) ?? 0) > 0 && (
-                    <text
-                      x="1.55"
-                      y="0.45"
-                      className={`${styles.waitingCount}${
-                        congestion >= CONGESTION_SATURATED
-                          ? ` ${styles.waitingCountSaturated}`
-                          : congestion >= CONGESTION_WARN
-                            ? ` ${styles.waitingCountWarn}`
-                            : ''
-                      }`}
-                    >
-                      {waitingByStation.get(station.id)}
-                    </text>
-                  )}
+                  <text
+                    x="1.55"
+                    y="0.45"
+                    className={`${styles.waitingCount}${
+                      congestion >= CONGESTION_SATURATED
+                        ? ` ${styles.waitingCountSaturated}`
+                        : congestion >= CONGESTION_WARN
+                          ? ` ${styles.waitingCountWarn}`
+                          : ''
+                    }`}
+                  >
+                    {waitingByStation.get(station.id) ?? 0}
+                  </text>
                 </g>
               )
             })}
