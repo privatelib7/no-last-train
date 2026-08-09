@@ -540,20 +540,6 @@
 
 .stoppedStatus b { color: #9f3e2f; }
 
-.aiCommandSection {
-  margin-top: 0;
-  padding-top: 0;
-  border-top: 0;
-}
-
-.aiCommandSection .sectionHeading > small {
-  margin-left: auto;
-  color: var(--gp-text-accent);
-  font-size: 11.5px;
-  font-weight: 900;
-  letter-spacing: 0.04em;
-}
-
 .aiCommandPanel {
   overflow: hidden;
   border: 1px solid var(--gp-border-card);
@@ -644,12 +630,33 @@
 .aiCommandExamples {
   display: flex;
   gap: 5px;
-  padding: 0 10px 9px;
+  padding: 0 10px 10px;
   overflow-x: auto;
-  scrollbar-width: none;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--gp-accent-solid) var(--gp-surface-soft);
 }
 
-.aiCommandExamples::-webkit-scrollbar { display: none; }
+.aiCommandExamples:focus-visible {
+  outline: 2px solid var(--gp-border-focus);
+  outline-offset: -2px;
+}
+
+.aiCommandExamples::-webkit-scrollbar { height: 8px; }
+
+.aiCommandExamples::-webkit-scrollbar-track {
+  margin: 0 10px;
+  border-radius: 999px;
+  background: var(--gp-surface-soft);
+}
+
+.aiCommandExamples::-webkit-scrollbar-thumb {
+  border: 2px solid var(--gp-surface-soft);
+  border-radius: 999px;
+  background: var(--gp-accent-solid);
+}
+
+.aiCommandExamples::-webkit-scrollbar-thumb:hover { background: var(--gp-accent-hover); }
 
 .aiCommandExamples button {
   flex: 0 0 auto;
