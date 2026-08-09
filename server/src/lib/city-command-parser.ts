@@ -1,6 +1,7 @@
 import OpenAI from 'openai'
 import { zodTextFormat } from 'openai/helpers/zod'
 import { z } from 'zod'
+import { isVehicleInService } from './vehicle-service'
 
 export type CityCommandStation = {
   id: string
@@ -30,6 +31,7 @@ export type CityCommandContext = {
 }
 
 export type CityCommandAction =
+  | { type: 'BUILD_STATION'; name: string; posX: number; posY: number }
   | { type: 'CREATE_LINE'; mode: 'SUBWAY' | 'BUS' }
   | {
       type: 'CREATE_CONNECTED_LINE'
@@ -59,6 +61,7 @@ export type CityCommandAction =
       lineId: string
       status: 'OPERATING' | 'SUSPENDED'
     }
+  | { type: 'BUY_VEHICLE'; lineId: string; count: number }
   | { type: 'SET_VEHICLE_SERVICE'; lineId: string; vehicleId: string; inService: boolean }
   | { type: 'TRANSFER_VEHICLE'; lineId: string; vehicleId: string; targetLineId: string }
   | { type: 'REMOVE_VEHICLE'; lineId: string; vehicleId: string }
@@ -67,7 +70,22 @@ export type CityCommandPlanResult =
   | { ok: true; summary: string; actions: CityCommandAction[] }
   | { ok: false; reason: string; suggestion: string }
 
+// 한 번의 입력으로 처리할 명령 수와, 그 명령이 펼쳐낼 수 있는 액션 수 상한.
+// "모든 차량 투입"처럼 일괄 명령 하나가 여러 액션으로 펼쳐지므로 둘을 따로 제한한다.
+const MAX_PLAN_COMMANDS = 4
+const MAX_PLAN_ACTIONS = 20
+
+// 두 역 사이에 새 역을 끼워 넣으려면 최소한 이만큼(맵 단위)은 떨어져 있어야 한다.
+const MIN_NEW_STATION_GAP = 6
+
 const CommandIntentSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('BUILD_STATION_BETWEEN'),
+    fromStationName: z.string().min(1),
+    toStationName: z.string().min(1),
+    // 사용자가 새 역 이름을 말하지 않았으면 null — 서버가 "신설역 N"을 붙인다.
+    newStationName: z.string().trim().max(12).nullable(),
+  }),
   z.object({
     type: z.literal('CREATE_EMPTY_LINE'),
     mode: z.enum(['SUBWAY', 'BUS']),
@@ -114,6 +132,21 @@ const CommandIntentSchema = z.discriminatedUnion('type', [
     status: z.enum(['OPERATING', 'SUSPENDED']),
   }),
   z.object({
+    type: z.literal('SET_ALL_LINES_STATUS'),
+    status: z.enum(['OPERATING', 'SUSPENDED']),
+  }),
+  z.object({
+    type: z.literal('BUY_VEHICLE'),
+    lineName: z.string().min(1),
+    count: z.number().int().min(1).max(3),
+  }),
+  z.object({
+    type: z.literal('SET_ALL_VEHICLES_SERVICE'),
+    // null = 도시의 모든 노선
+    lineName: z.string().nullable(),
+    inService: z.boolean(),
+  }),
+  z.object({
     type: z.literal('SET_VEHICLE_SERVICE'),
     lineName: z.string().min(1),
     vehicleNumber: z.number().int().positive(),
@@ -136,7 +169,7 @@ const CommandIntentSchema = z.discriminatedUnion('type', [
 ])
 
 const AiCommandResponseSchema = z.object({
-  command: CommandIntentSchema,
+  commands: z.array(CommandIntentSchema).min(1).max(MAX_PLAN_COMMANDS),
 })
 
 type CommandIntent = Exclude<z.infer<typeof CommandIntentSchema>, { type: 'UNSUPPORTED' }>
@@ -149,7 +182,8 @@ const client = apiKey && !apiKey.includes('...')
 
 const SYSTEM_PROMPT = `
 당신은 도시 교통 운영 게임의 명령 해석기입니다.
-사용자의 한국어 명령을 아래 command 객체 중 정확히 하나로 변환하세요.
+사용자의 한국어 명령을 아래 command 객체로 변환해 commands 배열에 담으세요.
+한 문장에 서로 다른 작업이 여러 개 있으면 말한 순서대로 최대 ${MAX_PLAN_COMMANDS}개까지 나눠 담습니다.
 
 지원 명령:
 1. 빈 노선 생성: CREATE_EMPTY_LINE(mode)
@@ -164,6 +198,10 @@ const SYSTEM_PROMPT = `
 10. 노선의 N번 차량 운행 또는 입고: SET_VEHICLE_SERVICE(lineName, vehicleNumber, inService)
 11. 노선의 N번 차량을 다른 노선 차고지로 이동: TRANSFER_VEHICLE(lineName, vehicleNumber, targetLineName)
 12. 노선의 N번 차량 제거: REMOVE_VEHICLE(lineName, vehicleNumber)
+13. 기존 두 역 사이에 새 역 신설: BUILD_STATION_BETWEEN(fromStationName, toStationName, newStationName)
+14. 노선 차고지에 차량 구매(증차): BUY_VEHICLE(lineName, count)
+15. 모든 노선 일괄 중단 또는 재개: SET_ALL_LINES_STATUS(status)
+16. 한 노선 또는 도시 전체 차량 일괄 운행·입고: SET_ALL_VEHICLES_SERVICE(lineName, inService)
 
 규칙:
 - 제공된 역과 노선 이름만 그대로 사용하세요. ID, 좌표, 공사비는 만들지 마세요.
@@ -171,6 +209,10 @@ const SYSTEM_PROMPT = `
 - 사용자가 버스를 명시하지 않은 새 노선은 SUBWAY입니다.
 - 삭제, 제거, 철거, 폐기처럼 파괴적인 동사를 명시하지 않았다면 REMOVE_*로 분류하지 마세요.
 - "노선에서 역을 빼기"와 "도시에서 역을 완전히 삭제하기"를 구분하세요.
+- 이미 있는 역을 노선에 태우는 것은 INSERT_STATION_BETWEEN, 없던 역을 새로 짓는 것은 BUILD_STATION_BETWEEN입니다.
+- BUILD_STATION_BETWEEN의 newStationName은 사용자가 이름을 말했을 때만 채우고, 아니면 null로 두세요.
+- 특정 차량 번호 없이 "전부·모두·다"로 지시하면 SET_ALL_* 명령을 쓰세요. SET_ALL_VEHICLES_SERVICE의 lineName은 도시 전체면 null입니다.
+- BUY_VEHICLE의 count는 사용자가 말한 대수이고, 말하지 않았으면 1입니다.
 - 지원하지 않거나 대상이 불명확한 명령은 UNSUPPORTED로 분류하세요.
 `.trim()
 
@@ -183,9 +225,9 @@ export async function parseCityCommand(
 
   if (client) {
     try {
-      const intent = await parseWithAi(rawInput, context)
-      if (intent) {
-        const resolved = resolveCityCommandIntent(intent, context, rawInput)
+      const intents = await parseWithAi(rawInput, context)
+      if (intents) {
+        const resolved = resolveCityCommandPlan(intents, context, rawInput)
         if (resolved.ok) return resolved
         aiFailure = resolved
       }
@@ -194,7 +236,7 @@ export async function parseCityCommand(
     }
   }
 
-  if (fallbackIntent) return resolveCityCommandIntent(fallbackIntent, context, rawInput)
+  if (fallbackIntent) return resolveCityCommandPlan([fallbackIntent], context, rawInput)
   if (aiFailure) return aiFailure
 
   return {
@@ -216,10 +258,40 @@ export function planFallbackCityCommand(
       suggestion: buildSuggestion(context),
     }
   }
-  return resolveCityCommandIntent(intent, context, rawInput)
+  return resolveCityCommandPlan([intent], context, rawInput)
 }
 
-async function parseWithAi(rawInput: string, context: CityCommandContext): Promise<CommandIntent | null> {
+// 여러 명령을 실행 전 도시 상태 기준으로 각각 해석해 하나의 실행 계획으로 합친다.
+// 하나라도 실패하면 절반만 실행되는 일이 없도록 계획 전체를 취소한다.
+function resolveCityCommandPlan(
+  intents: CommandIntent[],
+  context: CityCommandContext,
+  rawInput: string,
+): CityCommandPlanResult {
+  const summaries: string[] = []
+  const actions: CityCommandAction[] = []
+
+  for (const intent of intents.slice(0, MAX_PLAN_COMMANDS)) {
+    const resolved = resolveCityCommandIntent(intent, context, rawInput)
+    if (!resolved.ok) return resolved
+    summaries.push(resolved.summary)
+    actions.push(...resolved.actions)
+  }
+
+  if (actions.length === 0) {
+    return commandFailure('실행할 작업을 찾지 못했습니다.', buildSuggestion(context))
+  }
+  if (actions.length > MAX_PLAN_ACTIONS) {
+    return commandFailure(
+      `한 번에 실행할 수 있는 작업은 ${MAX_PLAN_ACTIONS}개까지입니다. (요청 ${actions.length}개)`,
+      '노선이나 대상을 좁혀서 나눠 명령해주세요.',
+    )
+  }
+
+  return { ok: true, summary: summaries.join(' '), actions }
+}
+
+async function parseWithAi(rawInput: string, context: CityCommandContext): Promise<CommandIntent[] | null> {
   if (!client) return null
 
   const stationList = context.stations.map(station => station.name).join(', ')
@@ -236,7 +308,7 @@ async function parseWithAi(rawInput: string, context: CityCommandContext): Promi
 
   const response = await client.responses.parse({
     model,
-    max_output_tokens: 300,
+    max_output_tokens: 600,
     input: [
       { role: 'system', content: SYSTEM_PROMPT },
       {
@@ -248,8 +320,11 @@ async function parseWithAi(rawInput: string, context: CityCommandContext): Promi
       format: zodTextFormat(AiCommandResponseSchema, 'city_command_intent'),
     },
   })
-  const parsed = response.output_parsed?.command
-  return parsed && parsed.type !== 'UNSUPPORTED' ? parsed : null
+  const parsed = response.output_parsed?.commands
+  if (!parsed || parsed.length === 0) return null
+  // 하나라도 해석하지 못한 부분이 있으면 나머지만 몰래 실행하지 않고 로컬 해석기에 넘긴다.
+  if (parsed.some(command => command.type === 'UNSUPPORTED')) return null
+  return parsed as CommandIntent[]
 }
 
 function resolveCityCommandIntent(
@@ -283,6 +358,88 @@ function resolveCityCommandIntent(
         fromStationId: from.id,
         toStationId: to.id,
       }],
+    }
+  }
+
+  if (intent.type === 'BUILD_STATION_BETWEEN') {
+    const from = findStation(context, intent.fromStationName)
+    const to = findStation(context, intent.toStationName)
+    if (!from || !to) return unresolvedTarget('역', context)
+    if (from.id === to.id) {
+      return commandFailure('새 역을 놓을 기준이 되는 서로 다른 두 역이 필요합니다.', buildSuggestion(context))
+    }
+    if (distance(from, to) < MIN_NEW_STATION_GAP) {
+      return commandFailure(
+        `${from.name}과 ${to.name}이 너무 가까워 사이에 역을 지을 자리가 없습니다.`,
+        '조금 더 떨어진 두 역을 기준으로 요청하거나, 지도에서 직접 역을 지어주세요.',
+      )
+    }
+    const requestedName = intent.newStationName?.trim() ?? ''
+    if (requestedName && context.stations.some(item => normalize(item.name) === normalize(requestedName))) {
+      return commandFailure(`${requestedName} 이름을 가진 역이 이미 있습니다.`, '겹치지 않는 새 역 이름을 입력해주세요.')
+    }
+    const name = requestedName || nextNewStationName(context)
+    return {
+      ok: true,
+      summary: `${from.name}과 ${to.name} 사이에 ${name}을 새로 건설합니다.`,
+      actions: [{
+        type: 'BUILD_STATION',
+        name,
+        posX: clampMapX((from.posX + to.posX) / 2),
+        posY: clampMapY((from.posY + to.posY) / 2),
+      }],
+    }
+  }
+
+  if (intent.type === 'SET_ALL_LINES_STATUS') {
+    if (context.lines.length === 0) {
+      return commandFailure('도시에 운영 중인 노선이 없습니다.', '먼저 노선을 만든 뒤 다시 명령해주세요.')
+    }
+    const targets = context.lines.filter(line => line.status !== intent.status)
+    if (targets.length === 0) {
+      const state = intent.status === 'SUSPENDED' ? '중단' : '운행'
+      return commandFailure(`이미 모든 노선이 ${state} 상태입니다.`, '상태를 바꿀 노선이 없습니다.')
+    }
+    const verb = intent.status === 'SUSPENDED' ? '운행을 중단' : '운행을 재개'
+    return {
+      ok: true,
+      summary: `${targets.map(line => line.name).join(', ')} ${targets.length}개 노선의 ${verb}합니다.`,
+      actions: targets.map(line => ({
+        type: 'SET_LINE_STATUS' as const,
+        lineId: line.id,
+        status: intent.status,
+      })),
+    }
+  }
+
+  if (intent.type === 'SET_ALL_VEHICLES_SERVICE') {
+    const scopedLine = intent.lineName ? findLine(context, intent.lineName) : null
+    if (intent.lineName && !scopedLine) return unresolvedTarget('노선', context)
+    const scope = scopedLine ? [scopedLine] : context.lines
+    const actions = scope.flatMap(line => {
+      // 운행 투입은 역이 연결된 노선에서만 가능하다.
+      if (intent.inService && line.stations.length === 0) return []
+      return line.vehicles
+        .filter(vehicle => isVehicleInService(vehicle) !== intent.inService)
+        .filter(vehicle => (intent.inService ? vehicle.isSpare && vehicle.status === 'SPARE' : true))
+        .map(vehicle => ({
+          type: 'SET_VEHICLE_SERVICE' as const,
+          lineId: line.id,
+          vehicleId: vehicle.id,
+          inService: intent.inService,
+        }))
+    })
+    if (actions.length === 0) {
+      const state = intent.inService ? '운행 중' : '차고지 대기'
+      const where = scopedLine ? `${scopedLine.name}의` : '도시의'
+      return commandFailure(`${where} 차량이 이미 모두 ${state}입니다.`, '상태를 바꿀 차량이 없습니다.')
+    }
+    const verb = intent.inService ? '운행에 투입' : '차고지에 입고'
+    const where = scopedLine ? `${scopedLine.name} ` : '도시 전체 '
+    return {
+      ok: true,
+      summary: `${where}차량 ${actions.length}대를 ${verb}합니다.`,
+      actions,
     }
   }
 
@@ -343,6 +500,14 @@ function resolveCityCommandIntent(
       ok: true,
       summary: `${line.name} 노선을 삭제합니다.`,
       actions: [{ type: 'REMOVE_LINE', lineId: line.id }],
+    }
+  }
+
+  if (intent.type === 'BUY_VEHICLE') {
+    return {
+      ok: true,
+      summary: `${line.name} 차고지에 차량 ${intent.count}대를 들입니다.`,
+      actions: [{ type: 'BUY_VEHICLE', lineId: line.id, count: intent.count }],
     }
   }
 
@@ -470,6 +635,18 @@ function inferFallbackIntent(rawInput: string, context: CityCommandContext): Com
     return { type: 'CREATE_EMPTY_LINE', mode }
   }
 
+  // "새 역"은 새 노선 판정 뒤에 본다 — 두 표현이 한 문장에 있으면 노선 건설이 우선이다.
+  const isNewStation = ['새역', '신설역', '역신설', '역건설', '역을건설', '역만들', '역을만들', '역지어', '역을지어']
+    .some(keyword => normalized.includes(keyword))
+  if (isNewStation && mentionedStations.length === 2 && ['사이', '중간'].some(keyword => normalized.includes(keyword))) {
+    return {
+      type: 'BUILD_STATION_BETWEEN',
+      fromStationName: mentionedStations[0].name,
+      toStationName: mentionedStations[1].name,
+      newStationName: null,
+    }
+  }
+
   const renamedStation = mentionedStations[0]
   const newStationName = extractRenamedStationName(rawInput)
   if (renamedStation && newStationName && ['이름변경', '이름을변경', '이름바꿔', '이름을바꿔', '개명', '로변경', '로바꿔']
@@ -478,6 +655,34 @@ function inferFallbackIntent(rawInput: string, context: CityCommandContext): Com
       type: 'RENAME_STATION',
       stationName: renamedStation.name,
       newStationName,
+    }
+  }
+
+  // "차량 2대 구입"처럼 대수가 중간에 끼므로 차량 단어와 구매 동사를 따로 확인한다.
+  const mentionsVehicleWord = ['차량', '열차'].some(keyword => normalized.includes(keyword))
+  const mentionsPurchase = ['구매', '구입', '증차', '사줘', '사주', '뽑아'].some(keyword => normalized.includes(keyword))
+  const mentionsVehicleAdd = ['차량추가', '차량을추가', '열차추가'].some(keyword => normalized.includes(keyword))
+  if (mentionedLine && ((mentionsVehicleWord && mentionsPurchase) || mentionsVehicleAdd)) {
+    return { type: 'BUY_VEHICLE', lineName: mentionedLine.name, count: findMentionedVehicleCount(rawInput) }
+  }
+
+  const mentionsEveryVehicle = ['모든차량', '전차량', '차량전부', '차량모두', '모든열차', '열차전부']
+    .some(keyword => normalized.includes(keyword))
+  if (mentionsEveryVehicle) {
+    if (['입고', '차고지로', '운행종료', '전부세워', '모두세워'].some(keyword => normalized.includes(keyword))) {
+      return { type: 'SET_ALL_VEHICLES_SERVICE', lineName: mentionedLine?.name ?? null, inService: false }
+    }
+    if (['투입', '출고', '운행시작', '운행해', '배차'].some(keyword => normalized.includes(keyword))) {
+      return { type: 'SET_ALL_VEHICLES_SERVICE', lineName: mentionedLine?.name ?? null, inService: true }
+    }
+  }
+
+  if (['모든노선', '전노선', '노선전부', '노선모두'].some(keyword => normalized.includes(keyword))) {
+    if (['운행중단', '운행정지', '폐쇄', '중단해', '멈춰'].some(keyword => normalized.includes(keyword))) {
+      return { type: 'SET_ALL_LINES_STATUS', status: 'SUSPENDED' }
+    }
+    if (['운행재개', '다시운행', '재개해', '개통해'].some(keyword => normalized.includes(keyword))) {
+      return { type: 'SET_ALL_LINES_STATUS', status: 'OPERATING' }
     }
   }
 
@@ -634,6 +839,33 @@ function findMentionedVehicleNumber(rawInput: string) {
     ['다섯번째', 5],
   ] as const
   return ordinals.find(([word]) => normalized.includes(`${word}차량`) || normalized.includes(`${word}열차`))?.[1] ?? null
+}
+
+function findMentionedVehicleCount(rawInput: string) {
+  const match = rawInput.match(/(\d+)\s*대/u)
+  const count = match ? Number(match[1]) : 0
+  if (Number.isInteger(count) && count > 0) return Math.min(3, count)
+
+  const normalized = normalize(rawInput)
+  const words = [['한대', 1], ['두대', 2], ['세대', 3]] as const
+  return words.find(([word]) => normalized.includes(word))?.[1] ?? 1
+}
+
+// 지도 클릭으로 짓는 역과 같은 기본 이름 규칙 — 삭제로 생긴 번호 구멍을 피해 붙인다.
+function nextNewStationName(context: CityCommandContext) {
+  const used = new Set(context.stations.map(station => station.name))
+  let number = context.stations.length + 1
+  while (used.has(`신설역 ${number}`)) number += 1
+  return `신설역 ${number}`
+}
+
+// 서버 액션 스키마와 같은 지도 범위 (posX 4~96, posY 4~92)
+function clampMapX(value: number) {
+  return Math.round(Math.max(4, Math.min(96, value)) * 10) / 10
+}
+
+function clampMapY(value: number) {
+  return Math.round(Math.max(4, Math.min(92, value)) * 10) / 10
 }
 
 function extractRenamedStationName(rawInput: string) {
