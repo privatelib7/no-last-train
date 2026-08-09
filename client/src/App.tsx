@@ -63,6 +63,8 @@ export default function App() {
     if (readResetToken()) return 'reset'
     return readCityIdFromUrl() ? 'game' : 'title'
   })
+  // 설정 화면에서 닫기를 눌렀을 때 타이틀/로비 중 어디서 열었는지로 되돌아가기 위해 기억해둔다.
+  const [settingsReturnPage, setSettingsReturnPage] = useState<'title' | 'lobby'>('title')
   const applyNavState = (next: NavState) => {
     if (next.page === 'game') {
       window.localStorage.setItem(ACTIVE_CITY_KEY, next.cityId)
@@ -170,8 +172,16 @@ export default function App() {
 
   return (
     <>
-      {page === 'title' && <TitlePage onStart={handleStart} onOpenSettings={() => setPage('settings')} />}
-      {page === 'settings' && <SettingsPage onBack={() => setPage('title')} />}
+      {page === 'title' && (
+        <TitlePage
+          onStart={handleStart}
+          onOpenSettings={() => {
+            setSettingsReturnPage('title')
+            setPage('settings')
+          }}
+        />
+      )}
+      {page === 'settings' && <SettingsPage onBack={() => setPage(settingsReturnPage)} />}
       {page === 'verify' && verifyToken && (
         <VerifyEmailPage token={verifyToken} onGoLogin={goLoginFromVerify} />
       )}
@@ -198,6 +208,10 @@ export default function App() {
           onBack={() => navigate({ page: 'title' })}
           onSelectCity={enterCity}
           onLogout={handleLogout}
+          onOpenSettings={() => {
+            setSettingsReturnPage('lobby')
+            setPage('settings')
+          }}
         />
       )}
       {page === 'game' && activeCityId && (
