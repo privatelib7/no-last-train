@@ -13,6 +13,17 @@ async function isCityOwner(cityId: string, playerId: string) {
   return !!city?.ownerPlayerId && city.ownerPlayerId === playerId
 }
 
+async function claimUnownedCity(cityId: string, playerId: string) {
+  const claimed = await db.city.updateMany({
+    where: { id: cityId, ownerPlayerId: null },
+    data: { ownerPlayerId: playerId },
+  })
+  if (claimed.count > 0) return true
+
+  // 동시에 다른 요청이 승계를 끝냈다면 최종 소유자를 다시 확인한다.
+  return isCityOwner(cityId, playerId)
+}
+
 // 도시 데이터에 접근하는 모든 요청은 이 검사를 통과해야 한다:
 // 로그인 + (관제장 ownerPlayerId / 소유 노선 / 초대 이메일)
 export async function authorizeCityAccess(
@@ -29,30 +40,32 @@ export async function authorizeCityAccess(
     return { error: NextResponse.json({ error: '세션이 만료되었습니다. 다시 로그인해주세요.' }, { status: 401 }) }
   }
 
-  const [owner, ownsLine, invited] = await Promise.all([
-    isCityOwner(cityId, player.id),
+  const [city, ownsLine, invited] = await Promise.all([
+    db.city.findUnique({ where: { id: cityId }, select: { ownerPlayerId: true } }),
     db.line.findFirst({ where: { cityId, playerId: player.id }, select: { id: true } }),
     player.email
       ? db.cityInvite.findUnique({ where: { cityId_email: { cityId, email: player.email } } })
       : Promise.resolve(null),
   ])
 
-  if (owner || ownsLine || invited) {
+  if (city?.ownerPlayerId === player.id) {
     return { player }
   }
 
-  // 예전 데이터 복구: 활동 기록이 있는데 owner가 비어 있으면 관제장으로 승격
-  const [acted, city] = await Promise.all([
-    db.activityLog.findFirst({ where: { cityId, playerId: player.id }, select: { id: true } }),
-    db.city.findUnique({ where: { id: cityId }, select: { ownerPlayerId: true } }),
-  ])
-  if (acted && !city?.ownerPlayerId) {
-    await db.city.update({
-      where: { id: cityId },
-      data: { ownerPlayerId: player.id },
-    })
+  // 예전 데이터 복구: 관제장이 비어 있고 내 노선이 있으면 실제 관제장으로 승계한다.
+  // 화면의 isOwner와 변경 API가 모두 같은 ownerPlayerId를 보게 해야 한다.
+  if (!city?.ownerPlayerId && ownsLine && await claimUnownedCity(cityId, player.id)) {
     return { player }
   }
+
+  if (ownsLine || invited) return { player }
+
+  // 더 오래된 데이터는 활동 기록을 마지막 복구 근거로 사용한다.
+  const acted = await db.activityLog.findFirst({
+    where: { cityId, playerId: player.id },
+    select: { id: true },
+  })
+  if (!city?.ownerPlayerId && acted && await claimUnownedCity(cityId, player.id)) return { player }
 
   return {
     error: NextResponse.json(

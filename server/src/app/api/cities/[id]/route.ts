@@ -75,7 +75,6 @@ export async function GET(
   const elapsedMs = Date.now() - city.lastTickAt.getTime()
   const elapsedGameHours = elapsedMs / SIM.LIVE_TICK_MS / SIM.TICKS_PER_GAME_HOUR
   const isOwner = city.ownerPlayerId === auth.player.id
-    || (!city.ownerPlayerId && city.lines.some(line => line.playerId === auth.player.id))
   const managementGoal = resolveManagementGoal(city.revenueGoal, city.goalReachedAtTick)
 
   return NextResponse.json({

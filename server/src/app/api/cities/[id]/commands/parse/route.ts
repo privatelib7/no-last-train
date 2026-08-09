@@ -42,6 +42,10 @@ export async function POST(
             station: { select: { id: true, name: true, posX: true, posY: true } },
           },
         },
+        vehicles: {
+          orderBy: { id: 'asc' },
+          select: { id: true, status: true, isSpare: true },
+        },
       },
     }),
   ])
@@ -54,6 +58,7 @@ export async function POST(
       mode: line.mode,
       status: line.status,
       stations: line.lineStations.map(item => item.station),
+      vehicles: line.vehicles,
     })),
   })
 
