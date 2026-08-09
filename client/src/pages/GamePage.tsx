@@ -31,17 +31,7 @@ interface Props {
   onRequireLogin: () => void
 }
 
-type VehicleDragState = {
-  lineId: string
-  vehicleId: string
-  startX: number
-  startY: number
-  x: number
-  y: number
-  active: boolean
-}
-
-type DragTarget = { kind: 'DEPOT' | 'STATION'; id: string } | null
+type DragTarget = { kind: 'STATION'; id: string } | null
 
 type StationLinkDrag = {
   stationId: string
@@ -162,7 +152,7 @@ function linePoints(line: GameLine) {
 }
 
 function trainStatus(vehicle: Vehicle) {
-  if (vehicle.isSpare) return '차고지 대기'
+  if (vehicle.isSpare) return '대기'
   if (vehicle.status === 'OPERATING') return '운행 중'
   if (vehicle.status === 'LOANED') return '지원 운행'
   if (vehicle.status === 'MAINTENANCE') return '정비 중'
@@ -171,10 +161,6 @@ function trainStatus(vehicle: Vehicle) {
 
 function orderedVehicles(line: GameLine) {
   return line.vehicles.slice().sort((a, b) => a.id.localeCompare(b.id))
-}
-
-function lineHasStation(line: GameLine, stationId: string) {
-  return line.lineStations.some(item => item.stationId === stationId)
 }
 
 /** 선택 노선의 빈 노선이거나, 한쪽이 종점이고 다른 쪽이 노선 밖이면 연장 가능 */
@@ -188,13 +174,8 @@ function canExtendLine(line: GameLine, fromStationId: string, toStationId: strin
   return stations[0].id === onLineId || stations[stations.length - 1].id === onLineId
 }
 
-function nearestStationToDepot(line: GameLine) {
-  return orderedStations(line).reduce<Station | null>((nearest, station) => {
-    if (!nearest) return station
-    const currentDistance = Math.hypot(station.posX - line.depotX, station.posY - line.depotY)
-    const nearestDistance = Math.hypot(nearest.posX - line.depotX, nearest.posY - line.depotY)
-    return currentDistance < nearestDistance ? station : nearest
-  }, null)
+function lineHasStation(line: GameLine, stationId: string) {
+  return line.lineStations.some(item => item.stationId === stationId)
 }
 
 function pointSegmentDistance(px: number, py: number, ax: number, ay: number, bx: number, by: number) {
@@ -219,7 +200,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const [renameValue, setRenameValue] = useState('')
   const [moveStationMode, setMoveStationMode] = useState(false)
   const [legendOpen, setLegendOpen] = useState(false)
-  const [vehicleDrag, setVehicleDrag] = useState<VehicleDragState | null>(null)
   const [stationDrag, setStationDrag] = useState<StationLinkDrag | null>(null)
   const [segmentDrag, setSegmentDrag] = useState<SegmentDrag | null>(null)
   const [dragTarget, setDragTarget] = useState<DragTarget>(null)
@@ -244,7 +224,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const ticking = useRef(false)
   const cursorPosRef = useRef<{ x: number; y: number; ts: number } | null>(null)
   const cursorLastSentRef = useRef<{ x: number; y: number } | null>(null)
-  const vehicleDragRef = useRef<VehicleDragState | null>(null)
   const stationDragRef = useRef<StationLinkDrag | null>(null)
   const segmentDragRef = useRef<SegmentDrag | null>(null)
   const suppressStationClick = useRef(false)
@@ -488,6 +467,26 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
       }
     }
     return new Set([...modes].filter(([, set]) => set.size === 1 && set.has('BUS')).map(([stationId]) => stationId))
+  }, [sortedLines])
+  // 예전 차고지가 붙던 쪽 종점만 (노선당 한쪽 — depot 좌표에 더 가까운 끝)
+  const depotTerminusByStationId = useMemo(() => {
+    const byStation = new Map<string, GameLine[]>()
+    for (const line of sortedLines) {
+      const stations = orderedStations(line)
+      if (stations.length === 0) continue
+      let terminus = stations[0]
+      if (stations.length > 1) {
+        const first = stations[0]
+        const last = stations[stations.length - 1]
+        const distFirst = Math.hypot(first.posX - line.depotX, first.posY - line.depotY)
+        const distLast = Math.hypot(last.posX - line.depotX, last.posY - line.depotY)
+        terminus = distFirst <= distLast ? first : last
+      }
+      const list = byStation.get(terminus.id) ?? []
+      list.push(line)
+      byStation.set(terminus.id, list)
+    }
+    return byStation
   }, [sortedLines])
   const mapDef = getCityMap(state?.city.mapKey)
   const citizenJourneys = useMemo(() => {
@@ -900,94 +899,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     zoomMap(event.deltaY > 0 ? 1.16 : 0.86)
   }
 
-  const beginVehiclePointerDrag = (
-    event: PointerEvent<HTMLElement | SVGGElement>,
-    lineId: string,
-    vehicleId: string,
-  ) => {
-    if (event.button !== 0 || busy) return
-    event.preventDefault()
-    event.stopPropagation()
-    selectVehicle(lineId, vehicleId)
-    const nextDrag = {
-      lineId,
-      vehicleId,
-      startX: event.clientX,
-      startY: event.clientY,
-      x: event.clientX,
-      y: event.clientY,
-      active: false,
-    }
-    vehicleDragRef.current = nextDrag
-    setVehicleDrag(nextDrag)
-  }
-
-  const draggedVehicleId = vehicleDrag?.vehicleId
-  useEffect(() => {
-    if (!draggedVehicleId) return
-
-    const updateTarget = (x: number, y: number) => {
-      const element = document.elementFromPoint(x, y)
-      const depot = element?.closest('[data-depot-line-id]')
-      if (depot) {
-        setDragTarget({ kind: 'DEPOT', id: depot.getAttribute('data-depot-line-id') ?? '' })
-        return
-      }
-      setDragTarget(null)
-    }
-
-    const handlePointerMove = (event: globalThis.PointerEvent) => {
-      const current = vehicleDragRef.current
-      if (!current) return
-      const active = current.active || Math.hypot(event.clientX - current.startX, event.clientY - current.startY) > 5
-      const next = { ...current, x: event.clientX, y: event.clientY, active }
-      vehicleDragRef.current = next
-      setVehicleDrag(next)
-      if (active) updateTarget(event.clientX, event.clientY)
-    }
-
-    const handlePointerUp = (event: globalThis.PointerEvent) => {
-      const current = vehicleDragRef.current
-      vehicleDragRef.current = null
-      setVehicleDrag(null)
-      setDragTarget(null)
-      const currentState = stateRef.current
-      if (!current?.active || !currentState) return
-
-      const sourceLine = currentState.city.lines.find(line => line.id === current.lineId)
-      const vehicle = sourceLine?.vehicles.find(item => item.id === current.vehicleId)
-      const element = document.elementFromPoint(event.clientX, event.clientY)
-      const depotLineId = element?.closest('[data-depot-line-id]')?.getAttribute('data-depot-line-id')
-
-      if (sourceLine && vehicle && depotLineId && depotLineId !== sourceLine.id) {
-        if (vehicle.status !== 'SPARE' || !vehicle.isSpare) {
-          setError('운행 차량은 입고 버튼을 누른 뒤 다른 차고지로 이동해주세요.')
-          return
-        }
-        const runAction = performActionRef.current
-        if (!runAction) return
-        void runAction({
-          type: 'TRANSFER_VEHICLE',
-          lineId: sourceLine.id,
-          vehicleId: vehicle.id,
-          targetLineId: depotLineId,
-        }).then(next => {
-          if (!next) return
-          setSelectedLineId(depotLineId)
-          setSelectedVehicleId(vehicle.id)
-        })
-        return
-      }
-    }
-
-    document.addEventListener('pointermove', handlePointerMove)
-    document.addEventListener('pointerup', handlePointerUp, { once: true })
-    return () => {
-      document.removeEventListener('pointermove', handlePointerMove)
-      document.removeEventListener('pointerup', handlePointerUp)
-    }
-  }, [draggedVehicleId])
-
   // 역에서 다른 역으로 끌어당겨 선로 연결
   const draggedStationId = stationDrag?.stationId
   useEffect(() => {
@@ -1382,14 +1293,13 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                 const isMoving = selectedLine.status === 'OPERATING' && vehicle.status === 'OPERATING' && motion?.toStation && !isDwelling
                 const routeStatus = isMoving
                   ? `${station?.name} → ${motion.toStation?.name}`
-                  : station?.name ?? `${selectedLine.name} 차고지`
+                  : station?.name ?? '대기'
                 return (
                   <div key={vehicle.id} className={styles.vehicleRow}>
                     <button
                       className={`${styles.vehicleCard} ${vehicle.id === selectedVehicleId ? styles.vehicleSelected : ''}`}
                       aria-pressed={vehicle.id === selectedVehicleId}
                       onClick={() => selectVehicle(selectedLine.id, vehicle.id)}
-                      onPointerDown={event => beginVehiclePointerDrag(event, selectedLine.id, vehicle.id)}
                     >
                       <span
                         className={`${styles.trainBadge} ${selectedLine.mode === 'BUS' ? styles.busBadge : ''}`}
@@ -1411,7 +1321,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                         inService: !(vehicle.status === 'OPERATING' && !vehicle.isSpare),
                       })}
                       disabled={busy || !['OPERATING', 'SPARE'].includes(vehicle.status)}
-                    >{vehicle.status === 'OPERATING' && !vehicle.isSpare ? '입고' : '운행'}</button>
+                    >{vehicle.status === 'OPERATING' && !vehicle.isSpare ? '대기' : '운행'}</button>
                   </div>
                 )
               })}
@@ -1657,7 +1567,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             className={`${styles.cityMap} ${stationBuildMode || moveStationMode ? styles.stationBuildCursor : ''} ${isMapPanning ? styles.mapPanning : ''}`}
             viewBox={`${mapView.x} ${mapView.y} ${mapView.width} ${mapView.height}`}
             role="img"
-            aria-label={`${mapDef.name} 지형과 일반역, 환승역, 노선 차고지`}
+            aria-label={`${mapDef.name} 지형과 일반역, 환승역, 노선`}
             onClick={handleMapClick}
             onPointerDown={handleMapPointerDown}
             onPointerMove={handleMapPointerMove}
@@ -1733,26 +1643,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                 )
               })}
             </g>
-
-            {sortedLines.map(line => {
-              const nearest = nearestStationToDepot(line)
-              if (!nearest) return null
-              return (
-                <line
-                  key={`depot-spur-${line.id}`}
-                  x1={line.depotX}
-                  y1={line.depotY}
-                  x2={nearest.posX}
-                  y2={nearest.posY}
-                  className={styles.depotSpur}
-                  style={{
-                    stroke: LINE_COLORS[line.color],
-                    strokeWidth: 1.15 * mapScale,
-                    strokeDasharray: `${1.4 * mapScale} ${1.2 * mapScale}`,
-                  }}
-                />
-              )
-            })}
 
             {sortedLines.filter(line => line.lineStations.length > 1).map(line => (
               <g
@@ -1839,6 +1729,9 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
               const point = stationPoint(station)
               const isInterchange = interchangeStationIds.has(station.id)
               const isBusStop = busOnlyStationIds.has(station.id)
+              const depotLines = depotTerminusByStationId.get(station.id) ?? []
+              const isDepotTerminus = depotLines.length > 0
+              const depotLabel = depotLines.map(line => `${line.name} 차고지`).join(' · ')
               const isCurrentVehicleStation = selectedVehicle?.currentStationId === station.id
               const isDropTarget = dragTarget?.kind === 'STATION' && dragTarget.id === station.id
               const highlighted = isCurrentVehicleStation || isDropTarget || station.id === selectedStationId
@@ -1847,16 +1740,16 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                 <g
                   key={station.id}
                   transform={`translate(${point.x} ${point.y}) scale(${mapScale})`}
-                  className={styles.stationGroup}
+                  className={`${styles.stationGroup}${isDepotTerminus ? ` ${styles.depotTerminusStation}` : ''}`}
                   onClick={event => handleStationClick(event, station.id)}
                   onPointerDown={event => beginStationLinkDrag(event, station.id)}
                   role="button"
                   tabIndex={0}
                   data-station-id={station.id}
                   data-map-interactive="true"
-                  aria-label={`${station.name} ${isBusStop ? '버스 정류장' : isInterchange ? '환승역' : '일반역'} 선택`}
+                  aria-label={`${station.name} ${isBusStop ? '버스 정류장' : isInterchange ? '환승역' : '일반역'}${isDepotTerminus ? ` · ${depotLabel}` : ''} 선택`}
                 >
-                  <title>{station.name} · {isBusStop ? '버스 정류장' : isInterchange ? '환승역' : '일반역'}</title>
+                  <title>{station.name} · {isBusStop ? '버스 정류장' : isInterchange ? '환승역' : '일반역'}{isDepotTerminus ? ` · ${depotLabel}` : ''}</title>
                   {highlighted && <circle r="3.3" className={styles.stationSelection} />}
                   {congestion >= CONGESTION_SATURATED ? (
                     <circle r="3" className={styles.saturatedRing} />
@@ -1880,6 +1773,11 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                       <circle r="1.4" className={styles.stationNode} />
                     </>
                   )}
+                  {isDepotTerminus && (
+                    <text y="4.6" textAnchor="middle" className={styles.depotTerminusLabel}>
+                      {depotLabel}
+                    </text>
+                  )}
                   {Array.from({ length: Math.min(Math.ceil((waitingByStation.get(station.id) ?? 0) / 5), 12) }, (_, dotIndex) => (
                     <circle
                       key={dotIndex}
@@ -1889,33 +1787,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                       className={styles.queueDot}
                     />
                   ))}
-                </g>
-              )
-            })}
-
-            {sortedLines.map(line => {
-              // 아직 역이 없는 신설 노선은 차고지를 그리지 않는다 (첫 구간 부설 시 종점 옆에 등장)
-              if (line.lineStations.length === 0) return null
-              const spareCount = line.vehicles.filter(vehicle => vehicle.isSpare).length
-              const isDropTarget = dragTarget?.kind === 'DEPOT' && dragTarget.id === line.id
-              return (
-                <g
-                  key={`depot-${line.id}`}
-                  transform={`translate(${line.depotX} ${line.depotY}) scale(${mapScale})`}
-                  className={`${styles.depot} ${isDropTarget ? styles.depotDropTarget : ''}`}
-                  data-depot-line-id={line.id}
-                  data-map-interactive="true"
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`${line.name} 차고지 · 예비 차량 ${spareCount}대`}
-                  onClick={event => { event.stopPropagation(); selectLine(line.id) }}
-                >
-                  <circle r="4.7" className={styles.depotHitArea} />
-                  <rect x="-3" y="-2.3" width="6" height="4.6" rx=".8" className={styles.depotBuilding} />
-                  <path d="M-2 2.3V4M0 2.3V4M2 2.3V4" className={styles.depotRails} />
-                  <rect x="-2.1" y="-1.05" width="4.2" height="1.85" rx=".45" fill={LINE_COLORS[line.color]} />
-                  <text y="-3.9" textAnchor="middle" className={styles.depotLabel}>{line.name} 차고지</text>
-                  {spareCount > 0 && <text x="3.4" y="3.7" textAnchor="middle" className={styles.depotCount}>{spareCount}</text>}
                 </g>
               )
             })}
@@ -1937,14 +1808,12 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                 // 왼쪽 방향 이동 시 180° 회전으로 뒤집히지 않게 좌우 반전으로 처리
                 const trainFlipped = Math.abs(rawAngle) > 90
                 const trainAngle = trainFlipped ? rawAngle - 180 * Math.sign(rawAngle) : rawAngle
-                const dragging = vehicleDrag?.active && vehicleDrag.vehicleId === vehicle.id
                 return (
                   <g
                     key={vehicle.id}
                     transform={`translate(${trainX} ${trainY}) rotate(${trainAngle})${trainFlipped ? ' scale(-1,1)' : ''} scale(${mapScale})`}
-                    className={`${styles.trainIcon} ${vehicle.id === selectedVehicleId ? styles.selectedTrain : ''} ${dragging ? styles.trainDragging : ''}`}
+                    className={`${styles.trainIcon} ${vehicle.id === selectedVehicleId ? styles.selectedTrain : ''}`}
                     onClick={event => { event.stopPropagation(); selectVehicle(line.id, vehicle.id) }}
-                    onPointerDown={event => beginVehiclePointerDrag(event, line.id, vehicle.id)}
                     role="button"
                     tabIndex={0}
                     aria-label={`${line.name} 차량 선택`}
@@ -2023,7 +1892,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                   <span><i className={styles.regularStationMark} />일반</span>
                   <span><i className={styles.interchangeStationMark} />환승</span>
                   <span><i className={styles.busStopMark} />버스 정류장</span>
-                  <span><i className={styles.depotMark} />차고지</span>
                   <span><i className={styles.saturatedMark} />포화</span>
                 </div>
                 <div className={styles.legendRow} aria-label="구역 종류">
@@ -2063,13 +1931,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
               >{busy ? '준비 중…' : '같은 도시로 다시 시작'}</button>
             </div>
           </div>
-        </div>
-      )}
-
-      {vehicleDrag?.active && (
-        <div className={styles.vehicleDragGhost} style={{ left: vehicleDrag.x, top: vehicleDrag.y }}>
-          <span style={{ background: LINE_COLORS[selectedVehicleLine?.color ?? 'RED'] }} />
-          {selectedVehicleLine?.name} 차량
         </div>
       )}
 
