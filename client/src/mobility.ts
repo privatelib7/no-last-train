@@ -88,23 +88,24 @@ export function pathStaysOnLand(from: Point, to: Point, map: CityMapDef) {
   return true
 }
 
-function servedStations(lines: GameLine[], stations: Station[]) {
+/** 노선 유무와 관계없이 모든 역을 목적지로 쓴다 (전역 스폰용). */
+function allStationsWithAccess(lines: GameLine[], stations: Station[]) {
   const modesByStation = new Map<string, Set<'SUBWAY' | 'BUS'>>()
   for (const line of lines) {
-    if (line.status !== 'OPERATING' || line.lineStations.length < 2) continue
     for (const item of line.lineStations) {
       if (!modesByStation.has(item.stationId)) modesByStation.set(item.stationId, new Set())
       modesByStation.get(item.stationId)!.add(line.mode)
     }
   }
 
-  return stations.flatMap(station => {
+  return stations.map(station => {
     const modes = modesByStation.get(station.id)
-    if (!modes || modes.size === 0) return []
-    const accessMode: StationAccessMode = modes.size > 1
-      ? 'INTERCHANGE'
-      : modes.has('BUS') ? 'BUS' : 'SUBWAY'
-    return [{ station, accessMode }]
+    const accessMode: StationAccessMode = !modes || modes.size === 0
+      ? 'SUBWAY'
+      : modes.size > 1
+        ? 'INTERCHANGE'
+        : modes.has('BUS') ? 'BUS' : 'SUBWAY'
+    return { station, accessMode }
   })
 }
 
@@ -138,6 +139,20 @@ function landSafePointNearStation(station: Station, map: CityMapDef, seed: numbe
   return stationPoint
 }
 
+/** 맵 전역 육지에서 스폰 지점을 고른다. 역까지 육로가 있으면 우선, 실패 시 역 근처로 폴백. */
+function landSafePointOnMap(station: Station, map: CityMapDef, seed: number, index: number): Point {
+  const stationPoint = { x: station.posX, y: station.posY }
+  for (let attempt = 0; attempt < 96; attempt++) {
+    const point = {
+      x: 4 + randomUnit(seed, index, 400 + attempt * 3) * 92,
+      y: 4 + randomUnit(seed, index, 501 + attempt * 3) * 88,
+    }
+    if (!map.isLand(point.x, point.y)) continue
+    if (pathStaysOnLand(point, stationPoint, map)) return point
+  }
+  return landSafePointNearStation(station, map, seed, index)
+}
+
 export function createCitizenJourneys(options: {
   seed: number
   waitingCount: number
@@ -148,13 +163,13 @@ export function createCitizenJourneys(options: {
   map: CityMapDef
 }): CitizenJourney[] {
   const { seed, waitingCount, gameHour, weekend, stations, lines, map } = options
-  const availableStations = servedStations(lines, stations)
+  const availableStations = allStationsWithAccess(lines, stations)
   if (availableStations.length === 0) return []
 
   const busStops = availableStations.filter(item => item.accessMode === 'BUS')
   const dayKind: DayKind = weekend ? 'WEEKEND' : 'WEEKDAY'
   const weights = STATION_DEMAND_WEIGHTS[dayKind][periodOfHour(gameHour)]
-  const count = Math.min(112, Math.max(54, Math.round(40 + Math.log10(waitingCount + 10) * 12)))
+  const count = Math.min(128, Math.max(64, Math.round(48 + Math.log10(waitingCount + 10) * 14)))
   const journeys: CitizenJourney[] = []
 
   for (let index = 0; index < count; index++) {
@@ -170,7 +185,8 @@ export function createCitizenJourneys(options: {
     if (!target) continue
 
     const stationPoint = { x: target.station.posX, y: target.station.posY }
-    const outsidePoint = landSafePointNearStation(target.station, map, seed, index)
+    // 노선 근처가 아니라 맵 전역 육지에서 리스폰한 뒤 역으로 걸어온다.
+    const outsidePoint = landSafePointOnMap(target.station, map, seed, index)
     const landSafe = pathStaysOnLand(outsidePoint, stationPoint, map)
     const walkDuration = Math.max(2.4, distanceBetween(outsidePoint, stationPoint) / 1.8)
     const legs: JourneyLeg[] = [
