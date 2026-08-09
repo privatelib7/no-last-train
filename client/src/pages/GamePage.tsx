@@ -756,6 +756,12 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     if (busy) return
     const station = stationById.get(stationId)
     const prevSelectedId = selectedStationId
+    // 같은 역을 다시 클릭하면 선택 해제
+    if (prevSelectedId === stationId) {
+      setSelectedStationId('')
+      setRenameValue('')
+      return
+    }
     setSelectedStationId(stationId)
     setRenameValue(station?.name ?? '')
     // 역 두 개를 연달아 클릭하면 선택된 노선으로 바로 연결 (성공 시 두 번째 역에서 체인 계속)
