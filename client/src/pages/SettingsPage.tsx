@@ -24,7 +24,7 @@ export default function SettingsPage({ onBack }: Props) {
   return (
     <div className={styles.page}>
       <div className={styles.card}>
-        <button className={styles.backBtn} onClick={onBack} type="button" title="타이틀로">
+        <button className={styles.backBtn} onClick={onBack} type="button" title="뒤로">
           <span className={styles.backArrow}>←</span>
         </button>
 

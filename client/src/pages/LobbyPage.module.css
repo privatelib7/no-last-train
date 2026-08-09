@@ -44,6 +44,29 @@
   line-height: 1;
 }
 
+.settingsBtn {
+  width: 40px;
+  height: 40px;
+  margin-top: auto;
+  border-radius: 50%;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  color: var(--text-muted);
+}
+
+.settingsBtn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.settingsBtn:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
 /* ── Main ── */
 .main {
   flex: 1;
