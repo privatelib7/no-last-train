@@ -83,6 +83,8 @@ type CityCommandMessage = {
 const LIVE_TICK_MS = 3000
 const CURSOR_SYNC_MS = 45
 const CURSOR_IDLE_TIMEOUT_MS = 2500
+// 서버 cursor-presence.ts 의 CURSOR_COLORS 와 동일한 팔레트 (본인 아바타 색 계산용)
+const PRESENCE_COLORS = ['#ff6f91', '#4fc9a8', '#5b8cf2', '#ffb648', '#a77dfb', '#3ecbd0', '#f4886b'] as const
 const CITIZEN_TIME_SCALE = 0.72
 const GAME_MINUTES_PER_TICK = 60 / TICKS_PER_HOUR
 const INITIAL_MAP_VIEW: MapView = { x: 0, y: 0, width: 100, height: 100 }
@@ -126,6 +128,22 @@ function formatElapsed(seconds: number) {
 function formatMoney(value: number) {
   const sign = value < 0 ? '-' : ''
   return `${sign}₵${Math.round(Math.abs(value) / 10_000).toLocaleString('ko-KR')}`
+}
+
+// 프레즌스 동그라미에 넣을 닉네임 이니셜 (한글은 첫 글자, 영문은 앞 두 글자)
+function getInitials(nickname: string) {
+  const trimmed = nickname.trim()
+  if (!trimmed) return '?'
+  const first = trimmed[0]
+  return /[a-zA-Z]/.test(first) ? trimmed.slice(0, 2).toUpperCase() : first
+}
+
+function colorForPlayerId(playerId: string) {
+  let hash = 0
+  for (let i = 0; i < playerId.length; i++) {
+    hash = (hash * 31 + playerId.charCodeAt(i)) >>> 0
+  }
+  return PRESENCE_COLORS[hash % PRESENCE_COLORS.length]
 }
 
 function stationPoint(station: Station) {
@@ -380,6 +398,24 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     animationFrame = window.requestAnimationFrame(animate)
     return () => window.cancelAnimationFrame(animationFrame)
   }, [])
+
+  // 본인 + 다른 접속자를 상단 프레즌스 동그라미로 표시
+  const presencePlayers = useMemo(() => {
+    const others = new Map(
+      remoteCursors.map(cursor => [
+        cursor.playerId,
+        { playerId: cursor.playerId, nickname: cursor.nickname, color: cursor.color },
+      ]),
+    )
+    if (!session) return [...others.values()]
+    const me = {
+      playerId: session.playerId,
+      nickname: session.nickname ?? session.username ?? '나',
+      color: colorForPlayerId(session.playerId),
+    }
+    others.delete(session.playerId)
+    return [me, ...others.values()]
+  }, [remoteCursors, session])
 
   const sortedLines = useMemo(
     () => state?.city.lines.slice().sort((a, b) => a.name.localeCompare(b.name, 'ko')) ?? [],
@@ -1486,13 +1522,34 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
               {state.city.name} · {Math.floor(continuousTick / TICKS_PER_DAY) + 1}일차{isWeekend ? ' · 주말' : ''} · {formatHour(gameHour)}
             </span>
           </div>
-          <div className={styles.hudStats}>
-            <span><small>경영 점수</small><b>{state.city.score.toLocaleString('ko-KR')}</b></span>
-            <span><small>운영 자금</small><b className={state.city.cashBalance < 0 ? styles.dangerValue : ''}>{formatMoney(state.city.cashBalance)}</b></span>
-            <span><small>행복도</small><b>{Math.round(state.city.happiness)}%</b></span>
-            <span><small>대기 승객</small><b>{waitingPassengers}명</b></span>
-            <span><small>서비스 · 차량</small><b>{Math.round(serviceScore)} · {totalVehicles}대</b></span>
-            <span className={styles.tickNumber}><small>플레이 시간</small><b>{formatElapsed(elapsedSeconds)}</b></span>
+          <div className={styles.hudRight}>
+            {presencePlayers.length > 0 && (
+              <div className={styles.presenceGroup} aria-label={`현재 접속 중 ${presencePlayers.length}명`}>
+                {presencePlayers.slice(0, 5).map(player => (
+                  <span
+                    key={player.playerId}
+                    className={styles.presenceAvatar}
+                    style={{ ['--presence-color' as string]: player.color }}
+                    data-tooltip={player.nickname}
+                  >
+                    {getInitials(player.nickname)}
+                  </span>
+                ))}
+                {presencePlayers.length > 5 && (
+                  <span className={styles.presenceAvatar} data-tooltip={presencePlayers.slice(5).map(p => p.nickname).join(', ')}>
+                    +{presencePlayers.length - 5}
+                  </span>
+                )}
+              </div>
+            )}
+            <div className={styles.hudStats}>
+              <span><small>경영 점수</small><b>{state.city.score.toLocaleString('ko-KR')}</b></span>
+              <span><small>운영 자금</small><b className={state.city.cashBalance < 0 ? styles.dangerValue : ''}>{formatMoney(state.city.cashBalance)}</b></span>
+              <span><small>행복도</small><b>{Math.round(state.city.happiness)}%</b></span>
+              <span><small>대기 승객</small><b>{waitingPassengers}명</b></span>
+              <span><small>서비스 · 차량</small><b>{Math.round(serviceScore)} · {totalVehicles}대</b></span>
+              <span className={styles.tickNumber}><small>플레이 시간</small><b>{formatElapsed(elapsedSeconds)}</b></span>
+            </div>
           </div>
         </header>
 
