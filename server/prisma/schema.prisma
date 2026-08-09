@@ -63,9 +63,9 @@ model City {
   status            CityStatus      @default(ACTIVE)
   currentTick       Int             @default(0)          // 누적 시뮬레이션 틱
   lastTickAt        DateTime        @default(now())      // 마지막 시뮬레이션 시각
-  cashBalance       Int             @default(120000000)  // 현재 운영 자금 (원)
+  cashBalance       Int             @default(350000000)  // 현재 운영 자금 (원)
   totalRevenue      Int             @default(0)          // 누적 운송 매출 (원)
-  revenueGoal       Int             @default(80000000)   // 현재 경영 목표의 누적 매출 (원)
+  revenueGoal       Int             @default(32000000)   // 현재 경영 목표의 누적 매출 (원)
   happiness         Float           @default(78)         // 시민 행복도 0~100
   score             Int             @default(0)          // 누적 경영 점수
   insolvencyTicks   Int             @default(0)          // 파산 위험 연속 틱

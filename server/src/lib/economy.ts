@@ -2,34 +2,34 @@ import { SIM } from '@/types/game'
 import { isVehicleInService } from './vehicle-service'
 
 export const ECONOMY = {
-  INITIAL_CASH: 120_000_000,
-  INITIAL_HAPPINESS: 78,
-  REVENUE_GOAL: 80_000_000,
-  FARE_PER_PASSENGER: 1_600,
-  GOAL_REWARD_CASH: 20_000_000,
-  GOAL_REWARD_SCORE: 5_000,
-  BUILD_DEBT_LIMIT: -25_000_000,
-  BANKRUPT_LIMIT: -30_000_000,
+  INITIAL_CASH: 350_000_000,
+  INITIAL_HAPPINESS: 82,
+  REVENUE_GOAL: 32_000_000,
+  FARE_PER_PASSENGER: 5_000,
+  GOAL_REWARD_CASH: 50_000_000,
+  GOAL_REWARD_SCORE: 8_000,
+  BUILD_DEBT_LIMIT: -40_000_000,
+  BANKRUPT_LIMIT: -50_000_000,
   CRITICAL_HAPPINESS: 10,
   GAME_OVER_GRACE_TICKS: SIM.TICKS_PER_GAME_HOUR * SIM.GAME_HOURS_PER_DAY * 2,
   BUILD_COST: {
-    STATION: 8_000_000,
-    SUBWAY_LINE: 20_000_000,
-    BUS_LINE: 6_000_000,
-    SUBWAY_SEGMENT_BASE: 2_000_000,
-    SUBWAY_SEGMENT_PER_MAP_UNIT: 300_000,
-    BUS_SEGMENT_BASE: 500_000,
-    BUS_SEGMENT_PER_MAP_UNIT: 80_000,
-    SUBWAY_INSERT: 3_000_000,
-    BUS_INSERT: 1_000_000,
-    SUBWAY_VEHICLE: 7_000_000,
-    BUS_VEHICLE: 2_000_000,
+    STATION: 4_000_000,
+    SUBWAY_LINE: 10_000_000,
+    BUS_LINE: 3_000_000,
+    SUBWAY_SEGMENT_BASE: 1_000_000,
+    SUBWAY_SEGMENT_PER_MAP_UNIT: 150_000,
+    BUS_SEGMENT_BASE: 250_000,
+    BUS_SEGMENT_PER_MAP_UNIT: 40_000,
+    SUBWAY_INSERT: 1_500_000,
+    BUS_INSERT: 500_000,
+    SUBWAY_VEHICLE: 3_500_000,
+    BUS_VEHICLE: 1_000_000,
   },
   OPERATING_COST: {
-    SUBWAY_LINE: 35_000,
-    BUS_LINE: 12_000,
-    SUBWAY_VEHICLE: 18_000,
-    BUS_VEHICLE: 6_000,
+    SUBWAY_LINE: 12_000,
+    BUS_LINE: 4_000,
+    SUBWAY_VEHICLE: 6_000,
+    BUS_VEHICLE: 2_000,
   },
 } as const
 
@@ -80,12 +80,12 @@ export type ManagementGoal = {
 }
 
 // 목표는 누적 매출 기준으로 커지고, 달성 기한도 단계마다 4일, 5일, 6일…씩 넓어진다.
-// 1단계 8,000만/3일 → 2단계 1억 8,000만/7일 → 3단계 3억/12일.
+// 1단계 3,200만/3일 → 2단계 7,200만/7일 → 3단계 1억 2,000만/12일.
 export function managementGoalForLevel(level: number): ManagementGoal {
   const safeLevel = Math.max(1, Math.floor(level))
   return {
     level: safeLevel,
-    revenueGoal: 10_000_000 * safeLevel * (safeLevel + 7),
+    revenueGoal: 4_000_000 * safeLevel * (safeLevel + 7),
     deadlineDay: safeLevel * (safeLevel + 5) / 2,
   }
 }

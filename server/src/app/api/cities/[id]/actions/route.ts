@@ -222,7 +222,7 @@ export async function POST(
         posY: action.posY,
       },
     }))
-    const message = `${station.name}을 건설했습니다. (₵800)`
+    const message = `${station.name}을 건설했습니다. (${formatCash(ECONOMY.BUILD_COST.STATION)})`
     await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
     return NextResponse.json({ message, station })
   }
@@ -255,7 +255,7 @@ export async function POST(
       return nextLine
     })
     return NextResponse.json({
-      message: `${name} 노선을 만들었습니다. (${action.mode === 'BUS' ? '₵600' : '₵2,000'}) 역 두 개를 연달아 클릭해 선로를 부설하세요.`,
+      message: `${name} 노선을 만들었습니다. (${formatCash(cost)}) 역 두 개를 연달아 클릭해 선로를 부설하세요.`,
       line: created,
     })
   }
