@@ -22,6 +22,9 @@ dist-ssr
 .env.*
 !.env.example
 
+# Server-local deploy scripts, nginx configs, TLS certs (never commit)
+deploy/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
