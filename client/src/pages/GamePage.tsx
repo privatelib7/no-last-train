@@ -18,10 +18,11 @@ import type { AuthSession } from '../api/auth'
 import { updateRoomTitle } from '../api/cities'
 import { leaveCursor, syncCursor, type RemoteCursor } from '../api/cursors'
 import { notifyEmergency } from '../lib/notifications'
+import { playGoalUnlockSfx } from '../lib/sfx'
 import InviteModal from './InviteModal'
 import { getCityMap, polyPath } from '../maps'
 import { createCitizenJourneys, locateCitizen, type CitizenTravelMode } from '../mobility'
-import { locateVehicle } from '../vehicle-motion'
+import { depotTerminusOf, locateVehicle } from '../vehicle-motion'
 import styles from './GamePage.module.css'
 
 interface Props {
@@ -68,6 +69,12 @@ type CityCommandMessage = {
   role: 'assistant' | 'user'
   text: string
   isError?: boolean
+}
+
+/** Ctrl/Cmd+Z 로 되돌릴 구간 연결 (연장·첫 구간·중간 삽입) */
+type SegmentUndoEntry = {
+  lineId: string
+  addedStationIds: string[]
 }
 
 const LIVE_TICK_MS = 3000
@@ -207,6 +214,10 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const [isMapPanning, setIsMapPanning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [errorStatus, setErrorStatus] = useState<number | null>(null)
+  const [errorLeaving, setErrorLeaving] = useState(false)
+  const [successToast, setSuccessToast] = useState<string | null>(null)
+  const [successLeaving, setSuccessLeaving] = useState(false)
+  const prevGoalsCompletedRef = useRef<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [clockNowMs, setClockNowMs] = useState(() => Date.now())
   const [showInviteModal, setShowInviteModal] = useState(false)
@@ -233,6 +244,19 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const mapRef = useRef<SVGSVGElement | null>(null)
   const stateRef = useRef<CityState | null>(null)
   const performActionRef = useRef<((action: CityAction) => Promise<CityState | null>) | null>(null)
+  const undoLastSegmentRef = useRef<(() => Promise<void>) | null>(null)
+  const createLineRef = useRef<((mode: 'SUBWAY' | 'BUS') => Promise<void>) | null>(null)
+  const setLineVehicleServiceRef = useRef<((inService: boolean) => Promise<void>) | null>(null)
+  const busyRef = useRef(false)
+  const selectedLineIdRef = useRef('')
+  const selectedVehicleIdRef = useRef('')
+  const selectedStationIdRef = useRef('')
+  const linesSectionRef = useRef<HTMLElement | null>(null)
+  const stationSectionRef = useRef<HTMLElement | null>(null)
+  const stationRenameInputRef = useRef<HTMLInputElement | null>(null)
+  const commandSectionRef = useRef<HTMLElement | null>(null)
+  const commandInputRef = useRef<HTMLTextAreaElement | null>(null)
+  const segmentUndoStackRef = useRef<SegmentUndoEntry[]>([])
   const commandMessageId = useRef(0)
   const commandLogRef = useRef<HTMLDivElement | null>(null)
   const emergencyCityRef = useRef<string | null>(null)
@@ -242,19 +266,183 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   // 차량 보간용 시각 틱 — 벽시계로만 증가, 폴링으로 절대 되감기지 않음 (중간 멈춤 방지)
   const visualTickRef = useRef<number | null>(null)
   const lastClockWallRef = useRef<number | null>(null)
+  /** 대기→운행 출고 연출용: 차량별 벽시계 시작 시각 */
+  const pulloutAnimStartedAtRef = useRef(new Map<string, number>())
 
   useEffect(() => {
     stateRef.current = state
   }, [state])
 
-  // ESC로 역 선택·건설 모드 전부 해제
+  useEffect(() => {
+    selectedLineIdRef.current = selectedLineId
+  }, [selectedLineId])
+
+  useEffect(() => {
+    selectedVehicleIdRef.current = selectedVehicleId
+  }, [selectedVehicleId])
+
+  useEffect(() => {
+    selectedStationIdRef.current = selectedStationId
+  }, [selectedStationId])
+
+  // 오른쪽 하단 에러 토스트: 5초 뒤 페이드아웃 후 제거
+  useEffect(() => {
+    if (!error) {
+      setErrorLeaving(false)
+      return
+    }
+    setErrorLeaving(false)
+    const fadeTimer = window.setTimeout(() => setErrorLeaving(true), 5000)
+    const clearTimer = window.setTimeout(() => {
+      setError(null)
+      setErrorStatus(null)
+      setErrorLeaving(false)
+    }, 5600)
+    return () => {
+      window.clearTimeout(fadeTimer)
+      window.clearTimeout(clearTimer)
+    }
+  }, [error])
+
+  // 단계 목표 달성 시 초록 토스트 + 해금 효과음
+  useEffect(() => {
+    if (!state) return
+    const completed = state.city.goalsCompleted
+    const prev = prevGoalsCompletedRef.current
+    prevGoalsCompletedRef.current = completed
+    if (prev === null || completed <= prev) return
+    setSuccessToast(`${completed}단계 목표 달성 완료!`)
+    setSuccessLeaving(false)
+    playGoalUnlockSfx()
+  }, [state?.city.id, state?.city.goalsCompleted])
+
+  useEffect(() => {
+    if (!successToast) {
+      setSuccessLeaving(false)
+      return
+    }
+    setSuccessLeaving(false)
+    const fadeTimer = window.setTimeout(() => setSuccessLeaving(true), 5000)
+    const clearTimer = window.setTimeout(() => {
+      setSuccessToast(null)
+      setSuccessLeaving(false)
+    }, 5600)
+    return () => {
+      window.clearTimeout(fadeTimer)
+      window.clearTimeout(clearTimer)
+    }
+  }, [successToast])
+
+  // ESC / A 운영관 / B 짓기 / C 지하철 / V 버스 / F 노선 / T 역관리 / G 운행 / H 대기 / Ctrl·Cmd+Z
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      setSelectedStationId('')
-      setStationBuildMode(false)
-      setMoveStationMode(false)
-      setError(null)
+      if (event.key === 'Escape') {
+        setSelectedStationId('')
+        setStationBuildMode(false)
+        setMoveStationMode(false)
+        setError(null)
+        if (document.activeElement instanceof HTMLElement) {
+          const tag = document.activeElement.tagName
+          if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement.isContentEditable) {
+            document.activeElement.blur()
+          }
+        }
+        return
+      }
+
+      const target = event.target as HTMLElement | null
+      const typing = Boolean(
+        target
+        && (target.tagName === 'INPUT'
+          || target.tagName === 'TEXTAREA'
+          || target.isContentEditable),
+      )
+
+      const isUndo = (event.key === 'z' || event.key === 'Z')
+        && (event.ctrlKey || event.metaKey)
+        && !event.shiftKey
+      if (isUndo) {
+        if (typing) return
+        event.preventDefault()
+        void undoLastSegmentRef.current?.()
+        return
+      }
+
+      if (typing || event.ctrlKey || event.metaKey || event.altKey) return
+      if (stateRef.current?.city.status === 'GAME_OVER' || busyRef.current) return
+
+      if (event.key === 'a' || event.key === 'A') {
+        event.preventDefault()
+        commandSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+        window.setTimeout(() => commandInputRef.current?.focus(), 50)
+        return
+      }
+
+      if (event.key === 'b' || event.key === 'B') {
+        event.preventDefault()
+        setStationBuildMode(current => !current)
+        setMoveStationMode(false)
+        setSelectedVehicleId('')
+        setError(null)
+        return
+      }
+
+      if (event.key === 'c' || event.key === 'C') {
+        event.preventDefault()
+        void createLineRef.current?.('SUBWAY')
+        return
+      }
+
+      if (event.key === 'v' || event.key === 'V') {
+        event.preventDefault()
+        void createLineRef.current?.('BUS')
+        return
+      }
+
+      if (event.key === 'f' || event.key === 'F') {
+        event.preventDefault()
+        const lines = (stateRef.current?.city.lines ?? [])
+          .slice()
+          .sort((a, b) => a.name.localeCompare(b.name, 'ko'))
+        if (lines.length > 0) {
+          const currentIndex = lines.findIndex(line => line.id === selectedLineIdRef.current)
+          const next = lines[(currentIndex + 1) % lines.length]
+          setSelectedLineId(next.id)
+          setSelectedVehicleId('')
+          setError(null)
+        }
+        linesSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+        return
+      }
+
+      if (event.key === 't' || event.key === 'T') {
+        event.preventDefault()
+        if (!selectedStationIdRef.current) {
+          setError('먼저 지도에서 역을 선택한 뒤 T를 누르세요.')
+          return
+        }
+        setMoveStationMode(false)
+        setError(null)
+        stationSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+        window.setTimeout(() => {
+          const input = stationRenameInputRef.current
+          if (!input) return
+          input.focus()
+          input.select()
+        }, 50)
+        return
+      }
+
+      if (event.key === 'g' || event.key === 'G') {
+        event.preventDefault()
+        void setLineVehicleServiceRef.current?.(true)
+        return
+      }
+
+      if (event.key === 'h' || event.key === 'H') {
+        event.preventDefault()
+        void setLineVehicleServiceRef.current?.(false)
+      }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
@@ -282,6 +470,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     let cancelled = false
     visualTickRef.current = null
     lastClockWallRef.current = null
+    segmentUndoStackRef.current = []
+    pulloutAnimStartedAtRef.current.clear()
     fetchCity(cityId, session?.token)
       .then(next => {
         if (cancelled) return
@@ -473,20 +663,12 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     }
     return new Set([...modes].filter(([, set]) => set.size === 1 && set.has('BUS')).map(([stationId]) => stationId))
   }, [sortedLines])
-  // 예전 차고지가 붙던 쪽 종점만 (노선당 한쪽 — depot 좌표에 더 가까운 끝)
+  // 차고지 스퍼가 붙는 쪽 종점 (depot 좌표에 더 가까운 끝)
   const depotTerminusByStationId = useMemo(() => {
     const byStation = new Map<string, GameLine[]>()
     for (const line of sortedLines) {
-      const stations = orderedStations(line)
-      if (stations.length === 0) continue
-      let terminus = stations[0]
-      if (stations.length > 1) {
-        const first = stations[0]
-        const last = stations[stations.length - 1]
-        const distFirst = Math.hypot(first.posX - line.depotX, first.posY - line.depotY)
-        const distLast = Math.hypot(last.posX - line.depotX, last.posY - line.depotY)
-        terminus = distFirst <= distLast ? first : last
-      }
+      const terminus = depotTerminusOf(line)
+      if (!terminus) continue
       const list = byStation.get(terminus.id) ?? []
       list.push(line)
       byStation.set(terminus.id, list)
@@ -611,14 +793,37 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     if (!stillExists) setSelectedVehicleId('')
   }, [selectedVehicleId, state])
 
+  const pushSegmentUndo = (entry: SegmentUndoEntry) => {
+    segmentUndoStackRef.current = [...segmentUndoStackRef.current.slice(-19), entry]
+  }
+
   const performAction = async (action: CityAction) => {
+    let pendingUndo: SegmentUndoEntry | null = null
+    if (action.type === 'BUILD_SEGMENT') {
+      const line = stateRef.current?.city.lines.find(item => item.id === action.lineId)
+      if (line) {
+        const onLine = new Set(line.lineStations.map(item => item.stationId))
+        pendingUndo = onLine.size === 0
+          ? { lineId: action.lineId, addedStationIds: [action.fromStationId, action.toStationId] }
+          : {
+              lineId: action.lineId,
+              addedStationIds: [onLine.has(action.fromStationId) ? action.toStationId : action.fromStationId],
+            }
+      }
+    } else if (action.type === 'INSERT_STATION') {
+      pendingUndo = { lineId: action.lineId, addedStationIds: [action.stationId] }
+    }
+
+    busyRef.current = true
     setBusy(true)
     setError(null)
     try {
       await executeCityAction(cityId, action, session?.token)
       const next = await loadCity()
+      if (pendingUndo) pushSegmentUndo(pendingUndo)
       if (action.type === 'REMOVE_VEHICLE') setSelectedVehicleId('')
       if (action.type === 'RESET_CITY') {
+        segmentUndoStackRef.current = []
         setStationBuildMode(false)
         setMoveStationMode(false)
         setSelectedVehicleId('')
@@ -629,10 +834,45 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
       setError(err instanceof Error ? err.message : '작업 실행 오류')
       return null
     } finally {
+      busyRef.current = false
       setBusy(false)
     }
   }
   performActionRef.current = performAction
+
+  const undoLastSegment = async () => {
+    if (busyRef.current) return
+    const stack = segmentUndoStackRef.current
+    const entry = stack[stack.length - 1]
+    if (!entry) {
+      setError('되돌릴 구간 연결이 없습니다.')
+      return
+    }
+    segmentUndoStackRef.current = stack.slice(0, -1)
+
+    for (const stationId of [...entry.addedStationIds].reverse()) {
+      const line = stateRef.current?.city.lines.find(item => item.id === entry.lineId)
+      if (!line?.lineStations.some(item => item.stationId === stationId)) continue
+      const next = await performAction({
+        type: 'DETACH_STATION',
+        lineId: entry.lineId,
+        stationId,
+      })
+      if (!next) {
+        // 실패한 항목은 스택에 되돌려 재시도할 수 있게 한다
+        segmentUndoStackRef.current = [...segmentUndoStackRef.current, {
+          lineId: entry.lineId,
+          addedStationIds: entry.addedStationIds.filter(id => {
+            const current = stateRef.current?.city.lines.find(item => item.id === entry.lineId)
+            return current?.lineStations.some(item => item.stationId === id) ?? false
+          }),
+        }].filter(item => item.addedStationIds.length > 0)
+        return
+      }
+    }
+    setError(null)
+  }
+  undoLastSegmentRef.current = undoLastSegment
 
   const appendCommandMessage = (message: Omit<CityCommandMessage, 'id'>) => {
     commandMessageId.current += 1
@@ -690,6 +930,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   }
 
   const createLine = async (mode: 'SUBWAY' | 'BUS') => {
+    if (busyRef.current) return
+    busyRef.current = true
     setBusy(true)
     setError(null)
     try {
@@ -703,9 +945,11 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     } catch (err) {
       setError(err instanceof Error ? err.message : '노선 생성 오류')
     } finally {
+      busyRef.current = false
       setBusy(false)
     }
   }
+  createLineRef.current = createLine
 
   const selectLine = (lineId: string) => {
     setSelectedLineId(lineId)
@@ -719,6 +963,49 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     setStationBuildMode(false)
     setError(null)
   }
+
+  const setLineVehicleService = async (inService: boolean) => {
+    const cityState = stateRef.current
+    const lineId = selectedLineIdRef.current
+    if (!cityState || !lineId || busyRef.current) return
+    const line = cityState.city.lines.find(item => item.id === lineId)
+    if (!line) {
+      setError('먼저 운영 노선을 선택하세요. (F)')
+      return
+    }
+
+    const isInService = (vehicle: (typeof line.vehicles)[number]) => (
+      vehicle.status === 'OPERATING' && !vehicle.isSpare
+    )
+    const eligible = (vehicle: (typeof line.vehicles)[number]) => {
+      if (!['OPERATING', 'SPARE'].includes(vehicle.status)) return false
+      return inService ? !isInService(vehicle) : isInService(vehicle)
+    }
+
+    const vehicles = orderedVehicles(line)
+    const selectedId = selectedVehicleIdRef.current
+    const vehicle = (
+      selectedId
+        ? vehicles.find(item => item.id === selectedId && eligible(item))
+        : undefined
+    ) ?? vehicles.find(eligible)
+
+    if (!vehicle) {
+      setError(inService
+        ? `${line.name}에 운행할 대기 차량이 없습니다.`
+        : `${line.name}에 대기시킬 운행 차량이 없습니다.`)
+      return
+    }
+
+    setSelectedVehicleId(vehicle.id)
+    await performActionRef.current?.({
+      type: 'SET_VEHICLE_SERVICE',
+      lineId: line.id,
+      vehicleId: vehicle.id,
+      inService,
+    })
+  }
+  setLineVehicleServiceRef.current = setLineVehicleService
 
   const beginSegmentDrag = (event: PointerEvent<SVGGElement>, line: GameLine) => {
     if (event.button !== 0 || busy || stationBuildMode || moveStationMode) return
@@ -1971,6 +2258,45 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
           </div>
         ))}
       </div>
+
+      {successToast && (
+        <div
+          className={`${styles.successToast}${successLeaving ? ` ${styles.successToastLeaving}` : ''}${error ? ` ${styles.successToastStacked}` : ''}`}
+          role="status"
+        >
+          <span>✓</span>
+          {successToast}
+          <button
+            type="button"
+            className={styles.successToastClose}
+            onClick={() => {
+              setSuccessToast(null)
+              setSuccessLeaving(false)
+            }}
+            aria-label="알림 닫기"
+          >×</button>
+        </div>
+      )}
+
+      {error && (
+        <div
+          className={`${styles.errorToast}${errorLeaving ? ` ${styles.errorToastLeaving}` : ''}`}
+          role="alert"
+        >
+          <span>!</span>
+          {error}
+          <button
+            type="button"
+            className={styles.errorToastClose}
+            onClick={() => {
+              setError(null)
+              setErrorStatus(null)
+              setErrorLeaving(false)
+            }}
+            aria-label="알림 닫기"
+          >×</button>
+        </div>
+      )}
     </div>
   )
 }
