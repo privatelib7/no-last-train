@@ -22,7 +22,7 @@ import { playGoalUnlockSfx } from '../lib/sfx'
 import InviteModal from './InviteModal'
 import { getCityMap, polyPath } from '../maps'
 import { createCitizenJourneys, locateCitizen, type CitizenTravelMode } from '../mobility'
-import { depotTerminusOf, locateVehicle } from '../vehicle-motion'
+import { depotPulloutMinutes, depotTerminusOf, locateVehicle, stationDwellMinutes } from '../vehicle-motion'
 import styles from './GamePage.module.css'
 
 interface Props {
@@ -1357,17 +1357,32 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     ...journey,
     position: locateCitizen(journey, journeyTime),
   }))
+  const pulloutAnims = pulloutAnimStartedAtRef.current
   const vehicleMotionById = new Map(
-    state.city.lines.flatMap(line => orderedVehicles(line).map(vehicle => [
-      vehicle.id,
-      locateVehicle(
-        line,
-        vehicle,
-        line.status === 'OPERATING' && vehicle.status === 'OPERATING' && !vehicle.isSpare
-          ? liveElapsedGameMinutes
-          : 0,
-      ),
-    ] as const)),
+    state.city.lines.flatMap(line => orderedVehicles(line).map(vehicle => {
+      const inService = line.status === 'OPERATING'
+        && vehicle.status === 'OPERATING'
+        && !vehicle.isSpare
+      const storedProgress = vehicle.segmentProgressMinutes || 0
+      const baseDwell = stationDwellMinutes(line.mode)
+      const pullout = depotPulloutMinutes(line.mode)
+      const launchingFromDepot = inService && storedProgress < -baseDwell
+
+      let elapsed = inService ? liveElapsedGameMinutes : 0
+      if (launchingFromDepot) {
+        if (!pulloutAnims.has(vehicle.id)) pulloutAnims.set(vehicle.id, clockNowMs)
+        const startedAt = pulloutAnims.get(vehicle.id) ?? clockNowMs
+        const wallSec = Math.max(0, (clockNowMs - startedAt) / 1000)
+        // 출고+종점정차를 약 2.8초 벽에 펼쳐 차고지에서 나오는 모습이 보이게 한다
+        const launchTotal = pullout + baseDwell
+        elapsed = Math.min(wallSec * (launchTotal / 2.8), Math.max(0, -storedProgress - 0.05))
+      } else {
+        pulloutAnims.delete(vehicle.id)
+      }
+      if (vehicle.isSpare || vehicle.status === 'SPARE') pulloutAnims.delete(vehicle.id)
+
+      return [vehicle.id, locateVehicle(line, vehicle, elapsed)] as const
+    })),
   )
   // 서버는 3초 경제 틱 끝에 승차를 확정한다. 화면에서는 차량이 역에 실제로
   // 도착한 프레임부터 예상 승차 인원을 먼저 반영해 대기열이 늦게 사라지지 않게 한다.
@@ -1512,7 +1527,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
               ? '이전 목표 보상을 지급하고 더 높은 다음 목표를 설정했습니다.'
               : goalDaysRemaining < 0
                 ? '기한 안에 매출 목표를 달성하지 못해 경영이 종료되었습니다.'
-                : '기한 안에 목표를 달성하면 지원금 ₵2,000과 5,000점을 받고 다음 목표가 열립니다.'}</p>
+                : `기한 안에 목표를 달성하면 지원금 ${formatMoney(state.economyRules.goalRewardCash)}과 8,000점을 받고 다음 목표가 열립니다.`}</p>
           </div>
           <div className={styles.economyGrid}>
             <span><small>운영 자금</small><b className={state.city.cashBalance < 0 ? styles.dangerValue : ''}>{formatMoney(state.city.cashBalance)}</b></span>
@@ -1529,10 +1544,10 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
         </section>
 
         {state.isOwner && (
-          <section className={styles.controlSection}>
+          <section className={styles.controlSection} ref={commandSectionRef}>
             <div className={styles.sectionHeading}>
               <span>AI</span>
-              <h2>도시 운영관</h2>
+              <h2>도시 운영관 · A</h2>
             </div>
             <div className={styles.aiCommandPanel}>
               <div className={styles.aiChatLog} role="log" aria-live="polite" ref={commandLogRef}>
@@ -1579,6 +1594,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                 }}
               >
                 <textarea
+                  ref={commandInputRef}
                   value={commandInput}
                   onChange={event => setCommandInput(event.target.value)}
                   onKeyDown={event => {
@@ -1600,8 +1616,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
           </section>
         )}
 
-        <section className={styles.controlSection}>
-          <div className={styles.sectionHeading}><span>01</span><h2>운영 노선</h2></div>
+        <section className={styles.controlSection} ref={linesSectionRef}>
+          <div className={styles.sectionHeading}><span>01</span><h2>운영 노선 · F</h2></div>
           <div className={styles.lineTabs}>
             {sortedLines.map(line => (
               <button
@@ -1616,8 +1632,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             ))}
           </div>
           <div className={styles.newLineRow}>
-            <button onClick={() => void createLine('SUBWAY')} disabled={busy || isGameOver}>＋ 지하철 · ₵2,000</button>
-            <button onClick={() => void createLine('BUS')} disabled={busy || isGameOver}>＋ 버스 · ₵600</button>
+            <button onClick={() => void createLine('SUBWAY')} disabled={busy || isGameOver}>＋ 지하철 · {formatMoney(state.economyRules.buildCosts.subwayLine)} · C</button>
+            <button onClick={() => void createLine('BUS')} disabled={busy || isGameOver}>＋ 버스 · {formatMoney(state.economyRules.buildCosts.busLine)} · V</button>
           </div>
           {selectedLine && (
             <button
@@ -1650,7 +1666,10 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
 
         {selectedLine && (
           <section className={styles.controlSection}>
-            <div className={styles.sectionHeading}><span>02</span><h2>{selectedLine.mode === 'BUS' ? '차량' : '철도 차량'}</h2></div>
+            <div className={styles.sectionHeading}>
+              <span>02</span>
+              <h2>{selectedLine.mode === 'BUS' ? '차량' : '철도 차량'} · 운행 G · 대기 H</h2>
+            </div>
             <div className={styles.vehicleList}>
               {orderedVehicles(selectedLine).map((vehicle, index) => {
                 const motion = vehicleMotionById.get(vehicle.id)
@@ -1660,6 +1679,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                 const routeStatus = isMoving
                   ? `${station?.name} → ${motion.toStation?.name}`
                   : station?.name ?? '대기'
+                const vehicleInService = vehicle.status === 'OPERATING' && !vehicle.isSpare
                 return (
                   <div key={vehicle.id} className={styles.vehicleRow}>
                     <button
@@ -1679,15 +1699,15 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                       </span>
                     </button>
                     <button
-                      className={vehicle.status === 'OPERATING' && !vehicle.isSpare ? styles.storeVehicleButton : styles.startVehicleButton}
+                      className={vehicleInService ? styles.storeVehicleButton : styles.startVehicleButton}
                       onClick={() => void performAction({
                         type: 'SET_VEHICLE_SERVICE',
                         lineId: selectedLine.id,
                         vehicleId: vehicle.id,
-                        inService: !(vehicle.status === 'OPERATING' && !vehicle.isSpare),
+                        inService: !vehicleInService,
                       })}
                       disabled={busy || !['OPERATING', 'SPARE'].includes(vehicle.status)}
-                    >{vehicle.status === 'OPERATING' && !vehicle.isSpare ? '대기' : '운행'}</button>
+                    >{vehicleInService ? '대기' : '운행'}</button>
                   </div>
                 )
               })}
@@ -1708,9 +1728,9 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
         )}
 
         {selectedStation && (
-          <section className={styles.controlSection}>
+          <section className={styles.controlSection} ref={stationSectionRef}>
             <div className={styles.sectionHeading}>
-              <span>03</span><h2>역 관리</h2>
+              <span>03</span><h2>역 관리 · T</h2>
               <button
                 className={styles.deselectButton}
                 onClick={() => {
@@ -1725,6 +1745,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
               <label htmlFor="station-rename">역 이름</label>
               <div>
                 <input
+                  ref={stationRenameInputRef}
                   id="station-rename"
                   className={styles.stationNameInput}
                   value={renameValue}
@@ -1783,8 +1804,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             >{selectedStation.name} 완전 삭제</button>
           </section>
         )}
-
-        {error && <div className={styles.operationError} role="alert">! {error}</div>}
       </aside>
 
       <main className={styles.gameStage}>
@@ -1805,6 +1824,9 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                     style={{ ['--presence-color' as string]: player.color }}
                     data-tooltip={player.nickname}
                   >
+                    {player.playerId === state.city.ownerPlayerId && (
+                      <span className={styles.presenceOwnerBadge}>관제장</span>
+                    )}
                     {getInitials(player.nickname)}
                   </span>
                 ))}
@@ -1839,7 +1861,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                   setError(null)
                 }}
                 disabled={isGameOver}
-              >역/정류장 짓기 · ₵800</button>
+              >역/정류장 짓기 · {formatMoney(state.economyRules.buildCosts.station)} · B</button>
               {stationBuildMode && (
                 <div>
                   <input
@@ -1964,7 +1986,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                   <polyline
                     points={linePoints(line)}
                     className={styles.lineShadow}
-                    style={{ strokeWidth: 4.2 * mapScale }}
+                    style={{ strokeWidth: 1.85 * mapScale }}
                   />
                 )}
                 <polyline
@@ -1972,11 +1994,11 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                   className={`${styles.linePath} ${line.mode === 'BUS' ? styles.busPath : ''} ${line.id === selectedLineId ? styles.selectedLinePath : ''}`}
                   style={{
                     stroke: LINE_COLORS[line.color],
-                    // 줌과 무관하게 화면 기준 두께 유지
+                    // Mini Metro 느낌: 얇은 선, 줌과 무관하게 화면 기준 두께 유지
                     strokeWidth: (line.mode === 'BUS'
-                      ? (line.id === selectedLineId ? 1.7 : 1.25)
-                      : (line.id === selectedLineId ? 2.9 : 2.25)) * mapScale,
-                    strokeDasharray: line.mode === 'BUS' ? `${2 * mapScale} ${1.2 * mapScale}` : undefined,
+                      ? (line.id === selectedLineId ? 0.75 : 0.55)
+                      : (line.id === selectedLineId ? 1.25 : 0.95)) * mapScale,
+                    strokeDasharray: line.mode === 'BUS' ? `${1.1 * mapScale} ${0.7 * mapScale}` : undefined,
                   }}
                 />
               </g>
@@ -1991,8 +2013,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
               const cursor = new DOMPoint(segmentDrag.x, segmentDrag.y).matrixTransform(matrix.inverse())
               const ghostStyle = {
                 stroke: LINE_COLORS[line?.color ?? 'RED'],
-                strokeWidth: 2.25 * mapScale,
-                strokeDasharray: `${2 * mapScale} ${1.5 * mapScale}`,
+                strokeWidth: 0.95 * mapScale,
+                strokeDasharray: `${1.1 * mapScale} ${0.8 * mapScale}`,
               }
               return (
                 <>
@@ -2016,8 +2038,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                   className={styles.linkGhost}
                   style={{
                     stroke: LINE_COLORS[selectedLine?.color ?? 'RED'],
-                    strokeWidth: 2.25 * mapScale,
-                    strokeDasharray: `${2 * mapScale} ${1.5 * mapScale}`,
+                    strokeWidth: 0.95 * mapScale,
+                    strokeDasharray: `${1.1 * mapScale} ${0.8 * mapScale}`,
                   }}
                 />
               )
@@ -2048,64 +2070,73 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                   aria-label={`${station.name} ${isBusStop ? '버스 정류장' : isInterchange ? '환승역' : '일반역'}${isDepotTerminus ? ` · ${depotLabel}` : ''} 선택`}
                 >
                   <title>{station.name} · {isBusStop ? '버스 정류장' : isInterchange ? '환승역' : '일반역'}{isDepotTerminus ? ` · ${depotLabel}` : ''}</title>
-                  {highlighted && <circle r="3.3" className={styles.stationSelection} />}
+                  {highlighted && <circle r="1.55" className={styles.stationSelection} />}
                   {congestion >= CONGESTION_SATURATED ? (
-                    <circle r="3" className={styles.saturatedRing} />
+                    <circle r="1.45" className={styles.saturatedRing} />
                   ) : congestion >= CONGESTION_WARN ? (
-                    <circle r="2.8" className={styles.warnRing} />
+                    <circle r="1.35" className={styles.warnRing} />
                   ) : null}
                   {isBusStop ? (
                     <>
-                      <rect x="-1.7" y="-1.7" width="3.4" height="3.4" rx=".5" className={styles.stationHalo} />
-                      <rect x="-1.2" y="-1.2" width="2.4" height="2.4" rx=".4" className={styles.stationNode} />
+                      <rect x="-.8" y="-.8" width="1.6" height="1.6" rx=".28" className={styles.stationHalo} />
+                      <rect x="-.55" y="-.55" width="1.1" height="1.1" rx=".22" className={styles.stationNode} />
                     </>
                   ) : isInterchange ? (
                     <>
-                      <circle r="2.45" className={styles.stationHalo} />
-                      <circle r="1.85" className={styles.stationNode} />
-                      <circle r=".75" className={styles.transferCore} />
+                      <circle r="1.15" className={styles.stationHalo} />
+                      <circle r="0.85" className={styles.stationNode} />
+                      <circle r=".35" className={styles.transferCore} />
                     </>
                   ) : (
                     <>
-                      <circle r="2" className={styles.stationHalo} />
-                      <circle r="1.4" className={styles.stationNode} />
+                      <circle r="0.95" className={styles.stationHalo} />
+                      <circle r="0.68" className={styles.stationNode} />
                     </>
                   )}
                   {isDepotTerminus && (
-                    <text y="4.6" textAnchor="middle" className={styles.depotTerminusLabel}>
+                    <text y="2.7" textAnchor="middle" className={styles.depotTerminusLabel}>
                       {depotLabel}
                     </text>
                   )}
-                  {Array.from({ length: Math.min(Math.ceil((waitingByStation.get(station.id) ?? 0) / 5), 12) }, (_, dotIndex) => (
-                    <circle
-                      key={dotIndex}
-                      cx={2.5 + (dotIndex % 6) * 0.95}
-                      cy={-0.4 + Math.floor(dotIndex / 6) * 1.05}
-                      r=".42"
-                      className={styles.queueDot}
-                    />
-                  ))}
+                  {(waitingByStation.get(station.id) ?? 0) > 0 && (
+                    <text
+                      x="1.55"
+                      y="0.45"
+                      className={`${styles.waitingCount}${
+                        congestion >= CONGESTION_SATURATED
+                          ? ` ${styles.waitingCountSaturated}`
+                          : congestion >= CONGESTION_WARN
+                            ? ` ${styles.waitingCountWarn}`
+                            : ''
+                      }`}
+                    >
+                      {waitingByStation.get(station.id)}
+                    </text>
+                  )}
                 </g>
               )
             })}
 
             {state.city.lines.flatMap(line => orderedVehicles(line)
-              .filter(vehicle => vehicle.status === 'OPERATING' && !vehicle.isSpare && vehicle.currentStationId)
+              .filter(vehicle => vehicle.status === 'OPERATING' && !vehicle.isSpare)
               .map(vehicle => {
                 const motion = vehicleMotionById.get(vehicle.id)
                 const station = motion?.fromStation
                 const nextStation = motion?.toStation
-                if (!motion || !station || motion.x === null || motion.y === null) return null
+                if (!motion || motion.x === null || motion.y === null) return null
                 const lineNo = line.name.match(/\d+/)?.[0] ?? line.name.slice(0, 1)
                 const progress = line.status === 'OPERATING' ? motion.progress : 0
                 const trainX = motion.x
                 const trainY = motion.y
-                const rawAngle = nextStation
-                  ? Math.atan2(nextStation.posY - station.posY, nextStation.posX - station.posX) * 180 / Math.PI
-                  : 0
+                const facing = motion.isPullingOut && station
+                  ? { x: station.posX - line.depotX, y: station.posY - line.depotY }
+                  : nextStation && station
+                    ? { x: nextStation.posX - station.posX, y: nextStation.posY - station.posY }
+                    : { x: 1, y: 0 }
+                const rawAngle = Math.atan2(facing.y, facing.x) * 180 / Math.PI
                 // 왼쪽 방향 이동 시 180° 회전으로 뒤집히지 않게 좌우 반전으로 처리
                 const trainFlipped = Math.abs(rawAngle) > 90
-                const trainAngle = trainFlipped ? rawAngle - 180 * Math.sign(rawAngle) : rawAngle
+                const trainAngle = trainFlipped ? rawAngle - 180 * Math.sign(rawAngle || 1) : rawAngle
                 return (
                   <g
                     key={vehicle.id}
@@ -2117,11 +2148,11 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                     aria-label={`${line.name} 차량 선택`}
                     aria-pressed={vehicle.id === selectedVehicleId}
                     data-vehicle-id={vehicle.id}
-                    data-from-station={station.id}
-                    data-to-station={nextStation?.id ?? station.id}
+                    data-from-station={station?.id ?? ''}
+                    data-to-station={nextStation?.id ?? station?.id ?? ''}
                     data-motion-progress={progress.toFixed(3)}
                     data-segment-minutes={motion.segmentDurationMinutes}
-                    data-motion-state={motion.isDwelling ? 'DWELLING' : 'MOVING'}
+                    data-motion-state={motion.isPullingOut ? 'PULLOUT' : motion.isDwelling ? 'DWELLING' : 'MOVING'}
                     data-dwell-remaining={motion.dwellRemainingMinutes.toFixed(3)}
                     data-map-interactive="true"
                   >
