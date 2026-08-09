@@ -4,6 +4,7 @@ import { authorizeCityAccess } from '@/lib/access'
 import { ECONOMY, lineBuildCost, segmentBuildCost, stationInsertCost } from '@/lib/economy'
 import { stationDwellMinutes } from '@/lib/vehicle-motion'
 import { isVehicleInService, vehicleServiceUpdate } from '@/lib/vehicle-service'
+import { resetCityForNewGame } from '@/lib/city-reset'
 import type { Prisma } from '@prisma/client'
 import { z } from 'zod'
 
@@ -188,28 +189,8 @@ export async function POST(
   if (action.type === 'RESET_CITY') {
     const city = await db.city.findUnique({ where: { id } })
     if (!city) return NextResponse.json({ error: '도시를 찾을 수 없습니다.' }, { status: 404 })
-    await db.$transaction([
-      db.passenger.deleteMany({ where: { cityId: id } }),
-      db.simTick.deleteMany({ where: { cityId: id } }),
-      db.city.update({
-        where: { id },
-        data: {
-          status: 'ACTIVE',
-          currentTick: 0,
-          lastTickAt: new Date(),
-          cashBalance: ECONOMY.INITIAL_CASH,
-          totalRevenue: 0,
-          revenueGoal: ECONOMY.REVENUE_GOAL,
-          happiness: ECONOMY.INITIAL_HAPPINESS,
-          score: 0,
-          insolvencyTicks: 0,
-          unhappyTicks: 0,
-          gameOverReason: null,
-          goalReachedAtTick: null,
-        },
-      }),
-    ])
-    return NextResponse.json({ message: '같은 도시와 노선을 유지한 채 새 경영을 시작했습니다.' })
+    await db.$transaction(tx => resetCityForNewGame(tx, id))
+    return NextResponse.json({ message: '노선을 초기화하고 같은 도시에서 새 경영을 시작했습니다.' })
   }
 
   const city = await db.city.findUnique({ where: { id }, select: { status: true } })

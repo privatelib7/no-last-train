@@ -2316,13 +2316,6 @@
   font-weight: 900;
 }
 
-.restartHint {
-  margin-top: 15px;
-  color: #8a8076;
-  font-size: 14px;
-  font-weight: 700;
-}
-
 .gameOverActions {
   display: grid;
   grid-template-columns: 0.7fr 1.3fr;

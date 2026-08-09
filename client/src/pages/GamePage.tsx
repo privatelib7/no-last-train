@@ -1937,7 +1937,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
               <span><small>누적 매출</small><b>{formatMoney(state.city.totalRevenue)}</b></span>
               <span><small>최종 행복도</small><b>{Math.round(state.city.happiness)}%</b></span>
             </div>
-            <p className={styles.restartHint}>현재 도시와 건설한 노선은 유지하고, 자금·매출·행복도만 초기화합니다.</p>
             <div className={styles.gameOverActions}>
               <button onClick={onBack}>도시 선택</button>
               <button
