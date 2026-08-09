@@ -2,7 +2,7 @@ import type { GameLine, Station, StationType } from './api/game'
 import type { CityMapDef } from './maps'
 
 export type CitizenTravelMode = 'WALK' | 'WAIT' | 'BOARDING'
-export type StationAccessMode = 'SUBWAY' | 'BUS' | 'INTERCHANGE'
+export type StationAccessMode = 'SUBWAY' | 'BUS' | 'INTERCHANGE' | 'CITY'
 
 type Point = { x: number; y: number }
 
@@ -88,23 +88,24 @@ export function pathStaysOnLand(from: Point, to: Point, map: CityMapDef) {
   return true
 }
 
-function servedStations(lines: GameLine[], stations: Station[]) {
+/** 노선 유무와 관계없이 모든 역을 목적지로 쓴다 (전역 스폰용). */
+function allStationsWithAccess(lines: GameLine[], stations: Station[]) {
   const modesByStation = new Map<string, Set<'SUBWAY' | 'BUS'>>()
   for (const line of lines) {
-    if (line.status !== 'OPERATING' || line.lineStations.length < 2) continue
     for (const item of line.lineStations) {
       if (!modesByStation.has(item.stationId)) modesByStation.set(item.stationId, new Set())
       modesByStation.get(item.stationId)!.add(line.mode)
     }
   }
 
-  return stations.flatMap(station => {
+  return stations.map(station => {
     const modes = modesByStation.get(station.id)
-    if (!modes || modes.size === 0) return []
-    const accessMode: StationAccessMode = modes.size > 1
-      ? 'INTERCHANGE'
-      : modes.has('BUS') ? 'BUS' : 'SUBWAY'
-    return [{ station, accessMode }]
+    const accessMode: StationAccessMode = !modes || modes.size === 0
+      ? 'SUBWAY'
+      : modes.size > 1
+        ? 'INTERCHANGE'
+        : modes.has('BUS') ? 'BUS' : 'SUBWAY'
+    return { station, accessMode }
   })
 }
 
@@ -138,6 +139,85 @@ function landSafePointNearStation(station: Station, map: CityMapDef, seed: numbe
   return stationPoint
 }
 
+/** 맵 전역 육지에서 스폰 지점을 고른다. 역까지 육로가 있으면 우선, 실패 시 역 근처로 폴백. */
+function landSafePointOnMap(station: Station, map: CityMapDef, seed: number, index: number): Point {
+  const stationPoint = { x: station.posX, y: station.posY }
+  for (let attempt = 0; attempt < 96; attempt++) {
+    const point = {
+      x: 4 + randomUnit(seed, index, 400 + attempt * 3) * 92,
+      y: 4 + randomUnit(seed, index, 501 + attempt * 3) * 88,
+    }
+    if (!map.isLand(point.x, point.y)) continue
+    if (pathStaysOnLand(point, stationPoint, map)) return point
+  }
+  return landSafePointNearStation(station, map, seed, index)
+}
+
+function deterministicLandPoint(map: CityMapDef, seed: number, index: number, salt: number): Point {
+  for (let attempt = 0; attempt < 96; attempt++) {
+    const point = {
+      x: 4 + randomUnit(seed, index, salt + attempt * 2) * 92,
+      y: 4 + randomUnit(seed, index, salt + attempt * 2 + 1) * 92,
+    }
+    if (map.isLand(point.x, point.y)) return point
+  }
+
+  const anchor = { x: map.anchor[0], y: map.anchor[1] }
+  if (map.isLand(anchor.x, anchor.y)) return anchor
+
+  for (let y = 2; y <= 98; y += 2) {
+    for (let x = 2; x <= 98; x += 2) {
+      if (map.isLand(x, y)) return { x, y }
+    }
+  }
+
+  return anchor
+}
+
+// 아직 역이 하나도 없을 때 도시가 텅 비어 보이지 않도록, 목적지 없이 배회하는 시민을 채운다.
+function createAmbientCitizenJourneys(seed: number, count: number, map: CityMapDef): CitizenJourney[] {
+  const journeys: CitizenJourney[] = []
+
+  for (let index = 0; index < count; index++) {
+    const start = deterministicLandPoint(map, seed, index, 500)
+    let destination = start
+
+    for (let attempt = 0; attempt < 96; attempt++) {
+      const candidate = deterministicLandPoint(map, seed, index, 700 + attempt * 193)
+      if (distanceBetween(start, candidate) >= 4 && pathStaysOnLand(start, candidate, map)) {
+        destination = candidate
+        break
+      }
+    }
+
+    const walkDuration = Math.max(3, distanceBetween(start, destination) / 1.3)
+    const pauseDuration = 0.8 + randomUnit(seed, index, 940) * 1.2
+    const legs: JourneyLeg[] = [
+      { from: start, to: destination, mode: 'WALK', duration: walkDuration },
+      { from: destination, to: destination, mode: 'WAIT', duration: pauseDuration },
+      { from: destination, to: start, mode: 'WALK', duration: walkDuration },
+      { from: start, to: start, mode: 'WAIT', duration: pauseDuration },
+    ]
+    const totalDuration = legs.reduce((sum, leg) => sum + leg.duration, 0)
+
+    journeys.push({
+      id: `ambient-citizen-${index}`,
+      targetStationId: 'city-ambient',
+      targetStationName: map.name,
+      accessMode: 'CITY',
+      legs,
+      totalDuration,
+      timeOffset: randomUnit(seed, index, 941) * totalDuration,
+      radius: 0.28 + randomUnit(seed, index, 942) * 0.12,
+      opacity: 0.72 + randomUnit(seed, index, 943) * 0.24,
+      warm: randomUnit(seed, index, 944) > 0.76,
+      landSafe: pathStaysOnLand(start, destination, map),
+    })
+  }
+
+  return journeys
+}
+
 export function createCitizenJourneys(options: {
   seed: number
   waitingCount: number
@@ -148,13 +228,14 @@ export function createCitizenJourneys(options: {
   map: CityMapDef
 }): CitizenJourney[] {
   const { seed, waitingCount, gameHour, weekend, stations, lines, map } = options
-  const availableStations = servedStations(lines, stations)
-  if (availableStations.length === 0) return []
+  const count = Math.min(128, Math.max(64, Math.round(48 + Math.log10(waitingCount + 10) * 14)))
+  // 역이 하나도 없으면(노선 유무와 무관) 배회 시민으로 도시가 비어 보이지 않게 한다.
+  const availableStations = allStationsWithAccess(lines, stations)
+  if (availableStations.length === 0) return createAmbientCitizenJourneys(seed, count, map)
 
   const busStops = availableStations.filter(item => item.accessMode === 'BUS')
   const dayKind: DayKind = weekend ? 'WEEKEND' : 'WEEKDAY'
   const weights = STATION_DEMAND_WEIGHTS[dayKind][periodOfHour(gameHour)]
-  const count = Math.min(112, Math.max(54, Math.round(40 + Math.log10(waitingCount + 10) * 12)))
   const journeys: CitizenJourney[] = []
 
   for (let index = 0; index < count; index++) {
@@ -170,7 +251,8 @@ export function createCitizenJourneys(options: {
     if (!target) continue
 
     const stationPoint = { x: target.station.posX, y: target.station.posY }
-    const outsidePoint = landSafePointNearStation(target.station, map, seed, index)
+    // 노선 근처가 아니라 맵 전역 육지에서 리스폰한 뒤 역으로 걸어온다.
+    const outsidePoint = landSafePointOnMap(target.station, map, seed, index)
     const landSafe = pathStaysOnLand(outsidePoint, stationPoint, map)
     const walkDuration = Math.max(2.4, distanceBetween(outsidePoint, stationPoint) / 1.8)
     const legs: JourneyLeg[] = [
@@ -201,10 +283,12 @@ export function createCitizenJourneys(options: {
 export function locateCitizen(journey: CitizenJourney, journeyTime: number): CitizenPosition {
   let cursor = ((journeyTime + journey.timeOffset) % journey.totalDuration + journey.totalDuration) % journey.totalDuration
   let leg = journey.legs[journey.legs.length - 1]
+  let legIndex = journey.legs.length - 1
 
-  for (const candidate of journey.legs) {
+  for (const [index, candidate] of journey.legs.entries()) {
     if (cursor <= candidate.duration) {
       leg = candidate
+      legIndex = index
       break
     }
     cursor -= candidate.duration
@@ -213,7 +297,7 @@ export function locateCitizen(journey: CitizenJourney, journeyTime: number): Cit
   const progress = leg.duration > 0 ? Math.min(1, cursor / leg.duration) : 1
   const opacityScale = leg.mode === 'BOARDING'
     ? 1 - progress
-    : leg.mode === 'WALK' ? Math.min(1, progress / 0.12) : 1
+    : leg.mode === 'WALK' && legIndex === 0 ? Math.min(1, progress / 0.12) : 1
   const radiusScale = leg.mode === 'BOARDING' ? Math.max(0.35, 1 - progress * 0.65) : 1
 
   return {

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { register, resendVerification } from '../api/auth'
+import { register } from '../api/auth'
 import styles from './AuthPage.module.css'
 
 interface Props {
@@ -18,9 +18,7 @@ export default function RegisterPage({ onBack, onGoLogin }: Props) {
   const [passwordConfirm, setPasswordConfirm] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [sentTo, setSentTo] = useState<string | null>(null)
-  const [verifyUrl, setVerifyUrl] = useState<string | null>(null)
-  const [resendMessage, setResendMessage] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -46,9 +44,8 @@ export default function RegisterPage({ onBack, onGoLogin }: Props) {
 
     setLoading(true)
     try {
-      const result = await register(username.trim(), password, email.trim(), nickname.trim() || undefined)
-      setSentTo(result.email)
-      setVerifyUrl(result.verifyUrl ?? null)
+      await register(username.trim(), password, email.trim(), nickname.trim() || undefined)
+      setDone(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : '회원가입에 실패했습니다.')
     } finally {
@@ -56,51 +53,22 @@ export default function RegisterPage({ onBack, onGoLogin }: Props) {
     }
   }
 
-  const handleResend = async () => {
-    setResendMessage(null)
-    try {
-      const result = await resendVerification(username.trim())
-      setResendMessage(result.message)
-      if (result.verifyUrl) setVerifyUrl(result.verifyUrl)
-    } catch (err) {
-      setResendMessage(err instanceof Error ? err.message : '재발송에 실패했습니다.')
-    }
-  }
-
-  if (sentTo) {
+  if (done) {
     return (
       <div className={styles.page}>
         <div className={styles.card}>
           <div className={styles.header}>
-            <div className={styles.titleKo}>인증 메일을 보냈습니다</div>
+            <div className={styles.titleKo}>가입을 축하드립니다!</div>
             <p className={styles.subtitle}>
-              <strong>{sentTo}</strong>(으)로 인증 메일을 보냈습니다.
+              {username}님, 환영합니다.
               <br />
-              메일함·스팸함을 확인한 뒤 링크를 누르면 로그인할 수 있습니다.
+              이제 로그인하고 도시 운영을 시작해보세요.
             </p>
           </div>
 
-          {verifyUrl && (
-            <p className={styles.subtitle}>
-              메일이 안 보이면 아래 링크로 바로 인증하세요.
-              <br />
-              <a className={styles.switchLink} href={verifyUrl}>
-                이메일 인증하기
-              </a>
-            </p>
-          )}
-
-          {resendMessage && <p className={styles.errorText}>{resendMessage}</p>}
-
-          <button className={styles.submitBtn} type="button" onClick={handleResend}>
-            인증 메일 다시 보내기
+          <button className={styles.submitBtn} type="button" onClick={onBack}>
+            메인으로
           </button>
-
-          <p className={styles.switchText}>
-            <button className={styles.switchLink} type="button" onClick={onGoLogin}>
-              로그인 화면으로 이동
-            </button>
-          </p>
         </div>
       </div>
     )
@@ -139,7 +107,7 @@ export default function RegisterPage({ onBack, onGoLogin }: Props) {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
-              placeholder="인증 메일을 받을 이메일 주소"
+              placeholder="이메일을 입력하세요"
               required
             />
           </label>

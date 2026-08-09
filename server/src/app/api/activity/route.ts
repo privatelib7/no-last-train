@@ -16,7 +16,7 @@ export async function OPTIONS() {
 }
 
 // GET /api/activity — 로비 "최근 활동" 피드
-// 로그인한 플레이어가 접근 가능한 도시(소유 노선 또는 이메일 초대)에서
+// 로그인한 플레이어가 소유한 도시(관제장 또는 소유 노선)에서
 // 최근 24시간 안에 일어난 활동(플레이어 버튼 액션 + AI 정책 액션)만 반환한다.
 export async function GET(req: NextRequest) {
   const token = req.headers.get('x-player-token')
@@ -38,7 +38,6 @@ export async function GET(req: NextRequest) {
         OR: [
           { ownerPlayerId: player.id },
           { lines: { some: { playerId: player.id } } },
-          ...(player.email ? [{ invites: { some: { email: player.email } } }] : []),
         ],
       },
     },

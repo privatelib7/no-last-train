@@ -39,14 +39,10 @@ export async function GET(
           },
           vehicles: { orderBy: { id: 'asc' } },
           policies: { where: { isActive: true } },
-          actionLogs: {
-            orderBy: { createdAt: 'desc' },
-            take: 10,
-          },
         },
       },
       stations: true,
-      events: true,
+      events: { where: { status: { in: ['PENDING', 'ACTIVE'] } } },
       ticks: {
         orderBy: { tickNumber: 'desc' },
         take: 1,
@@ -75,7 +71,6 @@ export async function GET(
   const elapsedMs = Date.now() - city.lastTickAt.getTime()
   const elapsedGameHours = elapsedMs / SIM.LIVE_TICK_MS / SIM.TICKS_PER_GAME_HOUR
   const isOwner = city.ownerPlayerId === auth.player.id
-    || (!city.ownerPlayerId && city.lines.some(line => line.playerId === auth.player.id))
   const managementGoal = resolveManagementGoal(city.revenueGoal, city.goalReachedAtTick)
 
   return NextResponse.json({

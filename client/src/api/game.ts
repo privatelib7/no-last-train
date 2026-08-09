@@ -56,7 +56,7 @@ export type GameLine = {
   lineStations: Array<{ stationId: string; order: number; station: Station }>
   vehicles: Vehicle[]
   policies: Policy[]
-  actionLogs: ActionLog[]
+  actionLogs?: ActionLog[]
 }
 
 export type GameCity = {
@@ -79,7 +79,7 @@ export type GameCity = {
   score: number
   insolvencyTicks: number
   unhappyTicks: number
-  gameOverReason: 'BANKRUPT' | 'HAPPINESS' | null
+  gameOverReason: 'BANKRUPT' | 'HAPPINESS' | 'GOAL_DEADLINE' | null
   goalReachedAtTick: number | null
   stations: Station[]
   lines: GameLine[]
@@ -168,7 +168,7 @@ export type SimResult = {
   happiness: number
   score: number
   goalReached: boolean
-  gameOverReason: 'BANKRUPT' | 'HAPPINESS' | null
+  gameOverReason: 'BANKRUPT' | 'HAPPINESS' | 'GOAL_DEADLINE' | null
   actionsFired: Array<{ description: string; actionType: ActionType }>
   highlights: TickHighlight[]
 }

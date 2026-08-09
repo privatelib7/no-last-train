@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import styles from './SettingsPage.module.css'
 import LicensesPage from './LicensesPage'
+import { unlockBgm } from '../lib/bgm'
 import { applyTheme, loadSettings, saveSettings, type GameSettings } from '../lib/settings'
 
 interface Props {
@@ -13,6 +14,8 @@ export default function SettingsPage({ onBack }: Props) {
   const [view, setView] = useState<'settings' | 'licenses'>('settings')
 
   const update = (patch: Partial<GameSettings>) => {
+    // 슬라이더/토글 조작 자체가 사용자 제스처이므로 여기서 BGM 잠금을 푼다.
+    unlockBgm()
     setSettings((prev) => {
       const next = { ...prev, ...patch }
       saveSettings(next)
@@ -26,7 +29,7 @@ export default function SettingsPage({ onBack }: Props) {
   return (
     <div className={styles.page}>
       <div className={styles.card}>
-        <button className={styles.backBtn} onClick={onBack} type="button" title="타이틀로">
+        <button className={styles.backBtn} onClick={onBack} type="button" title="뒤로">
           <span className={styles.backArrow}>←</span>
         </button>
 

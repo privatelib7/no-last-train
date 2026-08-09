@@ -223,22 +223,21 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   const token = req.headers.get('x-player-token')
 
-  let player: { id: string; email: string | null } | null = null
+  let player: { id: string } | null = null
   if (token) {
-    player = await db.player.findUnique({ where: { token }, select: { id: true, email: true } })
+    player = await db.player.findUnique({ where: { token }, select: { id: true } })
     if (!player) {
       return NextResponse.json({ error: '플레이어 없음' }, { status: 404, headers: corsHeaders() })
     }
   }
 
-  // 로그인 상태면 관제장 도시 + 소유 노선 도시 + 초대받은 도시만 보여준다.
+  // 로그인 상태면 관제장 도시 + 소유 노선 도시만 보여준다. (공유 링크 참가는 링크 직접 진입)
   const cities = await db.city.findMany({
     where: player
       ? {
           OR: [
             { ownerPlayerId: player.id },
             { lines: { some: { playerId: player.id } } },
-            ...(player.email ? [{ invites: { some: { email: player.email } } }] : []),
           ],
         }
       : undefined,

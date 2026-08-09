@@ -87,10 +87,11 @@ function createClient(): PrismaClient {
     if (relaxTls) ssl = { rejectUnauthorized: false }
   }
 
+  // PM2/Node 서버: 커넥션을 재사용해 커서·폴링·액션이 서로 굶지 않게 한다.
   const pool = new Pool({
     connectionString,
-    max: 1,
-    maxUses: 1,
+    max: 10,
+    idleTimeoutMillis: 30_000,
     ...(ssl !== undefined ? { ssl } : {}),
   })
 
@@ -101,11 +102,11 @@ function createClient(): PrismaClient {
 }
 
 function getClient(): PrismaClient {
-  // Worker에서는 요청마다 Hyperdrive 컨텍스트를 다시 읽는다.
-  if (process.env.NODE_ENV !== 'production') {
-    return globalForPrisma.prisma ?? (globalForPrisma.prisma = createClient())
+  // Node(PM2 next start)에서는 싱글톤 재사용. Worker isolate에서도 globalThis 캐시가 안전하다.
+  if (!globalForPrisma.prisma) {
+    globalForPrisma.prisma = createClient()
   }
-  return createClient()
+  return globalForPrisma.prisma
 }
 
 export const db = new Proxy({} as PrismaClient, {

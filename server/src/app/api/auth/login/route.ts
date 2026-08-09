@@ -34,13 +34,6 @@ export async function POST(req: NextRequest) {
     return invalidCredentials()
   }
 
-  if (!player.emailVerifiedAt) {
-    return NextResponse.json(
-      { error: '이메일 인증이 필요합니다. 가입 시 받은 메일의 링크를 확인해주세요.', code: 'EMAIL_NOT_VERIFIED' },
-      { status: 403 },
-    )
-  }
-
   const updated = await db.player.update({
     where: { id: player.id },
     data: { token: randomUUID() },
