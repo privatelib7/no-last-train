@@ -20,7 +20,7 @@ import { leaveCursor, syncCursor, type RemoteCursor } from '../api/cursors'
 import { notifyEmergency } from '../lib/notifications'
 import { playGoalUnlockSfx } from '../lib/sfx'
 import InviteModal from './InviteModal'
-import { getCityMap, polyPath } from '../maps'
+import { getCityMap, polyPath, type CityMapDef } from '../maps'
 import { createCitizenJourneys, locateCitizen, type CitizenTravelMode } from '../mobility'
 import { depotPulloutMinutes, depotTerminusOf, locateVehicle, stationDwellMinutes } from '../vehicle-motion'
 import styles from './GamePage.module.css'
@@ -86,6 +86,8 @@ const CURSOR_MOVE_THRESHOLD = 0.35
 // 서버 cursor-presence.ts 의 CURSOR_COLORS 와 동일한 팔레트 (본인 아바타 색 계산용)
 const PRESENCE_COLORS = ['#ff6f91', '#4fc9a8', '#5b8cf2', '#ffb648', '#a77dfb', '#3ecbd0', '#f4886b'] as const
 const CITIZEN_TIME_SCALE = 0.72
+// 서버 actions 라우트의 MAX_VEHICLES_PER_LINE 과 같아야 한다
+const MAX_VEHICLES_PER_LINE = 8
 const GAME_MINUTES_PER_TICK = 60 / TICKS_PER_HOUR
 const INITIAL_MAP_VIEW: MapView = { x: 0, y: 0, width: 100, height: 100 }
 
@@ -107,6 +109,20 @@ const CITIZEN_MODE_CLASSES: Record<CitizenTravelMode, string> = {
   WALK: styles.personWalking,
   WAIT: styles.personWaiting,
   BOARDING: styles.personBoarding,
+}
+
+// 지형(물)은 클라이언트만 알고 있으므로, 서버가 계획한 신설역 좌표는 여기서 가장 가까운 땅으로 당긴다.
+function snapToLand(map: CityMapDef, posX: number, posY: number) {
+  if (map.isLand(posX, posY)) return { posX, posY }
+  for (let radius = 1; radius <= 12; radius += 1) {
+    for (let step = 0; step < 16; step += 1) {
+      const angle = (step / 16) * Math.PI * 2
+      const x = Math.round(Math.max(4, Math.min(96, posX + Math.cos(angle) * radius)) * 10) / 10
+      const y = Math.round(Math.max(4, Math.min(92, posY + Math.sin(angle) * radius)) * 10) / 10
+      if (map.isLand(x, y)) return { posX: x, posY: y }
+    }
+  }
+  return null
 }
 
 function formatHour(hour: number) {
@@ -229,7 +245,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const [commandMessages, setCommandMessages] = useState<CityCommandMessage[]>([{
     id: 0,
     role: 'assistant',
-    text: '역과 노선 이름을 사용해 운영 명령을 내려주세요. 실행 결과를 바로 보고드릴게요.',
+    text: '역과 노선 이름을 사용해 운영 명령을 내려주세요. 노선 건설·연장, 역 신설, 차량 구매와 배차, 일괄 운행 조정까지 맡길 수 있고 한 문장에 여러 지시를 담아도 됩니다.',
   }])
   const [remoteCursors, setRemoteCursors] = useState<RemoteCursor[]>([])
   const ticking = useRef(false)
@@ -889,6 +905,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     setBusy(true)
     setError(null)
 
+    // 여러 액션으로 펼쳐지는 계획은 중간에 실패할 수 있어, 이미 실행된 결과도 함께 보고한다.
+    const results: string[] = []
     try {
       const plan = await planCityCommand(cityId, command, session?.token)
       if (!plan.ok) {
@@ -900,10 +918,16 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
         return
       }
 
-      const results: string[] = []
       let createdLineId = ''
       for (const action of plan.actions) {
-        const result = await executeCityAction(cityId, action, session?.token)
+        const request = action.type === 'BUILD_STATION'
+          ? (() => {
+              const spot = snapToLand(mapDef, action.posX, action.posY)
+              if (!spot) throw new Error(`${action.name}을 지을 땅을 찾지 못했습니다. 지도에서 직접 지어주세요.`)
+              return { ...action, ...spot }
+            })()
+          : action
+        const result = await executeCityAction(cityId, request, session?.token)
         results.push(result.message)
         if (result.line?.id) createdLineId = result.line.id
       }
@@ -918,9 +942,12 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
         text: results.join('\n') || plan.summary,
       })
     } catch (err) {
+      const failure = err instanceof Error ? err.message : '명령을 실행하지 못했습니다.'
+      // 앞선 액션이 이미 반영됐을 수 있으므로 화면을 실제 상태로 되돌린다.
+      if (results.length > 0) await loadCity().catch(() => null)
       appendCommandMessage({
         role: 'assistant',
-        text: err instanceof Error ? err.message : '명령을 실행하지 못했습니다.',
+        text: results.length > 0 ? `${results.join('\n')}\n${failure}` : failure,
         isError: true,
       })
     } finally {
@@ -1430,6 +1457,22 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     commandExamples.push(`${line.name}을 ${target.name} 방향으로 연장해줘.`)
     break
   }
+  // 새 역을 끼울 만큼 떨어진 종점 쌍을 찾아 "사이에 새 역" 예시를 만든다 (서버 최소 간격 6과 동일)
+  for (const line of sortedLines) {
+    const [head, tail] = [line.lineStations[0]?.station, line.lineStations[line.lineStations.length - 1]?.station]
+    if (!head || !tail || head.id === tail.id) continue
+    if (Math.hypot(head.posX - tail.posX, head.posY - tail.posY) < 6) continue
+    commandExamples.push(`${head.name}과 ${tail.name} 사이에 새 역을 지어줘.`)
+    break
+  }
+  const primaryCommandLine = sortedLines[0]
+  if (primaryCommandLine) {
+    commandExamples.push(`${primaryCommandLine.name}에 차량 한 대 더 구매해줘.`)
+    commandExamples.push(`${primaryCommandLine.name} 차량 전부 운행에 투입해줘.`)
+  }
+  if (sortedLines.length > 1) {
+    commandExamples.push('모든 노선 운행을 재개해줘.')
+  }
 
   return (
     <div className={styles.page}>
@@ -1602,7 +1645,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                     event.preventDefault()
                     void runCityCommand(commandInput)
                   }}
-                  placeholder="예: 1호선을 시청역 방향으로 연장해줘."
+                  placeholder="예: 1호선을 시청역 방향으로 연장하고 차량 한 대 더 사줘."
                   maxLength={300}
                   rows={2}
                   disabled={busy || commandBusy || isGameOver}
@@ -1711,6 +1754,17 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                   </div>
                 )
               })}
+            </div>
+
+            <div className={styles.newLineRow}>
+              <button
+                onClick={() => void performAction({ type: 'BUY_VEHICLE', lineId: selectedLine.id, count: 1 })}
+                disabled={busy || isGameOver || selectedLine.vehicles.length >= MAX_VEHICLES_PER_LINE}
+              >
+                ＋ 차량 구매 · {formatMoney(selectedLine.mode === 'BUS'
+                  ? state.economyRules.buildCosts.busVehicle
+                  : state.economyRules.buildCosts.subwayVehicle)}
+              </button>
             </div>
 
             {selectedVehicle && (

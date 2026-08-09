@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { authorizeCityAccess } from '@/lib/access'
-import { ECONOMY, lineBuildCost, segmentBuildCost, stationInsertCost } from '@/lib/economy'
+import { ECONOMY, lineBuildCost, segmentBuildCost, stationInsertCost, vehiclePurchaseCost } from '@/lib/economy'
 
 function formatCash(value: number) {
   return `₵${Math.round(value / 10_000).toLocaleString('ko-KR')}`
@@ -73,6 +73,11 @@ const ActionSchema = z.discriminatedUnion('type', [
     status: z.enum(['OPERATING', 'SUSPENDED']),
   }),
   z.object({
+    type: z.literal('BUY_VEHICLE'),
+    lineId: z.string(),
+    count: z.number().int().min(1).max(3).default(1),
+  }),
+  z.object({
     type: z.literal('SET_VEHICLE_SERVICE'),
     lineId: z.string(),
     vehicleId: z.string(),
@@ -94,6 +99,9 @@ const ActionSchema = z.discriminatedUnion('type', [
 class ConstructionFundsError extends Error {}
 
 const LINE_COLORS = ['RED', 'BLUE', 'GREEN', 'YELLOW', 'PURPLE'] as const
+
+// 한 노선이 보유할 수 있는 차량 상한 — 차고지 표시와 운영비가 감당 가능한 범위
+const MAX_VEHICLES_PER_LINE = 8
 
 function nextLineIdentity(
   lines: Array<{ name: string; mode: string; color: string }>,
@@ -569,6 +577,28 @@ export async function POST(
     const message = action.status === 'OPERATING'
       ? `${line.name} 운행을 재개했습니다.`
       : `${line.name} 운행을 폐쇄했습니다.`
+    await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
+    return NextResponse.json({ message })
+  }
+
+  if (action.type === 'BUY_VEHICLE') {
+    if (line.vehicles.length + action.count > MAX_VEHICLES_PER_LINE) {
+      return NextResponse.json(
+        { error: `${line.name}은 차량을 최대 ${MAX_VEHICLES_PER_LINE}대까지 보유할 수 있습니다.` },
+        { status: 409 },
+      )
+    }
+    const cost = vehiclePurchaseCost(line.mode) * action.count
+    await runPaidConstruction(id, cost, tx => tx.vehicle.createMany({
+      data: Array.from({ length: action.count }, () => ({
+        lineId: line.id,
+        capacity: line.mode === 'BUS' ? 60 : 120,
+        status: 'SPARE' as const,
+        isSpare: true,
+        headwayMinutes: 6,
+      })),
+    }))
+    const message = `${line.name} 차량 ${action.count}대를 차고지에 들였습니다. (${formatWon(cost)})`
     await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
     return NextResponse.json({ message })
   }
