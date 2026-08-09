@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { ECONOMY, calculateTickEconomy, managementGoalForLevel, segmentBuildCost } from './economy'
+import {
+  ECONOMY,
+  calculateTickEconomy,
+  isManagementGoalDeadlineMissed,
+  managementGoalForLevel,
+  segmentBuildCost,
+} from './economy'
 
 const baseInput = {
   transported: 100,
@@ -82,6 +88,37 @@ test('기존 단일 목표 달성 도시는 보상을 중복 지급하지 않고
   assert.equal(migrated.goalsCompleted, 1)
   assert.equal(migrated.revenueGoal, 180_000_000)
   assert.equal(migrated.cashBalance, baseInput.cashBalance)
+})
+
+test('경영 목표는 마감일 마지막 틱까지 달성하지 못하면 게임 오버가 된다', () => {
+  const deadlineBoundaryTick = 3 * 24 * 6
+  const deadlineInput = {
+    totalRevenue: 0,
+    revenueGoal: ECONOMY.REVENUE_GOAL,
+    goalReachedAtTick: null,
+  }
+
+  assert.equal(isManagementGoalDeadlineMissed({
+    ...deadlineInput,
+    tickNumber: deadlineBoundaryTick - 1,
+  }), false)
+  assert.equal(isManagementGoalDeadlineMissed({
+    ...deadlineInput,
+    tickNumber: deadlineBoundaryTick,
+  }), true)
+})
+
+test('마감일 마지막 틱에 목표를 달성하면 성공하고 다음 목표로 진행한다', () => {
+  const reached = calculateTickEconomy({
+    ...baseInput,
+    transported: 100,
+    totalRevenue: ECONOMY.REVENUE_GOAL - 160_000,
+    tickNumber: 3 * 24 * 6 - 1,
+  })
+
+  assert.equal(reached.gameOverReason, null)
+  assert.equal(reached.goalReachedNow, true)
+  assert.equal(reached.goalLevel, 2)
 })
 
 test('행복도는 서비스가 나빠도 틱당 최대 0.25만 하락한다', () => {

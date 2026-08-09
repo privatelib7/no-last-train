@@ -2,7 +2,7 @@ import type { GameLine, Station, StationType } from './api/game'
 import type { CityMapDef } from './maps'
 
 export type CitizenTravelMode = 'WALK' | 'WAIT' | 'BOARDING'
-export type StationAccessMode = 'SUBWAY' | 'BUS' | 'INTERCHANGE'
+export type StationAccessMode = 'SUBWAY' | 'BUS' | 'INTERCHANGE' | 'CITY'
 
 type Point = { x: number; y: number }
 
@@ -153,6 +153,71 @@ function landSafePointOnMap(station: Station, map: CityMapDef, seed: number, ind
   return landSafePointNearStation(station, map, seed, index)
 }
 
+function deterministicLandPoint(map: CityMapDef, seed: number, index: number, salt: number): Point {
+  for (let attempt = 0; attempt < 96; attempt++) {
+    const point = {
+      x: 4 + randomUnit(seed, index, salt + attempt * 2) * 92,
+      y: 4 + randomUnit(seed, index, salt + attempt * 2 + 1) * 92,
+    }
+    if (map.isLand(point.x, point.y)) return point
+  }
+
+  const anchor = { x: map.anchor[0], y: map.anchor[1] }
+  if (map.isLand(anchor.x, anchor.y)) return anchor
+
+  for (let y = 2; y <= 98; y += 2) {
+    for (let x = 2; x <= 98; x += 2) {
+      if (map.isLand(x, y)) return { x, y }
+    }
+  }
+
+  return anchor
+}
+
+// 아직 역이 하나도 없을 때 도시가 텅 비어 보이지 않도록, 목적지 없이 배회하는 시민을 채운다.
+function createAmbientCitizenJourneys(seed: number, count: number, map: CityMapDef): CitizenJourney[] {
+  const journeys: CitizenJourney[] = []
+
+  for (let index = 0; index < count; index++) {
+    const start = deterministicLandPoint(map, seed, index, 500)
+    let destination = start
+
+    for (let attempt = 0; attempt < 96; attempt++) {
+      const candidate = deterministicLandPoint(map, seed, index, 700 + attempt * 193)
+      if (distanceBetween(start, candidate) >= 4 && pathStaysOnLand(start, candidate, map)) {
+        destination = candidate
+        break
+      }
+    }
+
+    const walkDuration = Math.max(3, distanceBetween(start, destination) / 1.3)
+    const pauseDuration = 0.8 + randomUnit(seed, index, 940) * 1.2
+    const legs: JourneyLeg[] = [
+      { from: start, to: destination, mode: 'WALK', duration: walkDuration },
+      { from: destination, to: destination, mode: 'WAIT', duration: pauseDuration },
+      { from: destination, to: start, mode: 'WALK', duration: walkDuration },
+      { from: start, to: start, mode: 'WAIT', duration: pauseDuration },
+    ]
+    const totalDuration = legs.reduce((sum, leg) => sum + leg.duration, 0)
+
+    journeys.push({
+      id: `ambient-citizen-${index}`,
+      targetStationId: 'city-ambient',
+      targetStationName: map.name,
+      accessMode: 'CITY',
+      legs,
+      totalDuration,
+      timeOffset: randomUnit(seed, index, 941) * totalDuration,
+      radius: 0.28 + randomUnit(seed, index, 942) * 0.12,
+      opacity: 0.72 + randomUnit(seed, index, 943) * 0.24,
+      warm: randomUnit(seed, index, 944) > 0.76,
+      landSafe: pathStaysOnLand(start, destination, map),
+    })
+  }
+
+  return journeys
+}
+
 export function createCitizenJourneys(options: {
   seed: number
   waitingCount: number
@@ -163,13 +228,14 @@ export function createCitizenJourneys(options: {
   map: CityMapDef
 }): CitizenJourney[] {
   const { seed, waitingCount, gameHour, weekend, stations, lines, map } = options
+  const count = Math.min(128, Math.max(64, Math.round(48 + Math.log10(waitingCount + 10) * 14)))
+  // 역이 하나도 없으면(노선 유무와 무관) 배회 시민으로 도시가 비어 보이지 않게 한다.
   const availableStations = allStationsWithAccess(lines, stations)
-  if (availableStations.length === 0) return []
+  if (availableStations.length === 0) return createAmbientCitizenJourneys(seed, count, map)
 
   const busStops = availableStations.filter(item => item.accessMode === 'BUS')
   const dayKind: DayKind = weekend ? 'WEEKEND' : 'WEEKDAY'
   const weights = STATION_DEMAND_WEIGHTS[dayKind][periodOfHour(gameHour)]
-  const count = Math.min(128, Math.max(64, Math.round(48 + Math.log10(waitingCount + 10) * 14)))
   const journeys: CitizenJourney[] = []
 
   for (let index = 0; index < count; index++) {
@@ -217,10 +283,12 @@ export function createCitizenJourneys(options: {
 export function locateCitizen(journey: CitizenJourney, journeyTime: number): CitizenPosition {
   let cursor = ((journeyTime + journey.timeOffset) % journey.totalDuration + journey.totalDuration) % journey.totalDuration
   let leg = journey.legs[journey.legs.length - 1]
+  let legIndex = journey.legs.length - 1
 
-  for (const candidate of journey.legs) {
+  for (const [index, candidate] of journey.legs.entries()) {
     if (cursor <= candidate.duration) {
       leg = candidate
+      legIndex = index
       break
     }
     cursor -= candidate.duration
@@ -229,7 +297,7 @@ export function locateCitizen(journey: CitizenJourney, journeyTime: number): Cit
   const progress = leg.duration > 0 ? Math.min(1, cursor / leg.duration) : 1
   const opacityScale = leg.mode === 'BOARDING'
     ? 1 - progress
-    : leg.mode === 'WALK' ? Math.min(1, progress / 0.12) : 1
+    : leg.mode === 'WALK' && legIndex === 0 ? Math.min(1, progress / 0.12) : 1
   const radiusScale = leg.mode === 'BOARDING' ? Math.max(0.35, 1 - progress * 0.65) : 1
 
   return {

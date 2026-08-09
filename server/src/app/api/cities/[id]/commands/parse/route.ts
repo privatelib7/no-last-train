@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { authorizeCityAccess } from '@/lib/access'
+import { authorizeCityOwner } from '@/lib/access'
 import { parseCityCommand } from '@/lib/city-command-parser'
 import { db } from '@/lib/db'
 import { z } from 'zod'
@@ -15,7 +15,7 @@ export async function POST(
 ) {
   const { id } = await params
 
-  const auth = await authorizeCityAccess(req, id)
+  const auth = await authorizeCityOwner(req, id)
   if (auth.error) return auth.error
 
   const body = await req.json().catch(() => null)
@@ -42,6 +42,10 @@ export async function POST(
             station: { select: { id: true, name: true, posX: true, posY: true } },
           },
         },
+        vehicles: {
+          orderBy: { id: 'asc' },
+          select: { id: true, status: true, isSpare: true },
+        },
       },
     }),
   ])
@@ -54,6 +58,7 @@ export async function POST(
       mode: line.mode,
       status: line.status,
       stations: line.lineStations.map(item => item.station),
+      vehicles: line.vehicles,
     })),
   })
 

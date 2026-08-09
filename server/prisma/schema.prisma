@@ -109,6 +109,7 @@ enum CityStatus {
 enum GameOverReason {
   BANKRUPT
   HAPPINESS
+  GOAL_DEADLINE
 }
 
 // ─── 역 ──────────────────────────────────────────────────────────────────

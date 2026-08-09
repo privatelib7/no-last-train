@@ -269,7 +269,12 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     const next = await fetchCity(cityId, session?.token)
     setState(next)
     const firstLine = next.city.lines.slice().sort((a, b) => a.name.localeCompare(b.name, 'ko'))[0]
-    setSelectedLineId(current => current || firstLine?.id || '')
+    setSelectedLineId(current => (
+      next.city.lines.some(line => line.id === current) ? current : firstLine?.id ?? ''
+    ))
+    setSelectedStationId(current => (
+      next.city.stations.some(station => station.id === current) ? current : ''
+    ))
     return next
   }
 
@@ -591,7 +596,9 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     if (gameOver && !gameOverFiredRef.current) {
       void notifyEmergency(
         `${roomTitle} — 게임 오버`,
-        '경영이 종료되었습니다. 도시로 돌아가 다시 시작해보세요.',
+        state.city.gameOverReason === 'GOAL_DEADLINE'
+          ? '경영 목표를 기한 안에 달성하지 못해 경영이 종료되었습니다.'
+          : '경영이 종료되었습니다. 도시로 돌아가 다시 시작해보세요.',
         `nlt-gameover-${cityId}`,
       )
     }
@@ -634,7 +641,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
 
   const runCityCommand = async (rawCommand: string) => {
     const command = rawCommand.trim()
-    if (!command || busy || commandBusy || !session) return
+    if (!command || busy || commandBusy || !state?.isOwner) return
 
     appendCommandMessage({ role: 'user', text: command })
     setCommandInput('')
@@ -1217,7 +1224,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             <p>{goalJustReached
               ? '이전 목표 보상을 지급하고 더 높은 다음 목표를 설정했습니다.'
               : goalDaysRemaining < 0
-                ? '기한이 지났습니다. 매출 목표를 달성하면 다음 단계로 계속 진행할 수 있습니다.'
+                ? '기한 안에 매출 목표를 달성하지 못해 경영이 종료되었습니다.'
                 : '기한 안에 목표를 달성하면 지원금 ₵2,000과 5,000점을 받고 다음 목표가 열립니다.'}</p>
           </div>
           <div className={styles.economyGrid}>
@@ -1233,6 +1240,78 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             </p>
           )}
         </section>
+
+        {state.isOwner && (
+          <section className={styles.controlSection}>
+            <div className={styles.sectionHeading}>
+              <span>AI</span>
+              <h2>도시 운영관</h2>
+            </div>
+            <div className={styles.aiCommandPanel}>
+              <div className={styles.aiChatLog} role="log" aria-live="polite" ref={commandLogRef}>
+                {commandMessages.map(message => (
+                  <div
+                    key={message.id}
+                    className={`${styles.aiMessage} ${message.role === 'user' ? styles.aiMessageUser : styles.aiMessageAssistant} ${message.isError ? styles.aiMessageError : ''}`}
+                  >
+                    <small>{message.role === 'user' ? '나' : 'AI 운영관'}</small>
+                    <p>{message.text}</p>
+                  </div>
+                ))}
+                {commandBusy && (
+                  <div className={`${styles.aiMessage} ${styles.aiMessageAssistant} ${styles.aiMessagePending}`}>
+                    <small>AI 운영관</small>
+                    <p><i /> 명령을 검토하고 있습니다.</p>
+                  </div>
+                )}
+              </div>
+              {commandExamples.length > 0 && (
+                <div
+                  className={styles.aiCommandExamples}
+                  role="region"
+                  tabIndex={0}
+                  aria-label="도시 운영 명령 예시, 좌우로 스크롤 가능"
+                >
+                  {commandExamples.map(example => (
+                    <button
+                      key={example}
+                      type="button"
+                      onClick={() => setCommandInput(example)}
+                      disabled={busy || commandBusy || isGameOver}
+                    >
+                      {example}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <form
+                className={styles.aiCommandForm}
+                onSubmit={event => {
+                  event.preventDefault()
+                  void runCityCommand(commandInput)
+                }}
+              >
+                <textarea
+                  value={commandInput}
+                  onChange={event => setCommandInput(event.target.value)}
+                  onKeyDown={event => {
+                    if (event.key !== 'Enter' || event.shiftKey) return
+                    event.preventDefault()
+                    void runCityCommand(commandInput)
+                  }}
+                  placeholder="예: 1호선을 시청역 방향으로 연장해줘."
+                  maxLength={300}
+                  rows={2}
+                  disabled={busy || commandBusy || isGameOver}
+                  aria-label="AI 도시 운영 명령"
+                />
+                <button type="submit" disabled={busy || commandBusy || isGameOver || !commandInput.trim()}>
+                  {commandBusy ? '실행 중' : '명령 실행'}
+                </button>
+              </form>
+            </div>
+          </section>
+        )}
 
         <section className={styles.controlSection}>
           <div className={styles.sectionHeading}><span>01</span><h2>운영 노선</h2></div>
@@ -1419,74 +1498,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
         )}
 
         {error && <div className={styles.operationError} role="alert">! {error}</div>}
-
-        {session && (
-          <section className={`${styles.controlSection} ${styles.aiCommandSection}`}>
-            <div className={styles.sectionHeading}>
-              <span>AI</span>
-              <h2>도시 운영관</h2>
-              <small>명령 즉시 실행</small>
-            </div>
-            <div className={styles.aiCommandPanel}>
-              <div className={styles.aiChatLog} role="log" aria-live="polite" ref={commandLogRef}>
-                {commandMessages.map(message => (
-                  <div
-                    key={message.id}
-                    className={`${styles.aiMessage} ${message.role === 'user' ? styles.aiMessageUser : styles.aiMessageAssistant} ${message.isError ? styles.aiMessageError : ''}`}
-                  >
-                    <small>{message.role === 'user' ? '나' : 'AI 운영관'}</small>
-                    <p>{message.text}</p>
-                  </div>
-                ))}
-                {commandBusy && (
-                  <div className={`${styles.aiMessage} ${styles.aiMessageAssistant} ${styles.aiMessagePending}`}>
-                    <small>AI 운영관</small>
-                    <p><i /> 명령을 검토하고 있습니다.</p>
-                  </div>
-                )}
-              </div>
-              {commandExamples.length > 0 && (
-                <div className={styles.aiCommandExamples} aria-label="도시 운영 명령 예시">
-                  {commandExamples.slice(0, 2).map(example => (
-                    <button
-                      key={example}
-                      type="button"
-                      onClick={() => setCommandInput(example)}
-                      disabled={busy || commandBusy || isGameOver}
-                    >
-                      {example}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <form
-                className={styles.aiCommandForm}
-                onSubmit={event => {
-                  event.preventDefault()
-                  void runCityCommand(commandInput)
-                }}
-              >
-                <textarea
-                  value={commandInput}
-                  onChange={event => setCommandInput(event.target.value)}
-                  onKeyDown={event => {
-                    if (event.key !== 'Enter' || event.shiftKey) return
-                    event.preventDefault()
-                    void runCityCommand(commandInput)
-                  }}
-                  placeholder="예: 1호선을 시청역 방향으로 연장해줘."
-                  maxLength={300}
-                  rows={2}
-                  disabled={busy || commandBusy || isGameOver}
-                  aria-label="AI 도시 운영 명령"
-                />
-                <button type="submit" disabled={busy || commandBusy || isGameOver || !commandInput.trim()}>
-                  {commandBusy ? '실행 중' : '명령 실행'}
-                </button>
-              </form>
-            </div>
-          </section>
-        )}
       </aside>
 
       <main className={styles.gameStage}>
@@ -1914,14 +1925,15 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             <p className={styles.gameOverReason}>
               {state.city.gameOverReason === 'BANKRUPT'
                 ? '운영 적자가 장기간 이어져 더는 대중교통을 유지할 수 없습니다.'
-                : '시민 행복도가 장기간 바닥에 머물러 운영 권한을 잃었습니다.'}
+                : state.city.gameOverReason === 'HAPPINESS'
+                  ? '시민 행복도가 장기간 바닥에 머물러 운영 권한을 잃었습니다.'
+                  : '경영 목표를 정해진 기한 안에 달성하지 못해 운영 권한을 잃었습니다.'}
             </p>
             <div className={styles.gameOverStats}>
               <span><small>최종 점수</small><b>{state.city.score.toLocaleString('ko-KR')}</b></span>
               <span><small>누적 매출</small><b>{formatMoney(state.city.totalRevenue)}</b></span>
               <span><small>최종 행복도</small><b>{Math.round(state.city.happiness)}%</b></span>
             </div>
-            <p className={styles.restartHint}>현재 도시와 건설한 노선은 유지하고, 자금·매출·행복도만 초기화합니다.</p>
             <div className={styles.gameOverActions}>
               <button onClick={onBack}>도시 선택</button>
               <button

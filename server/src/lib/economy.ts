@@ -70,7 +70,7 @@ export type TickEconomyResult = {
   goalReachedAtTick: number | null
   goalReachedNow: boolean
   completedGoalLevel: number | null
-  gameOverReason: 'BANKRUPT' | 'HAPPINESS' | null
+  gameOverReason: 'BANKRUPT' | 'HAPPINESS' | 'GOAL_DEADLINE' | null
 }
 
 export type ManagementGoal = {
@@ -99,6 +99,17 @@ export function resolveManagementGoal(
   // 단일 목표만 있던 기존 저장 데이터는 이미 받은 1단계 보상을 중복 지급하지 않는다.
   if (level === 1 && lastGoalReachedAtTick !== null) level = 2
   return managementGoalForLevel(level)
+}
+
+export function isManagementGoalDeadlineMissed(input: {
+  tickNumber: number
+  totalRevenue: number
+  revenueGoal: number
+  goalReachedAtTick: number | null
+}): boolean {
+  const goal = resolveManagementGoal(input.revenueGoal, input.goalReachedAtTick)
+  const deadlineBoundaryTick = goal.deadlineDay * SIM.TICKS_PER_GAME_HOUR * SIM.GAME_HOURS_PER_DAY
+  return input.tickNumber >= deadlineBoundaryTick && input.totalRevenue < goal.revenueGoal
 }
 
 export function segmentBuildCost(mode: string, distance: number): number {
