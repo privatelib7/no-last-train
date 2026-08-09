@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import styles from './SettingsPage.module.css'
+import { unlockBgm } from '../lib/bgm'
 import { applyTheme, loadSettings, saveSettings, type GameSettings } from '../lib/settings'
 
 interface Props {
@@ -10,6 +11,8 @@ export default function SettingsPage({ onBack }: Props) {
   const [settings, setSettings] = useState<GameSettings>(() => loadSettings())
 
   const update = (patch: Partial<GameSettings>) => {
+    // 슬라이더/토글 조작 자체가 사용자 제스처이므로 여기서 BGM 잠금을 푼다.
+    unlockBgm()
     setSettings((prev) => {
       const next = { ...prev, ...patch }
       saveSettings(next)
