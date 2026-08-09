@@ -13,7 +13,7 @@
     "build": "npm run build -w no-last-train-client",
     "build:client": "npm run build -w no-last-train-client",
     "build:server": "npm run build -w no-last-train-server",
-    "test": "npm run test -w no-last-train-server && node --test scripts/*.test.mjs",
+    "test": "npm run test -w no-last-train-server && tsx --test client/test/mobility.test.ts && node --test scripts/*.test.mjs",
     "start:client": "npm run start -w no-last-train-client",
     "start:server": "npm run start -w no-last-train-server",
     "lint": "npm run lint -w no-last-train-client",
