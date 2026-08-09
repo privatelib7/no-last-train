@@ -1,7 +1,7 @@
 import { db } from './db'
 import { evaluatePolicies } from './policy-engine'
 import { calculateTickEconomy, isManagementGoalDeadlineMissed, resolveManagementGoal } from './economy'
-import { advanceVehicleMotion } from './vehicle-motion'
+import { advanceVehicleMotion, stationDwellMinutes } from './vehicle-motion'
 import { isVehicleInService } from './vehicle-service'
 import { SIM, TIME_DEMAND_MULTIPLIER, ORIGIN_WEIGHT, DEST_WEIGHT, periodOfHour, isWeekendTick } from '@/types/game'
 import type { SimResult, TickHighlight, StationSnapshot, DayPeriod } from '@/types/game'
@@ -152,8 +152,23 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
       }
     }
 
-    // 2. 승객 생성
-    const newPassengers = generatePassengers(city.stations, tickNumber, demandMult, period, weekend, activeEvents, rng)
+    // 2. 현재 대기열을 반영해 승객 생성 (적체가 길수록 신규 수요가 줄어든다)
+    const waitingBefore = await db.passenger.groupBy({
+      by: ['originStationId'],
+      where: { cityId, boardedAtTick: null },
+      _count: { id: true },
+    })
+    const waitingByOrigin = new Map(waitingBefore.map(row => [row.originStationId, row._count.id]))
+    const newPassengers = generatePassengers(
+      city.stations,
+      tickNumber,
+      demandMult,
+      period,
+      weekend,
+      activeEvents,
+      rng,
+      waitingByOrigin,
+    )
     if (newPassengers.length > 0) {
       await db.passenger.createMany({ data: newPassengers })
     }
@@ -225,7 +240,7 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
         tickNumber,
         gameTimeHour,
         type: 'GOAL',
-        description: `${economy.completedGoalLevel}단계 경영 목표를 달성해 지원금 ₵2,000을 받고 ${economy.goalLevel}단계 목표가 설정되었습니다.`,
+        description: `${economy.completedGoalLevel}단계 경영 목표를 달성해 지원금 ₵5,000을 받고 ${economy.goalLevel}단계 목표가 설정되었습니다.`,
         severity: 'INFO',
       })
     }
@@ -303,6 +318,7 @@ function generatePassengers(
   weekend: boolean,
   activeEvents: GameEvent[],
   rng: () => number,
+  waitingByOrigin: Map<string, number>,
 ): Array<{
   cityId: string; originStationId: string; destStationId: string
   type: 'COMMUTER' | 'TOURIST' | 'WORKER'; createdAtTick: number
@@ -320,6 +336,12 @@ function generatePassengers(
       const ev = activeEvents.find(e => e.affectedStationId === station.id)
       rate *= ev?.demandMultiplier ?? 1.5
     }
+
+    // 역 용량 대비 대기가 아주 길 때만 유입을 줄여, 평소엔 사람이 잘 보이게 한다.
+    const waiting = waitingByOrigin.get(station.id) ?? 0
+    const capacity = Math.max(1, station.capacity)
+    const congestion = Math.min(1, waiting / capacity)
+    rate *= Math.max(0.4, 1 - congestion * 0.55)
 
     const count = Math.round(rate * (0.7 + rng() * 0.6))  // ±30% 랜덤
     for (let i = 0; i < count; i++) {
@@ -416,11 +438,20 @@ async function moveVehiclesAndBoard(
     for (const vehicle of orderedVehicles) {
       if (!isVehicleInService(vehicle)) continue
 
+      // 차고지 출고(음수 dwell > 기본 정차) 중에는 이번 틱에서 출고·정차만 소비하고
+      // 바로 노선 주행으로 넘어가지 않게 한다. 대기→운행 재시작 시 차고지에서
+      // 빠져나오는 연출이 한 틱에 통째로 스킵되지 않도록.
+      const baseDwell = stationDwellMinutes(line.mode)
+      const storedProgress = vehicle.segmentProgressMinutes || 0
+      const stepMinutes = storedProgress < -baseDwell
+        ? Math.min(SIM.GAME_MINUTES_PER_TICK, -storedProgress)
+        : SIM.GAME_MINUTES_PER_TICK
+
       const motion = advanceVehicleMotion(stationOrder, {
         currentStationId: vehicle.currentStationId ?? stationOrder[0].id,
         direction: vehicle.direction,
         segmentProgressMinutes: vehicle.segmentProgressMinutes,
-      }, SIM.GAME_MINUTES_PER_TICK, line.mode)
+      }, stepMinutes, line.mode)
 
       // 한 경제 틱 안에 도착한 모든 역에서 승하차를 처리한다.
       for (const arrivedStationId of motion.arrivedStationIds) {

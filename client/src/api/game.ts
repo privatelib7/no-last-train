@@ -64,6 +64,7 @@ export type GameCity = {
   name: string
   roomTitle: string
   mapKey: string
+  ownerPlayerId: string | null
   seed: number
   seasonDay: number
   status: 'ACTIVE' | 'SEASON_ENDED' | 'GAME_OVER'
