@@ -81,7 +81,6 @@ model City {
   stations     Station[]
   events       GameEvent[]
   ticks        SimTick[]
-  invites      CityInvite[]
   activityLogs ActivityLog[]
 
   @@index([ownerPlayerId])
@@ -99,19 +98,6 @@ model ActivityLog {
   player Player? @relation(fields: [playerId], references: [id], onDelete: SetNull)
 
   @@index([cityId, createdAt])
-}
-
-// 구글 독스 공유처럼, 이 이메일로 로그인한 플레이어만 도시에 접근할 수 있다.
-model CityInvite {
-  id        String   @id @default(cuid())
-  cityId    String
-  email     String
-  createdAt DateTime @default(now())
-
-  city City @relation(fields: [cityId], references: [id], onDelete: Cascade)
-
-  @@unique([cityId, email])
-  @@index([email])
 }
 
 enum CityStatus {

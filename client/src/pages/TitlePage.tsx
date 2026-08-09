@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { unlockBgm } from '../lib/bgm'
 import styles from './TitlePage.module.css'
 
 interface Props {
@@ -8,6 +9,11 @@ interface Props {
 
 export default function TitlePage({ onStart, onOpenSettings }: Props) {
   const svgRef = useRef<SVGSVGElement>(null)
+
+  const handleStart = () => {
+    unlockBgm()
+    onStart()
+  }
 
   useEffect(() => {
     const nodes = svgRef.current?.querySelectorAll('.node-dot')
@@ -83,7 +89,7 @@ export default function TitlePage({ onStart, onOpenSettings }: Props) {
 
       <aside className={styles.right}>
         <nav className={styles.menu}>
-          <button className={styles.menuBtn} onClick={onStart} type="button">
+          <button className={styles.menuBtn} onClick={handleStart} type="button">
             시작
           </button>
           <button className={styles.menuBtn} onClick={onOpenSettings} type="button">

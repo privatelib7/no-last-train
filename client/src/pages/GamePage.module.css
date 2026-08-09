@@ -1512,6 +1512,73 @@
   letter-spacing: -0.04em;
 }
 
+.hudRight {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.presenceGroup {
+  display: flex;
+  align-items: center;
+}
+
+.presenceAvatar {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  margin-left: -8px;
+  border-radius: 50%;
+  border: 2px solid var(--gp-hud-bg);
+  background: var(--presence-color, var(--gp-accent));
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  cursor: default;
+  transition: transform 0.12s ease, z-index 0s;
+  animation: presenceAvatarIn 0.22s ease-out;
+}
+
+.presenceAvatar:first-child {
+  margin-left: 0;
+}
+
+.presenceAvatar:hover {
+  transform: translateY(-3px) scale(1.08);
+  z-index: 1;
+}
+
+.presenceAvatar::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: var(--gp-text);
+  color: var(--gp-hud-bg);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.presenceAvatar:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+@keyframes presenceAvatarIn {
+  from { opacity: 0; transform: scale(0.5); }
+  to { opacity: 1; transform: scale(1); }
+}
+
 .hudStats {
   display: flex;
   align-items: center;
@@ -1884,6 +1951,26 @@
 
 .transferCore {
   fill: var(--gp-station-stroke);
+  pointer-events: none;
+}
+
+/* 예전 차고지 위치(노선 종점) 역만 회색 테두리 + 라벨 */
+.depotTerminusStation .stationNode {
+  stroke: #9a9187;
+}
+
+.depotTerminusStation .transferCore {
+  fill: #9a9187;
+}
+
+.depotTerminusLabel {
+  fill: #7f776e;
+  font-size: 2.05px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  paint-order: stroke;
+  stroke: var(--gp-map-label-halo);
+  stroke-width: 0.55px;
   pointer-events: none;
 }
 
@@ -2361,6 +2448,11 @@
     align-items: flex-start;
     flex-direction: column;
     gap: 6px;
+  }
+
+  .hudRight {
+    width: 100%;
+    flex-wrap: wrap;
   }
 
   .hudStats {

@@ -39,14 +39,10 @@ export async function GET(
           },
           vehicles: { orderBy: { id: 'asc' } },
           policies: { where: { isActive: true } },
-          actionLogs: {
-            orderBy: { createdAt: 'desc' },
-            take: 10,
-          },
         },
       },
       stations: true,
-      events: true,
+      events: { where: { status: { in: ['PENDING', 'ACTIVE'] } } },
       ticks: {
         orderBy: { tickNumber: 'desc' },
         take: 1,

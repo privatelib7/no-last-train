@@ -30,6 +30,8 @@ export function loadSettings(): GameSettings {
 
 export function saveSettings(settings: GameSettings) {
   window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
+  // 설정 화면·다른 모듈이 즉시 반영할 수 있도록 알린다 (BGM 음량 등).
+  window.dispatchEvent(new CustomEvent<GameSettings>('nlt:settings', { detail: settings }))
 }
 
 // html 루트에 data-theme을 반영한다 — 다크모드는 index.css의 공통 CSS 변수 오버라이드로만 처리된다.

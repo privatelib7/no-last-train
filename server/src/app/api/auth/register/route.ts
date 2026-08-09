@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { hashPassword, USERNAME_PATTERN } from '@/lib/auth'
-import { sendVerificationEmail } from '@/lib/mailer'
 import { z } from 'zod'
 import { randomUUID } from 'crypto'
-
-const VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000
 
 const RegisterSchema = z.object({
   username: z.string().regex(USERNAME_PATTERN, '아이디는 영문/숫자/밑줄 3~20자여야 합니다.'),
@@ -14,7 +11,7 @@ const RegisterSchema = z.object({
   nickname: z.string().trim().min(1).max(20).optional(),
 })
 
-// POST /api/auth/register — 아이디/비밀번호/이메일 회원가입 (이메일 인증 전까지 로그인 불가)
+// POST /api/auth/register — 아이디/비밀번호/이메일 회원가입 (데모: 이메일 인증 없이 즉시 가입 완료)
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null)
   const parsed = RegisterSchema.safeParse(body)
@@ -37,37 +34,23 @@ export async function POST(req: NextRequest) {
 
   const passwordHash = await hashPassword(password)
   const token = randomUUID()
-  const verifyToken = randomUUID()
 
-  const player = await db.player.create({
+  await db.player.create({
     data: {
       token,
       username,
       passwordHash,
       email,
       nickname: nickname ?? username,
-      verificationTokens: {
-        create: { token: verifyToken, expiresAt: new Date(Date.now() + VERIFICATION_TTL_MS) },
-      },
+      emailVerifiedAt: new Date(),
     },
   })
 
-  let verifyUrl: string | undefined
-  try {
-    verifyUrl = await sendVerificationEmail(email, verifyToken)
-  } catch (err) {
-    await db.player.delete({ where: { id: player.id } })
-    console.error('인증 메일 발송 실패:', err)
-    return NextResponse.json({ error: '인증 메일 발송에 실패했습니다. 잠시 후 다시 시도해주세요.' }, { status: 502 })
-  }
-
   return NextResponse.json(
     {
-      message: '인증 메일을 보냈습니다. 메일함을 확인해주세요.',
+      message: '회원가입이 완료되었습니다. 바로 로그인할 수 있습니다.',
       username,
       email,
-      // 로컬에서 메일이 안 보일 때 바로 인증할 수 있게 개발 환경에서만 링크를 내려준다.
-      ...(process.env.NODE_ENV !== 'production' ? { verifyUrl } : {}),
     },
     { status: 201 },
   )
