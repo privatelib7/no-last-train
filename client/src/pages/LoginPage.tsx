@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { login, resendVerification } from '../api/auth'
+import { login } from '../api/auth'
 import type { AuthSession } from '../api/auth'
 import styles from './AuthPage.module.css'
 
@@ -14,40 +14,20 @@ export default function LoginPage({ onBack, onGoRegister, onGoForgotPassword, on
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [needsVerification, setNeedsVerification] = useState(false)
-  const [resendMessage, setResendMessage] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     if (loading) return
     setError(null)
-    setNeedsVerification(false)
-    setResendMessage(null)
     setLoading(true)
     try {
       const session = await login(identifier.trim(), password)
       onLoggedIn(session)
     } catch (err) {
-      const e2 = err as Error & { code?: string }
-      setError(e2 instanceof Error ? e2.message : '로그인에 실패했습니다.')
-      setNeedsVerification(e2.code === 'EMAIL_NOT_VERIFIED')
+      setError(err instanceof Error ? err.message : '로그인에 실패했습니다.')
     } finally {
       setLoading(false)
-    }
-  }
-
-  const handleResend = async () => {
-    setResendMessage(null)
-    try {
-      const result = await resendVerification(identifier.trim())
-      setResendMessage(
-        result.verifyUrl
-          ? `${result.message} (개발용 링크: ${result.verifyUrl})`
-          : `${result.message} 스팸함도 확인해보세요.`,
-      )
-    } catch (err) {
-      setResendMessage(err instanceof Error ? err.message : '재발송에 실패했습니다.')
     }
   }
 
@@ -90,13 +70,6 @@ export default function LoginPage({ onBack, onGoRegister, onGoForgotPassword, on
           </label>
 
           {error && <p className={styles.errorText}>{error}</p>}
-
-          {needsVerification && (
-            <button className={styles.switchLink} type="button" onClick={handleResend}>
-              인증 메일 다시 보내기
-            </button>
-          )}
-          {resendMessage && <p className={styles.subtitle}>{resendMessage}</p>}
 
           <button className={styles.submitBtn} type="submit" disabled={loading}>
             {loading ? '로그인 중…' : '로그인'}
