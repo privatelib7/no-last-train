@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { authorizeCityAccess } from '@/lib/access'
 import { ECONOMY, lineBuildCost, segmentBuildCost, stationInsertCost } from '@/lib/economy'
-import { stationDwellMinutes } from '@/lib/vehicle-motion'
+
+function formatCash(value: number) {
+  return `₵${Math.round(value / 10_000).toLocaleString('ko-KR')}`
+}
+import { reconcileVehicleForInsertedStation, stationDwellMinutes } from '@/lib/vehicle-motion'
 import { isVehicleInService, vehicleServiceUpdate } from '@/lib/vehicle-service'
 import { resetCityForNewGame } from '@/lib/city-reset'
 import type { Prisma } from '@prisma/client'
@@ -479,14 +483,41 @@ export async function POST(
     if (!station) return NextResponse.json({ error: '역을 찾을 수 없습니다.' }, { status: 404 })
     const insertAt = Math.min(fromMembership.order, toMembership.order) + 1
     const cost = stationInsertCost(line.mode)
+
+    // 삽입되는 구간을 지금 지나는 중인 차량은 새 역 기준으로 진행 상태를 다시 맞춰준다.
+    // 그대로 두면 예전 구간 길이 기준 진행 시간이 훨씬 짧아진 새 구간에 그대로 클램프되어
+    // 순간이동한 것처럼 새 역까지 튕겨 나간다.
+    const orderedStations = line.lineStations.map(item => item.station)
+    const vehicleFixes = line.vehicles.flatMap(vehicle => {
+      const fix = reconcileVehicleForInsertedStation(
+        orderedStations,
+        {
+          currentStationId: vehicle.currentStationId,
+          direction: vehicle.direction,
+          segmentProgressMinutes: vehicle.segmentProgressMinutes,
+        },
+        [fromMembership.stationId, toMembership.stationId],
+        station,
+        line.mode,
+      )
+      return fix ? [{ vehicleId: vehicle.id, ...fix }] : []
+    })
+
     await runPaidConstruction(id, cost, async tx => {
       await tx.lineStation.updateMany({
         where: { lineId: line.id, order: { gte: insertAt } },
         data: { order: { increment: 1 } },
       })
-      return tx.lineStation.create({
+      const created = await tx.lineStation.create({
         data: { lineId: line.id, stationId: action.stationId, order: insertAt },
       })
+      for (const fix of vehicleFixes) {
+        await tx.vehicle.update({
+          where: { id: fix.vehicleId },
+          data: { currentStationId: fix.currentStationId, segmentProgressMinutes: fix.segmentProgressMinutes },
+        })
+      }
+      return created
     })
     return NextResponse.json({ message: `${line.name}이 ${station.name}을 경유하도록 변경했습니다. (${formatWon(cost)})` })
   }
