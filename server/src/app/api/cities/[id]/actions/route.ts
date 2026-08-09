@@ -6,7 +6,7 @@ import { ECONOMY, lineBuildCost, segmentBuildCost, stationInsertCost } from '@/l
 function formatCash(value: number) {
   return `₵${Math.round(value / 10_000).toLocaleString('ko-KR')}`
 }
-import { reconcileVehicleForInsertedStation, stationDwellMinutes } from '@/lib/vehicle-motion'
+import { depotPulloutMinutes, reconcileVehicleForInsertedStation, stationDwellMinutes } from '@/lib/vehicle-motion'
 import { isVehicleInService, vehicleServiceUpdate } from '@/lib/vehicle-service'
 import { resetCityForNewGame } from '@/lib/city-reset'
 import type { Prisma } from '@prisma/client'
@@ -608,12 +608,15 @@ export async function POST(
     })
     const stationIndex = line.lineStations.findIndex(item => item.stationId === depotStation.stationId)
     const direction = stationIndex >= line.lineStations.length - 1 ? -1 : 1
+    // 출고(차고지→종점) + 종점 정차를 합쳐 음수 progress로 저장. 클라이언트는
+    // dwellRemaining > 기본 정차시간 이면 차고지에서 빠져나오는 중으로 그린다.
+    const launchDwell = stationDwellMinutes(line.mode) + depotPulloutMinutes(line.mode)
     const updatedVehicle = await db.vehicle.update({
       where: { id: vehicle.id },
       data: vehicleServiceUpdate(true, {
         stationId: depotStation.stationId,
         direction,
-        dwellMinutes: stationDwellMinutes(line.mode),
+        dwellMinutes: launchDwell,
       }),
     })
     const message = `${line.name} 차량 운행을 시작했습니다.`

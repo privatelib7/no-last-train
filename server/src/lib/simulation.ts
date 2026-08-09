@@ -1,7 +1,7 @@
 import { db } from './db'
 import { evaluatePolicies } from './policy-engine'
 import { calculateTickEconomy, isManagementGoalDeadlineMissed, resolveManagementGoal } from './economy'
-import { advanceVehicleMotion } from './vehicle-motion'
+import { advanceVehicleMotion, stationDwellMinutes } from './vehicle-motion'
 import { isVehicleInService } from './vehicle-service'
 import { SIM, TIME_DEMAND_MULTIPLIER, ORIGIN_WEIGHT, DEST_WEIGHT, periodOfHour, isWeekendTick } from '@/types/game'
 import type { SimResult, TickHighlight, StationSnapshot, DayPeriod } from '@/types/game'
@@ -438,11 +438,20 @@ async function moveVehiclesAndBoard(
     for (const vehicle of orderedVehicles) {
       if (!isVehicleInService(vehicle)) continue
 
+      // 차고지 출고(음수 dwell > 기본 정차) 중에는 이번 틱에서 출고·정차만 소비하고
+      // 바로 노선 주행으로 넘어가지 않게 한다. 대기→운행 재시작 시 차고지에서
+      // 빠져나오는 연출이 한 틱에 통째로 스킵되지 않도록.
+      const baseDwell = stationDwellMinutes(line.mode)
+      const storedProgress = vehicle.segmentProgressMinutes || 0
+      const stepMinutes = storedProgress < -baseDwell
+        ? Math.min(SIM.GAME_MINUTES_PER_TICK, -storedProgress)
+        : SIM.GAME_MINUTES_PER_TICK
+
       const motion = advanceVehicleMotion(stationOrder, {
         currentStationId: vehicle.currentStationId ?? stationOrder[0].id,
         direction: vehicle.direction,
         segmentProgressMinutes: vehicle.segmentProgressMinutes,
-      }, SIM.GAME_MINUTES_PER_TICK, line.mode)
+      }, stepMinutes, line.mode)
 
       // 한 경제 틱 안에 도착한 모든 역에서 승하차를 처리한다.
       for (const arrivedStationId of motion.arrivedStationIds) {

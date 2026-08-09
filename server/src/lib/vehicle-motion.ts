@@ -28,17 +28,23 @@ export type VehicleMotion = {
 
 const MODE_SPEED: Record<'SUBWAY' | 'BUS', number> = {
   SUBWAY: 1.05,
-  BUS: 0.72,
+  BUS: 1.0,
 }
 
 const MODE_DURATION_LIMITS: Record<'SUBWAY' | 'BUS', { min: number; max: number }> = {
   SUBWAY: { min: 4, max: 28 },
-  BUS: { min: 5.5, max: 35 },
+  BUS: { min: 4, max: 28 },
 }
 
 const MODE_DWELL_MINUTES: Record<'SUBWAY' | 'BUS', number> = {
   SUBWAY: 1.5,
-  BUS: 2.5,
+  BUS: 2.0,
+}
+
+/** 운행 시작 시 차고지(depot) → 종점 출고에 쓰는 게임 분 */
+const MODE_DEPOT_PULLOUT_MINUTES: Record<'SUBWAY' | 'BUS', number> = {
+  SUBWAY: 1.2,
+  BUS: 1.8,
 }
 
 function normalizedMode(mode: TransitMode): 'SUBWAY' | 'BUS' {
@@ -47,6 +53,10 @@ function normalizedMode(mode: TransitMode): 'SUBWAY' | 'BUS' {
 
 export function stationDwellMinutes(mode: TransitMode): number {
   return MODE_DWELL_MINUTES[normalizedMode(mode)]
+}
+
+export function depotPulloutMinutes(mode: TransitMode): number {
+  return MODE_DEPOT_PULLOUT_MINUTES[normalizedMode(mode)]
 }
 
 /**
