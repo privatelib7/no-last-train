@@ -38,7 +38,7 @@ export interface SimResult {
   happiness: number
   score: number
   goalReached: boolean
-  gameOverReason: 'BANKRUPT' | 'HAPPINESS' | null
+  gameOverReason: 'BANKRUPT' | 'HAPPINESS' | 'GOAL_DEADLINE' | null
   actionsFired: Array<{ description: string; actionType: string }>
   highlights: TickHighlight[]  // 주요 순간 최대 3개
 }

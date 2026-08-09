@@ -521,7 +521,9 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     if (gameOver && !gameOverFiredRef.current) {
       void notifyEmergency(
         `${roomTitle} — 게임 오버`,
-        '경영이 종료되었습니다. 도시로 돌아가 다시 시작해보세요.',
+        state.city.gameOverReason === 'GOAL_DEADLINE'
+          ? '경영 목표를 기한 안에 달성하지 못해 경영이 종료되었습니다.'
+          : '경영이 종료되었습니다. 도시로 돌아가 다시 시작해보세요.',
         `nlt-gameover-${cityId}`,
       )
     }
@@ -1207,7 +1209,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             <p>{goalJustReached
               ? '이전 목표 보상을 지급하고 더 높은 다음 목표를 설정했습니다.'
               : goalDaysRemaining < 0
-                ? '기한이 지났습니다. 매출 목표를 달성하면 다음 단계로 계속 진행할 수 있습니다.'
+                ? '기한 안에 매출 목표를 달성하지 못해 경영이 종료되었습니다.'
                 : '기한 안에 목표를 달성하면 지원금 ₵2,000과 5,000점을 받고 다음 목표가 열립니다.'}</p>
           </div>
           <div className={styles.economyGrid}>
@@ -1926,7 +1928,9 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             <p className={styles.gameOverReason}>
               {state.city.gameOverReason === 'BANKRUPT'
                 ? '운영 적자가 장기간 이어져 더는 대중교통을 유지할 수 없습니다.'
-                : '시민 행복도가 장기간 바닥에 머물러 운영 권한을 잃었습니다.'}
+                : state.city.gameOverReason === 'HAPPINESS'
+                  ? '시민 행복도가 장기간 바닥에 머물러 운영 권한을 잃었습니다.'
+                  : '경영 목표를 정해진 기한 안에 달성하지 못해 운영 권한을 잃었습니다.'}
             </p>
             <div className={styles.gameOverStats}>
               <span><small>최종 점수</small><b>{state.city.score.toLocaleString('ko-KR')}</b></span>
