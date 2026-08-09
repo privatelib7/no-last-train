@@ -79,6 +79,9 @@ type SegmentUndoEntry = {
 
 const LIVE_TICK_MS = 3000
 const CITY_POLL_MS = 2500
+// 서버 시계(lastTickAt)가 밀려도 클라이언트 미리보기는 최대 이 틱만큼만 앞선다.
+// 리드가 커지면 차량이 한 프레임에 여러 역을 "도착"한 것으로 잡혀 대기 인원이 0으로 사라진다.
+const MAX_CLIENT_PREVIEW_TICKS = 1.25
 // 커서: 움직일 때는 200ms, 가만히 있을 때는 2초 하트비트 (예전 45ms는 DB/액션을 굶김)
 const CURSOR_MOVE_SYNC_MS = 200
 const CURSOR_HEARTBEAT_MS = 2000
@@ -1357,7 +1360,9 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const serverLiveTicks = state.city.status === 'ACTIVE' && Number.isFinite(lastTickAtMs)
     ? Math.max(0, (clockNowMs - lastTickAtMs) / LIVE_TICK_MS)
     : 0
-  const serverTick = currentTick + serverLiveTicks
+  // 시계 따라잡기 중(수십~수천 틱 지연)에도 미리보기는 짧게만 앞서게 한다.
+  const previewTicks = Math.min(serverLiveTicks, MAX_CLIENT_PREVIEW_TICKS)
+  const serverTick = currentTick + previewTicks
   // 서버 스냅샷이 앞서면 따라잡고, 폴링이 늦어 클라이언트가 앞선 경우에는 되감지 않는다.
   // (되감으면 지하철/버스가 가다가 툭 멈추는 것처럼 보인다)
   if (state.city.status === 'ACTIVE') {
