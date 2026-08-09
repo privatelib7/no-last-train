@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { authorizeCityOwner } from '@/lib/access'
+import { authorizeCityAccess } from '@/lib/access'
 import { parseCityCommand } from '@/lib/city-command-parser'
 import { db } from '@/lib/db'
 import { z } from 'zod'
@@ -15,7 +15,7 @@ export async function POST(
 ) {
   const { id } = await params
 
-  const auth = await authorizeCityOwner(req, id)
+  const auth = await authorizeCityAccess(req, id)
   if (auth.error) return auth.error
 
   const body = await req.json().catch(() => null)

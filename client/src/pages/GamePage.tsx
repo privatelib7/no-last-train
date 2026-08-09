@@ -564,7 +564,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
 
   const runCityCommand = async (rawCommand: string) => {
     const command = rawCommand.trim()
-    if (!command || busy || commandBusy || !state?.isOwner) return
+    if (!command || busy || commandBusy || !session) return
 
     appendCommandMessage({ role: 'user', text: command })
     setCommandInput('')
@@ -1014,7 +1014,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
       return (
         <div className={styles.loadingPage}>
           <div className={styles.accessScreen}>
-            <p>이 도시에 접근 권한이 없습니다.<br />초대받은 이메일 계정으로 로그인했는지 확인해주세요.</p>
+            <p>이 도시에 접근할 수 없습니다.</p>
             <button className={styles.accessActionBtn} onClick={onBack} type="button">
               돌아가기
             </button>
@@ -1162,15 +1162,14 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
               <button
                 className={styles.inviteButton}
                 onClick={() => setShowInviteModal(true)}
-                aria-label="이 도시에 사람 초대하기"
-                title="초대"
+                aria-label="관제실 링크 공유"
+                title="링크 공유"
               >
                 <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <circle cx="9.5" cy="8.5" r="3.1" stroke="currentColor" strokeWidth="1.8" />
-                  <path d="M3.5 19c0-3 2.7-5.2 6-5.2s6 2.2 6 5.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                  <path d="M17.5 7.5v5M15 10h5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                  <path d="M10 13a5 5 0 0 0 7.54.54l1.91-1.91a5 5 0 0 0-7.07-7.07l-1.72 1.71" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M14 11a5 5 0 0 0-7.54-.54L4.55 12.4a5 5 0 0 0 7.07 7.07l1.71-1.71" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
-                <span>초대</span>
+                <span>공유</span>
               </button>
             )}
           </div>
@@ -1179,7 +1178,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
         {session && showInviteModal && (
           <InviteModal
             cityId={cityId}
-            playerToken={session.token}
             onClose={() => setShowInviteModal(false)}
           />
         )}
@@ -1411,7 +1409,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
 
         {error && <div className={styles.operationError} role="alert">! {error}</div>}
 
-        {state.isOwner && (
+        {session && (
           <section className={`${styles.controlSection} ${styles.aiCommandSection}`}>
             <div className={styles.sectionHeading}>
               <span>AI</span>
