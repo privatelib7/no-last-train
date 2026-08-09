@@ -177,6 +177,17 @@ function lineHasStation(line: GameLine, stationId: string) {
   return line.lineStations.some(item => item.stationId === stationId)
 }
 
+/** 선택 노선의 빈 노선이거나, 한쪽이 종점이고 다른 쪽이 노선 밖이면 연장 가능 */
+function canExtendLine(line: GameLine, fromStationId: string, toStationId: string) {
+  const stations = orderedStations(line)
+  if (stations.length === 0) return true
+  const fromOn = stations.some(station => station.id === fromStationId)
+  const toOn = stations.some(station => station.id === toStationId)
+  if (fromOn === toOn) return false
+  const onLineId = fromOn ? fromStationId : toStationId
+  return stations[0].id === onLineId || stations[stations.length - 1].id === onLineId
+}
+
 function nearestStationToDepot(line: GameLine) {
   return orderedStations(line).reduce<Station | null>((nearest, station) => {
     if (!nearest) return station
@@ -764,17 +775,29 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     }
     setSelectedStationId(stationId)
     setRenameValue(station?.name ?? '')
-    // 역 두 개를 연달아 클릭하면 선택된 노선으로 바로 연결 (성공 시 두 번째 역에서 체인 계속)
-    if (!prevSelectedId || prevSelectedId === stationId || !selectedLine) return
-    const fromOnLine = lineHasStation(selectedLine, prevSelectedId)
-    const toOnLine = lineHasStation(selectedLine, stationId)
-    if (fromOnLine && toOnLine) return // 둘 다 이미 노선 위 — 단순 재선택으로 취급
-    void performAction({
-      type: 'BUILD_SEGMENT',
-      lineId: selectedLine.id,
-      fromStationId: prevSelectedId,
-      toStationId: stationId,
-    })
+    if (!prevSelectedId) return
+
+    // 둘 다 선택 노선 위면 단순 재선택
+    if (selectedLine && lineHasStation(selectedLine, prevSelectedId) && lineHasStation(selectedLine, stationId)) {
+      return
+    }
+
+    // ＋로 만든(또는 플레이어 소유) 운영 노선만 이어준다. 없는 노선을 새로 만들지는 않는다.
+    const isPlayerOperatedLine = !!selectedLine?.playerId
+    if (selectedLine && isPlayerOperatedLine && canExtendLine(selectedLine, prevSelectedId, stationId)) {
+      void performAction({
+        type: 'BUILD_SEGMENT',
+        lineId: selectedLine.id,
+        fromStationId: prevSelectedId,
+        toStationId: stationId,
+      }).then(next => {
+        // 연결에 성공하면 마지막 선택 역(B)을 자동 해제
+        if (next) {
+          setSelectedStationId('')
+          setRenameValue('')
+        }
+      })
+    }
   }
 
   const handleMapClick = (event: MouseEvent<SVGSVGElement>) => {
