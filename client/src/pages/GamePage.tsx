@@ -1631,7 +1631,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                   setError(null)
                 }}
                 disabled={isGameOver}
-              >＋ 역 짓기 · ₵800</button>
+              >역/정류장 짓기 · ₵800</button>
               {stationBuildMode && (
                 <div>
                   <input
