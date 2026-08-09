@@ -56,7 +56,7 @@ export type GameLine = {
   lineStations: Array<{ stationId: string; order: number; station: Station }>
   vehicles: Vehicle[]
   policies: Policy[]
-  actionLogs: ActionLog[]
+  actionLogs?: ActionLog[]
 }
 
 export type GameCity = {

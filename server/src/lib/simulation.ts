@@ -35,7 +35,9 @@ export async function syncCityClock(cityId: string): Promise<SimResult | null> {
     if (!city || city.status !== 'ACTIVE') return null
 
     const elapsedMs = Date.now() - city.lastTickAt.getTime()
-    const pendingTicks = Math.min(Math.floor(elapsedMs / SIM.LIVE_TICK_MS), 12)
+    // 한 요청에서 너무 많이 따라잡으면 초기 로딩/폴링이 수 초씩 막힌다.
+    // 나머지는 이후 폴링에서 조금씩 따라잡는다.
+    const pendingTicks = Math.min(Math.floor(elapsedMs / SIM.LIVE_TICK_MS), 3)
     if (pendingTicks < 1) return null
     return simulateTicksUnlocked(cityId, pendingTicks)
   })

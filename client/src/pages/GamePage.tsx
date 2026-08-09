@@ -16,7 +16,7 @@ import {
 } from '../api/game'
 import type { AuthSession } from '../api/auth'
 import { updateRoomTitle } from '../api/cities'
-import { fetchCursors, leaveCursor, syncCursor, type RemoteCursor } from '../api/cursors'
+import { leaveCursor, syncCursor, type RemoteCursor } from '../api/cursors'
 import { notifyEmergency } from '../lib/notifications'
 import InviteModal from './InviteModal'
 import { getCityMap, polyPath } from '../maps'
@@ -81,8 +81,11 @@ type CityCommandMessage = {
 }
 
 const LIVE_TICK_MS = 3000
-const CURSOR_SYNC_MS = 45
-const CURSOR_IDLE_TIMEOUT_MS = 2500
+const CITY_POLL_MS = 2500
+// 커서: 움직일 때는 200ms, 가만히 있을 때는 2초 하트비트 (예전 45ms는 DB/액션을 굶김)
+const CURSOR_MOVE_SYNC_MS = 200
+const CURSOR_HEARTBEAT_MS = 2000
+const CURSOR_MOVE_THRESHOLD = 0.35
 // 서버 cursor-presence.ts 의 CURSOR_COLORS 와 동일한 팔레트 (본인 아바타 색 계산용)
 const PRESENCE_COLORS = ['#ff6f91', '#4fc9a8', '#5b8cf2', '#ffb648', '#a77dfb', '#3ecbd0', '#f4886b'] as const
 const CITIZEN_TIME_SCALE = 0.72
@@ -246,6 +249,9 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const cashEmergencyRef = useRef(false)
   const gameOverRiskRef = useRef(false)
   const gameOverFiredRef = useRef(false)
+  // 차량 보간용 시각 틱 — 벽시계로만 증가, 폴링으로 절대 되감기지 않음 (중간 멈춤 방지)
+  const visualTickRef = useRef<number | null>(null)
+  const lastClockWallRef = useRef<number | null>(null)
 
   useEffect(() => {
     stateRef.current = state
@@ -279,6 +285,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
 
   useEffect(() => {
     let cancelled = false
+    visualTickRef.current = null
+    lastClockWallRef.current = null
     fetchCity(cityId, session?.token)
       .then(next => {
         if (cancelled) return
@@ -318,7 +326,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
       } finally {
         ticking.current = false
       }
-    }, 600)
+    }, CITY_POLL_MS)
     return () => {
       cancelled = true
       window.clearInterval(timer)
@@ -350,24 +358,30 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     }
   }, [session])
 
-  // 실시간 커서 동기화 — 창 안이면 POST, 창 밖이면 GET으로 상대 커서만 유지
+  // 커서/프레즌스: 이동 시에만 빠르게, 유휴 시에는 하트비트만 (액션 API와 DB 경쟁 완화)
   useEffect(() => {
     const token = session?.token
     if (!token) return
     let cancelled = false
     let inflight = false
+    let lastSentAt = 0
 
     const pushCursors = async () => {
       if (cancelled || inflight) return
+      const pos = cursorPosRef.current
+      const x = pos?.x ?? cursorLastSentRef.current?.x ?? 50
+      const y = pos?.y ?? cursorLastSentRef.current?.y ?? 50
+      const prev = cursorLastSentRef.current
+      const moved = !prev || Math.hypot(x - prev.x, y - prev.y) >= CURSOR_MOVE_THRESHOLD
+      const interval = moved ? CURSOR_MOVE_SYNC_MS : CURSOR_HEARTBEAT_MS
+      if (lastSentAt > 0 && Date.now() - lastSentAt < interval) return
+
       inflight = true
       try {
-        const pos = cursorPosRef.current
-        const active = !!pos && Date.now() - pos.ts <= CURSOR_IDLE_TIMEOUT_MS
-        const result = active && pos
-          ? await syncCursor(cityId, token, pos.x, pos.y)
-          : await fetchCursors(cityId, token)
+        const result = await syncCursor(cityId, token, x, y)
         if (cancelled) return
-        if (active && pos) cursorLastSentRef.current = { x: pos.x, y: pos.y }
+        lastSentAt = Date.now()
+        cursorLastSentRef.current = { x, y }
         setRemoteCursors(result.cursors)
       } catch {
         // 일시 네트워크 오류는 다음 틱에서 재시도 — 기존 표시는 유지
@@ -376,7 +390,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
       }
     }
 
-    const timer = window.setInterval(() => { void pushCursors() }, CURSOR_SYNC_MS)
+    const timer = window.setInterval(() => { void pushCursors() }, CURSOR_MOVE_SYNC_MS)
     void pushCursors()
     return () => {
       cancelled = true
@@ -390,8 +404,18 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
 
   useEffect(() => {
     let animationFrame = 0
-    const animate = () => {
-      setClockNowMs(Date.now())
+    let lastPaint = 0
+    const animate = (now: number) => {
+      // ~30fps면 차량 이동은 부드럽고, 건설 UI는 크게 안 버벅인다
+      if (now - lastPaint >= 33) {
+        lastPaint = now
+        const wallNow = Date.now()
+        if (visualTickRef.current != null && lastClockWallRef.current != null) {
+          visualTickRef.current += (wallNow - lastClockWallRef.current) / LIVE_TICK_MS
+        }
+        lastClockWallRef.current = wallNow
+        setClockNowMs(wallNow)
+      }
       animationFrame = window.requestAnimationFrame(animate)
     }
 
@@ -1069,10 +1093,22 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
 
   const currentTick = state.city.currentTick
   const lastTickAtMs = Date.parse(state.city.lastTickAt)
-  const liveElapsedTicks = state.city.status === 'ACTIVE' && Number.isFinite(lastTickAtMs)
+  const serverLiveTicks = state.city.status === 'ACTIVE' && Number.isFinite(lastTickAtMs)
     ? Math.max(0, (clockNowMs - lastTickAtMs) / LIVE_TICK_MS)
     : 0
-  const continuousTick = currentTick + liveElapsedTicks
+  const serverTick = currentTick + serverLiveTicks
+  // 서버 스냅샷이 앞서면 따라잡고, 폴링이 늦어 클라이언트가 앞선 경우에는 되감지 않는다.
+  // (되감으면 지하철/버스가 가다가 툭 멈추는 것처럼 보인다)
+  if (state.city.status === 'ACTIVE') {
+    if (visualTickRef.current == null) visualTickRef.current = serverTick
+    else if (serverTick > visualTickRef.current) visualTickRef.current = serverTick
+  } else {
+    visualTickRef.current = currentTick
+  }
+  const continuousTick = state.city.status === 'ACTIVE' && visualTickRef.current != null
+    ? visualTickRef.current
+    : currentTick
+  const liveElapsedTicks = Math.max(0, continuousTick - currentTick)
   const currentGameDay = Math.floor(continuousTick / TICKS_PER_DAY) + 1
   const liveElapsedGameMinutes = liveElapsedTicks * GAME_MINUTES_PER_TICK
   // 확대해도 역·글씨·점이 화면 기준 크기를 유지하도록 counter-scale
