@@ -27,6 +27,8 @@ export async function resetCityForNewGame(
   // 노선 삭제 시 차량·역 연결·정책·행동 로그도 함께 삭제된다.
   await tx.line.deleteMany({ where: { cityId } })
   await tx.passenger.deleteMany({ where: { cityId } })
+  await tx.gameEvent.deleteMany({ where: { cityId } })
+  await tx.station.deleteMany({ where: { cityId } })
   await tx.simTick.deleteMany({ where: { cityId } })
   await tx.city.update({
     where: { id: cityId },

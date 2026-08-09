@@ -190,7 +190,7 @@ export async function POST(
     const city = await db.city.findUnique({ where: { id } })
     if (!city) return NextResponse.json({ error: '도시를 찾을 수 없습니다.' }, { status: 404 })
     await db.$transaction(tx => resetCityForNewGame(tx, id))
-    return NextResponse.json({ message: '노선을 초기화하고 같은 도시에서 새 경영을 시작했습니다.' })
+    return NextResponse.json({ message: '역과 노선을 초기화하고 같은 도시에서 새 경영을 시작했습니다.' })
   }
 
   const city = await db.city.findUnique({ where: { id }, select: { status: true } })

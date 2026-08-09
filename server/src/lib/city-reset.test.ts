@@ -4,7 +4,7 @@ import type { Prisma } from '@prisma/client'
 import { ECONOMY } from './economy'
 import { resetCityForNewGame } from './city-reset'
 
-test('같은 도시 재시작은 지원 기록부터 정리하고 모든 노선을 삭제한다', async () => {
+test('같은 도시 재시작은 지원 기록부터 정리하고 모든 노선과 역을 삭제한다', async () => {
   const calls: string[] = []
   let supportWhere: unknown
   let cityUpdate: unknown
@@ -33,6 +33,18 @@ test('같은 도시 재시작은 지원 기록부터 정리하고 모든 노선�
         return { count: 3 }
       },
     },
+    gameEvent: {
+      deleteMany: async () => {
+        calls.push('gameEvent.deleteMany')
+        return { count: 1 }
+      },
+    },
+    station: {
+      deleteMany: async () => {
+        calls.push('station.deleteMany')
+        return { count: 5 }
+      },
+    },
     simTick: {
       deleteMany: async () => {
         calls.push('simTick.deleteMany')
@@ -55,6 +67,8 @@ test('같은 도시 재시작은 지원 기록부터 정리하고 모든 노선�
     'support.deleteMany',
     'line.deleteMany',
     'passenger.deleteMany',
+    'gameEvent.deleteMany',
+    'station.deleteMany',
     'simTick.deleteMany',
     'city.update',
   ])
