@@ -151,10 +151,15 @@ export function calculateOperatingCost(lines: EconomyLine[]): number {
   }, 0)
 }
 
+// City.cashBalance/totalRevenue/score와 SimTick의 같은 컬럼이 DB에서 32비트 Int라,
+// 오래(수십 게임일) 흑자로 운영된 도시는 이 값을 넘기면 매 틱 DB 쓰기가 실패해 도시가
+// 그대로 멈춰버린다. 실제로 한 도시가 이 한도에 부딪혀 멈춘 적이 있어 안전하게 막아둔다.
+const MAX_SAFE_ECONOMY_VALUE = 2_000_000_000
+
 export function calculateTickEconomy(input: TickEconomyInput): TickEconomyResult {
   const revenue = input.transported * ECONOMY.FARE_PER_PASSENGER
   const operatingCost = calculateOperatingCost(input.lines)
-  const totalRevenue = input.totalRevenue + revenue
+  const totalRevenue = Math.min(input.totalRevenue + revenue, MAX_SAFE_ECONOMY_VALUE)
 
   const currentGoal = resolveManagementGoal(input.revenueGoal, input.goalReachedAtTick)
   let goalLevel = currentGoal.level
@@ -165,7 +170,7 @@ export function calculateTickEconomy(input: TickEconomyInput): TickEconomyResult
   const completedGoalLevel = totalRevenue >= revenueGoal ? goalLevel : null
   const goalReachedNow = completedGoalLevel !== null
   const goalReward = goalReachedNow ? ECONOMY.GOAL_REWARD_CASH : 0
-  const cashBalance = input.cashBalance + revenue - operatingCost + goalReward
+  const cashBalance = Math.min(input.cashBalance + revenue - operatingCost + goalReward, MAX_SAFE_ECONOMY_VALUE)
 
   if (goalReachedNow) {
     goalsCompleted += 1
@@ -179,7 +184,10 @@ export function calculateTickEconomy(input: TickEconomyInput): TickEconomyResult
   const happinessDelta = clamp((input.serviceScore - input.happiness) * 0.02, -0.25, 0.18)
   const happiness = clamp(input.happiness + happinessDelta, 0, 100)
   const scoreGain = input.transported * 2 + Math.round(happiness)
-  const score = input.score + scoreGain + (goalReachedNow ? ECONOMY.GOAL_REWARD_SCORE : 0)
+  const score = Math.min(
+    input.score + scoreGain + (goalReachedNow ? ECONOMY.GOAL_REWARD_SCORE : 0),
+    MAX_SAFE_ECONOMY_VALUE,
+  )
 
   // 위험 상태에서 벗어나면 카운터가 두 배 속도로 회복되어 잠깐의 적자를 관대하게 처리한다.
   const insolvencyTicks = cashBalance <= ECONOMY.BANKRUPT_LIMIT
