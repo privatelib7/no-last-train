@@ -1,6 +1,11 @@
 /**
  * 서버 motion 좌표를 목표로 따라가되, 목표에 일찍 닿아도 다음 패킷까지
  * 마지막 속도로 짧게 외삽해 "몰아가다 멈칫"을 없앤다.
+ *
+ * 단, 정차 중(isDwelling)에는 절대 이 외삽(coast)을 하지 않는다 — 정차 중엔 목표
+ * 자체가 역 좌표로 고정돼 있어서, 마지막 속도로 계속 미끄러지면 매번 목표를 살짝
+ * 지나쳤다가(overshoot) 되돌아오길 반복해 제자리에서 계속 떨어(지지직) 보였다.
+ * "몰아가다 멈칫" 보정은 아직 움직이는 중인데 다음 패킷이 늦는 경우에만 의미가 있다.
  */
 
 export type SmoothPoint = { x: number; y: number }
@@ -29,6 +34,7 @@ export function resolveSmoothVehiclePosition(
   cruiseSpeed = 1,
   gameMinutesPerWallSecond = 10 / 3,
   forceSnap = false,
+  isDwelling = false,
 ): SmoothPoint | null {
   if (!target) {
     smoothRef.delete(vehicleId)
@@ -58,8 +64,8 @@ export function resolveSmoothVehiclePosition(
     smoothRef.set(vehicleId, target)
     lastMoveRef.set(vehicleId, {
       lastMs: nowMs,
-      vx: last.vx,
-      vy: last.vy,
+      vx: 0,
+      vy: 0,
       coastSinceMs: null,
     })
     return target
@@ -87,31 +93,34 @@ export function resolveSmoothVehiclePosition(
     return current
   }
 
-  // 목표에 도착: 다음 패킷이 올 때까지 마지막 속도로 짧게 미끄러진다.
-  const coastSince = last.coastSinceMs ?? nowMs
-  const coastElapsed = nowMs - coastSince
-  const speed = Math.hypot(last.vx, last.vy)
-  if (coastElapsed < COAST_MAX_MS && speed > 0.05) {
-    const current = {
-      x: prev.x + last.vx * dtSec,
-      y: prev.y + last.vy * dtSec,
+  // 목표에 도착: 아직 움직이는 중(정차 아님)이면만 다음 패킷이 올 때까지 마지막
+  // 속도로 짧게 미끄러진다. 정차 중엔 목표가 고정이라 coast 자체가 떨림의 원인이 된다.
+  if (!isDwelling) {
+    const coastSince = last.coastSinceMs ?? nowMs
+    const coastElapsed = nowMs - coastSince
+    const speed = Math.hypot(last.vx, last.vy)
+    if (coastElapsed < COAST_MAX_MS && speed > 0.05) {
+      const current = {
+        x: prev.x + last.vx * dtSec,
+        y: prev.y + last.vy * dtSec,
+      }
+      smoothRef.set(vehicleId, current)
+      lastMoveRef.set(vehicleId, {
+        lastMs: nowMs,
+        vx: last.vx,
+        vy: last.vy,
+        coastSinceMs: coastSince,
+      })
+      return current
     }
-    smoothRef.set(vehicleId, current)
-    lastMoveRef.set(vehicleId, {
-      lastMs: nowMs,
-      vx: last.vx,
-      vy: last.vy,
-      coastSinceMs: coastSince,
-    })
-    return current
   }
 
   smoothRef.set(vehicleId, target)
   lastMoveRef.set(vehicleId, {
     lastMs: nowMs,
-    vx: last.vx,
-    vy: last.vy,
-    coastSinceMs: coastSince,
+    vx: 0,
+    vy: 0,
+    coastSinceMs: null,
   })
   return target
 }

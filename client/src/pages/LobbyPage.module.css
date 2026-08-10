@@ -4,6 +4,8 @@
   height: 100%;
   min-height: 100svh;
   min-height: 100dvh;
+  max-height: 100svh;
+  max-height: 100dvh;
   background: var(--bg);
   overflow: hidden;
 }
@@ -72,19 +74,20 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: clamp(28px, 4vh, 48px) clamp(24px, 4vw, 64px);
-  overflow-y: auto;
+  padding: clamp(20px, 3.5vh, 48px) clamp(16px, 4vw, 64px);
+  overflow: hidden;
   min-width: 0;
   min-height: 0;
   width: 100%;
+  gap: 0;
 }
 
 .header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: clamp(24px, 4vh, 40px);
+  gap: 12px 16px;
+  margin-bottom: clamp(16px, 2.5vh, 28px);
   width: 100%;
   flex-shrink: 0;
 }
@@ -93,10 +96,12 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .pageTitle {
-  font-size: clamp(24px, 2.5vw, 32px);
+  font-size: clamp(22px, 2.5vw, 32px);
   font-weight: 700;
   color: var(--text);
   letter-spacing: -0.5px;
@@ -110,14 +115,18 @@
 .errorText {
   font-size: 15px;
   color: #C96A24;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
 }
 
 .headerRight {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 100%;
 }
 
 .newCityBtn {
@@ -132,6 +141,7 @@
   border-radius: 99px;
   box-shadow: var(--shadow-sm);
   transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+  white-space: nowrap;
 }
 
 .newCityBtn:hover:not(:disabled) {
@@ -163,11 +173,14 @@
   padding: 8px 8px 8px 16px;
   border-radius: 99px;
   box-shadow: var(--shadow-sm);
+  max-width: min(100%, 280px);
+  min-width: 0;
 }
 
 .userNameWrap {
   position: relative;
   display: inline-flex;
+  min-width: 0;
 }
 
 .userName {
@@ -175,6 +188,10 @@
   font-weight: 700;
   color: var(--text);
   cursor: default;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
 }
 
 .userTooltip {
@@ -222,6 +239,7 @@
   padding: 6px 12px;
   border-radius: 99px;
   transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
 }
 
 .logoutBtn:hover {
@@ -229,22 +247,33 @@
   color: var(--text);
 }
 
-/* ── City list ── */
+/* ── City list (헤더~최근 활동 사이 남은 공간 전부 사용) ── */
+.listPanel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
 .emptyText {
   font-size: 15px;
   color: var(--text-muted);
-  margin-bottom: clamp(32px, 5vh, 48px);
+  margin-bottom: 12px;
+  flex-shrink: 0;
 }
 
 .cityList {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-bottom: clamp(32px, 5vh, 48px);
   width: 100%;
-  max-height: 320px;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 10px;
+  margin-bottom: 0;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: var(--orange-light) transparent;
@@ -280,6 +309,8 @@
   transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
   cursor: pointer;
   width: 100%;
+  flex-shrink: 0;
+  min-width: 0;
 }
 
 .cityRow:hover:not(:disabled) {
@@ -366,6 +397,10 @@
   flex-shrink: 0;
 }
 
+.activeBadgeLabel {
+  white-space: nowrap;
+}
+
 .activeDot {
   width: 6px;
   height: 6px;
@@ -391,12 +426,17 @@
   transform: translateX(2px);
 }
 
-/* ── Activity ── */
+/* ── Activity (하단 고정, 목록이 남은 높이를 채움) ── */
 .activitySection {
   border-top: 1px solid var(--border-light);
-  padding-top: clamp(20px, 3vh, 28px);
+  padding-top: clamp(16px, 2.5vh, 28px);
+  margin-top: clamp(16px, 2.5vh, 24px);
   width: 100%;
-  margin-top: auto;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: min(28vh, 240px);
 }
 
 .activityTitle {
@@ -405,7 +445,8 @@
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 1px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
 }
 
 .activityEmpty {
@@ -417,8 +458,10 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 148px;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 10px;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
@@ -448,6 +491,7 @@
   gap: 12px;
   font-size: 15px;
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .activityTime {
@@ -459,6 +503,9 @@
 .activityText {
   color: var(--text-muted);
   line-height: 1.5;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .activityRoom {
@@ -480,6 +527,26 @@
   text-decoration-color: currentColor;
 }
 
+/* ── Tablet ── */
+@media (max-width: 900px) {
+  .header {
+    flex-wrap: wrap;
+  }
+
+  .headerRight {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .userBadge {
+    max-width: 100%;
+  }
+
+  .userName {
+    max-width: 180px;
+  }
+}
+
 /* ── Mobile ── */
 @media (max-width: 640px) {
   .sidebar {
@@ -488,29 +555,141 @@
   }
 
   .main {
-    padding: 24px 18px;
+    padding: 18px 14px;
   }
 
   .pageTitle {
     font-size: 22px;
   }
 
+  .pageSubtitle {
+    font-size: 13px;
+  }
+
   .header {
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .headerRight {
+    width: 100%;
+    justify-content: space-between;
   }
 
   .newCityBtn {
     padding: 8px 14px;
-    font-size: 15.5px;
+    font-size: 14.5px;
+  }
+
+  .userBadge {
+    padding: 6px 6px 6px 12px;
+    gap: 8px;
+    flex: 1 1 auto;
+    justify-content: space-between;
+  }
+
+  .userName {
+    max-width: none;
+    flex: 1;
   }
 
   .cityRow {
-    padding: 12px 14px;
-    gap: 12px;
+    padding: 12px 12px;
+    gap: 10px;
   }
 
   .cityRowIcon {
-    width: 38px;
-    height: 38px;
+    width: 36px;
+    height: 36px;
+    padding: 6px;
+  }
+
+  .cityName {
+    font-size: 15px;
+  }
+
+  .citySub {
+    font-size: 13px;
+  }
+
+  .activeBadgeLabel {
+    /* 좁은 화면에서는 점만 보이게 */
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .activitySection {
+    max-height: min(32vh, 200px);
+    margin-top: 12px;
+    padding-top: 14px;
+  }
+
+  .activityItem {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .activityTime {
+    flex: none;
+  }
+
+  .activityText {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 400px) {
+  .sidebar {
+    flex: 0 0 48px;
+  }
+
+  .backBtn,
+  .settingsBtn {
+    width: 36px;
+    height: 36px;
+  }
+
+  .headerRight {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .newCityBtn {
+    justify-content: center;
+    width: 100%;
+  }
+
+  .userBadge {
+    width: 100%;
+  }
+
+  .cityRowChevron {
+    display: none;
+  }
+}
+
+/* 짧은 세로 화면: 최근 활동을 더 작게, 목록에 더 공간 */
+@media (max-height: 700px) {
+  .main {
+    padding-top: 16px;
+    padding-bottom: 16px;
+  }
+
+  .header {
+    margin-bottom: 12px;
+  }
+
+  .activitySection {
+    max-height: min(24vh, 160px);
   }
 }

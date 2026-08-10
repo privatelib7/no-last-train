@@ -236,6 +236,7 @@ function LiveTransitLayer({
         modeCruiseSpeed(line.mode, motionPhysics),
         gameMinutesPerWallSecond,
         motionDrive?.catchingUp ?? false,
+        located.isDwelling,
       )
       if (smoothed) {
         return [vehicle.id, { ...located, x: smoothed.x, y: smoothed.y }] as const

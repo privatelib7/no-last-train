@@ -182,52 +182,54 @@ export default function LobbyPage({ session, onBack, onSelectCity, onLogout, onO
           </div>
         </div>
 
-        {loading && <p className={styles.pageSubtitle}>관제실 불러오는 중…</p>}
-        {error && <p className={styles.errorText}>{error}</p>}
+        <div className={styles.listPanel}>
+          {loading && <p className={styles.pageSubtitle}>관제실 불러오는 중…</p>}
+          {error && <p className={styles.errorText}>{error}</p>}
 
-        {!loading && !error && cities.length === 0 && (
-          <p className={styles.emptyText}>아직 만든 관제실이 없어요. 새 관제실을 시작해보세요.</p>
-        )}
+          {!loading && !error && cities.length === 0 && (
+            <p className={styles.emptyText}>아직 만든 관제실이 없어요. 새 관제실을 시작해보세요.</p>
+          )}
 
-        <div className={styles.cityList}>
-          {cities.map((city) => {
-            const active = city.status === 'ACTIVE'
-            return (
-              <button
-                key={city.id}
-                className={`${styles.cityRow} ${active ? styles.cityRowActive : ''}`}
-                onClick={() => active && onSelectCity(city.id)}
-                disabled={!active}
-                aria-label={`${city.roomTitle} (${city.name}) 도시 운영 시작`}
-              >
-                <div className={styles.cityRowIcon}>
-                  {city.lines.length > 0 ? (
-                    city.lines.slice(0, 4).map((l) => (
-                      <span key={l} className={styles.lineDot} style={{ background: LINE_COLORS[l] ?? '#C4BFB8' }} />
-                    ))
-                  ) : (
-                    <span className={styles.lineDotEmpty} />
-                  )}
-                </div>
-
-                <div className={styles.cityRowInfo}>
-                  <div className={styles.cityName}>{city.roomTitle}</div>
-                  <div className={styles.citySub}>{citySubtitle(city)}</div>
-                </div>
-
-                {active && (
-                  <div className={styles.activeBadge}>
-                    <span className={styles.activeDot} />
-                    운행 중
+          <div className={styles.cityList}>
+            {cities.map((city) => {
+              const active = city.status === 'ACTIVE'
+              return (
+                <button
+                  key={city.id}
+                  className={`${styles.cityRow} ${active ? styles.cityRowActive : ''}`}
+                  onClick={() => active && onSelectCity(city.id)}
+                  disabled={!active}
+                  aria-label={`${city.roomTitle} (${city.name}) 도시 운영 시작`}
+                >
+                  <div className={styles.cityRowIcon}>
+                    {city.lines.length > 0 ? (
+                      city.lines.slice(0, 4).map((l) => (
+                        <span key={l} className={styles.lineDot} style={{ background: LINE_COLORS[l] ?? '#C4BFB8' }} />
+                      ))
+                    ) : (
+                      <span className={styles.lineDotEmpty} />
+                    )}
                   </div>
-                )}
 
-                <span className={styles.cityRowChevron} aria-hidden="true">
-                  ›
-                </span>
-              </button>
-            )
-          })}
+                  <div className={styles.cityRowInfo}>
+                    <div className={styles.cityName}>{city.roomTitle}</div>
+                    <div className={styles.citySub}>{citySubtitle(city)}</div>
+                  </div>
+
+                  {active && (
+                    <div className={styles.activeBadge}>
+                      <span className={styles.activeDot} />
+                      <span className={styles.activeBadgeLabel}>운행 중</span>
+                    </div>
+                  )}
+
+                  <span className={styles.cityRowChevron} aria-hidden="true">
+                    ›
+                  </span>
+                </button>
+              )
+            })}
+          </div>
         </div>
 
         {showNewCityModal && session && (
