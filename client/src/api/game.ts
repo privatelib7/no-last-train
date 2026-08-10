@@ -130,6 +130,7 @@ export type CityState = {
     criticalHappiness: number
     gameOverGraceTicks: number
     goalRewardCash: number
+    farePerPassenger: number
   }
 }
 

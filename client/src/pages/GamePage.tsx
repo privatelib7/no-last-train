@@ -110,6 +110,9 @@ const CURSOR_MOVE_THRESHOLD = 0.35
 // 서버 cursor-presence.ts 의 CURSOR_COLORS 와 동일한 팔레트 (본인 아바타 색 계산용)
 const PRESENCE_COLORS = ['#ff6f91', '#4fc9a8', '#5b8cf2', '#ffb648', '#a77dfb', '#3ecbd0', '#f4886b'] as const
 const CITIZEN_TIME_SCALE = 0.72
+// 차량이 승차로 번 돈을 옆에 잠깐 띄워 보여주는 연출 지속 시간·떠오르는 높이
+const EARNINGS_FLASH_DURATION_MS = 1600
+const EARNINGS_FLASH_RISE_UNITS = 3.5
 // 서버 actions 라우트의 MAX_VEHICLES_PER_LINE 과 같아야 한다
 const MAX_VEHICLES_PER_LINE = 8
 const GAME_MINUTES_PER_TICK = 60 / TICKS_PER_HOUR
@@ -314,6 +317,10 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const lastClockWallRef = useRef<number | null>(null)
   /** 대기→운행 출고 연출용: 차량별 벽시계 시작 시각 */
   const pulloutAnimStartedAtRef = useRef(new Map<string, number>())
+  /** 차량별 "방금 승차로 번 돈" 표시 — 값과 표시 시작 시각 */
+  const earningsFlashRef = useRef(new Map<string, { amount: number; startedAt: number }>())
+  /** 같은 승차 도착을 중복으로 다시 표시하지 않기 위한 차량별 처리 이력 */
+  const flashedArrivalsRef = useRef(new Map<string, { fingerprint: string; stationIds: Set<string> }>())
   /** 서버 /motion 스냅샷 — syncTick·차량 DB 원본 */
   const motionRef = useRef<CityMotionSnapshot | null>(null)
   const motionClockOffsetRef = useRef(0)
@@ -552,6 +559,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     lastClockWallRef.current = null
     segmentUndoStackRef.current = []
     pulloutAnimStartedAtRef.current.clear()
+    earningsFlashRef.current.clear()
+    flashedArrivalsRef.current.clear()
     motionRef.current = null
     motionDriveRef.current = null
     smoothVehicleRef.current.clear()
@@ -1659,9 +1668,30 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
           }
         : vehicle
       const waitingMotion = locateVehicle(line, sourceVehicle, waitingPreviewGameMinutes, motionPhysics)
+      // 같은 도착을 여러 프레임에 걸쳐 중복 표시하지 않도록, 이 차량의 확정 스냅샷(fingerprint)이
+      // 바뀔 때만 "이미 표시한 도착역" 기록을 새로 시작한다.
+      const vehicleFingerprint = `${sourceVehicle.currentStationId}:${sourceVehicle.direction}:${sourceVehicle.segmentProgressMinutes}`
+      let arrivalTracking = flashedArrivalsRef.current.get(vehicle.id)
+      if (!arrivalTracking || arrivalTracking.fingerprint !== vehicleFingerprint) {
+        arrivalTracking = { fingerprint: vehicleFingerprint, stationIds: new Set() }
+        flashedArrivalsRef.current.set(vehicle.id, arrivalTracking)
+      }
       for (const stationId of waitingMotion.arrivedStationIds) {
         const waiting = waitingByStation.get(stationId) ?? 0
+        const boarding = Math.min(waiting, vehicle.capacity)
         waitingByStation.set(stationId, Math.max(0, waiting - vehicle.capacity))
+        if (!arrivalTracking.stationIds.has(stationId)) {
+          arrivalTracking.stationIds.add(stationId)
+          const earned = boarding * state.economyRules.farePerPassenger
+          if (earned > 0) {
+            const prevFlash = earningsFlashRef.current.get(vehicle.id)
+            // 짧은 시간 안에 여러 역에서 연달아 태우면(한 틱에 여러 정거장 통과) 금액을 합쳐 보여준다.
+            const amount = prevFlash && clockNowMs - prevFlash.startedAt < 600
+              ? prevFlash.amount + earned
+              : earned
+            earningsFlashRef.current.set(vehicle.id, { amount, startedAt: clockNowMs })
+          }
+        }
       }
     }
   }
@@ -2471,6 +2501,31 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                       </>
                     )}
                   </g>
+                )
+              }))}
+
+            {/* 승차로 번 돈 — 회전하는 차량 그룹 밖에서 그려 글씨가 항상 똑바로 보이게 한다 */}
+            {state.city.lines.flatMap(line => orderedVehicles(line)
+              .filter(vehicle => vehicle.status === 'OPERATING' && !vehicle.isSpare)
+              .map(vehicle => {
+                const flash = earningsFlashRef.current.get(vehicle.id)
+                if (!flash) return null
+                const elapsed = clockNowMs - flash.startedAt
+                if (elapsed < 0 || elapsed > EARNINGS_FLASH_DURATION_MS) return null
+                const motion = vehicleMotionById.get(vehicle.id)
+                if (!motion || motion.x === null || motion.y === null) return null
+                const progress = elapsed / EARNINGS_FLASH_DURATION_MS
+                const riseY = -EARNINGS_FLASH_RISE_UNITS * progress
+                return (
+                  <text
+                    key={`earn-${vehicle.id}`}
+                    transform={`translate(${motion.x} ${motion.y + riseY - 3}) scale(${mapScale})`}
+                    textAnchor="middle"
+                    className={styles.earningsFlash}
+                    style={{ opacity: 1 - progress }}
+                  >
+                    +{formatMoney(flash.amount)}
+                  </text>
                 )
               }))}
 

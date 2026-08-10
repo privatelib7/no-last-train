@@ -79,6 +79,7 @@ export async function buildCityStateSnapshot(cityId: string, playerId: string | 
       criticalHappiness: ECONOMY.CRITICAL_HAPPINESS,
       gameOverGraceTicks: ECONOMY.GAME_OVER_GRACE_TICKS,
       goalRewardCash: ECONOMY.GOAL_REWARD_CASH,
+      farePerPassenger: ECONOMY.FARE_PER_PASSENGER,
     },
   }
 }
