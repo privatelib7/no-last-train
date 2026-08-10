@@ -344,6 +344,10 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const motionPollCountRef = useRef(0)
   /** 이 도시가 로딩 화면을 벗어난 시각 — motion이 계속 실패해도 로딩에 영원히 갇히지 않게 상한을 둔다 */
   const readyGateStartedAtRef = useRef<number | null>(null)
+  /** 최초 진입 때 지도를 한 번이라도 보여준 적이 있으면, 그 뒤로는 밀린 틱이 감지돼도
+   *  전체 화면을 다시 로딩 화면으로 덮지 않는다 — 플레이 도중 UI가 통째로 사라지면서
+   *  버튼 클릭이 씹히는 것처럼 보이던 원인. 이후의 따라잡기는 차량/시계 보간이 알아서 흡수한다. */
+  const hasRevealedMapRef = useRef(false)
   /** 화면 위 시민 — 역·노선이 바뀌어도 걷던 사람은 그대로 두고 여정이 끝난 사람만 교체한다 */
   const citizenJourneysRef = useRef<CitizenJourney[]>([])
 
@@ -556,6 +560,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     vehicleLastMoveRef.current.clear()
     motionPollCountRef.current = 0
     readyGateStartedAtRef.current = Date.now()
+    hasRevealedMapRef.current = false
     citizenJourneysRef.current = []
     fetchCity(cityId, session?.token)
       .then(next => {
@@ -1489,9 +1494,13 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   // 첫 프레임부터 이미 정상 속도로 움직이는 모습만 보이게 하기 위함.
   // motion을 최소 두 번은 받아봐야 "밀린 틱을 몰아가는 중"인지 판단할 기준(직전 대비 변화량)이
   // 생기고, motion이 계속 실패하는 경우를 대비해 최대 6초까지만 기다린다.
+  // 지도를 한 번이라도 보여준 뒤에는(hasRevealedMapRef) 다시는 이 게이트로 전체 화면을
+  // 덮지 않는다 — 플레이 도중 틱이 몰아쳐도 화면 전체가 로딩 화면으로 바뀌면서 역 짓기
+  // 같은 버튼 클릭이 씹히는 일이 없게 한다. 그 뒤의 따라잡기는 차량/시계 보간이 흡수한다.
   const motionSettleGate = motionDriveRef.current
   const readyGateStartedAt = readyGateStartedAtRef.current ?? Date.now()
-  const motionSettled = state.city.status !== 'ACTIVE'
+  const motionSettled = hasRevealedMapRef.current
+    || state.city.status !== 'ACTIVE'
     || (motionPollCountRef.current >= 2 && !!motionSettleGate && !motionSettleGate.catchingUp)
     || (Date.now() - readyGateStartedAt > 6000)
 
@@ -1503,6 +1512,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
       </div>
     )
   }
+  hasRevealedMapRef.current = true
 
   const motionSnap = motionRef.current
   const motionDrive = motionDriveRef.current
