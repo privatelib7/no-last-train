@@ -3,6 +3,7 @@ import { evaluatePolicies } from './policy-engine'
 import { calculateTickEconomy, isManagementGoalDeadlineMissed, resolveManagementGoal } from './economy'
 import { advanceVehicleMotion, stationDwellMinutes } from './vehicle-motion'
 import { isVehicleInService } from './vehicle-service'
+import { calcServiceScore } from './service-score'
 import { SIM, TIME_DEMAND_MULTIPLIER, ORIGIN_WEIGHT, DEST_WEIGHT, periodOfHour, isWeekendTick } from '@/types/game'
 import type { SimResult, TickHighlight, StationSnapshot, DayPeriod } from '@/types/game'
 import type { Passenger, Vehicle, Station, Line, GameEvent } from '@prisma/client'
@@ -223,7 +224,7 @@ async function simulateTicksUnlocked(cityId: string, count: number): Promise<Sim
     totalTransported += transported
 
     // 5. AI 정책 평가 및 실행
-    const serviceScore = calcServiceScore(stationSnapshots)
+    const serviceScore = calcServiceScore(stationSnapshots, city.lines)
     const economy = calculateTickEconomy({
       transported,
       serviceScore,
@@ -533,15 +534,6 @@ async function moveVehiclesAndBoard(
     }
   }
   return transported
-}
-
-// ─── 서비스 점수 계산 ────────────────────────────────────────────────────
-
-function calcServiceScore(snapshots: StationSnapshot[]): number {
-  if (snapshots.length === 0) return 100
-  const avgCongestion = avgOf(snapshots.map(s => s.congestion))
-  // 혼잡도 0 → 100점, 혼잡도 1 → 20점 (선형)
-  return Math.max(20, 100 - avgCongestion * 80)
 }
 
 // ─── 하이라이트 수집 ─────────────────────────────────────────────────────

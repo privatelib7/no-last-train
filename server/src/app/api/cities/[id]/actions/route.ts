@@ -115,8 +115,15 @@ function nextLineIdentity(
     }, 0)
     name = `${maxNumber + 1}호선`
   } else {
-    const used = new Set(lines.filter(item => item.mode === 'BUS').map(item => item.name))
-    name = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].find(ch => !used.has(ch)) ?? `버스 ${lines.length + 1}`
+    // 버스는 A노선·B노선… 순서. 예전에 "A"로만 저장된 노선도 같은 글자로 취급한다.
+    const used = new Set(
+      lines
+        .filter(item => item.mode === 'BUS')
+        .map(item => item.name.match(/^([A-Z])(?:노선)?$/)?.[1])
+        .filter((letter): letter is string => Boolean(letter)),
+    )
+    const letter = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].find(ch => !used.has(ch))
+    name = letter ? `${letter}노선` : `버스 ${lines.length + 1}노선`
   }
 
   const color = LINE_COLORS
