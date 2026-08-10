@@ -17,6 +17,12 @@ export default defineConfig(({ mode }) => {
           target: env.API_PROXY_TARGET || DEFAULT_API_PROXY_TARGET,
           changeOrigin: true,
         },
+        // 브라우저가 같은 오리진의 /ws 로 붙으므로, 실시간 서버(기본 3012)로 넘긴다.
+        '/ws': {
+          target: env.REALTIME_PROXY_TARGET || 'http://localhost:3012',
+          changeOrigin: true,
+          ws: true,
+        },
       },
     },
   }
