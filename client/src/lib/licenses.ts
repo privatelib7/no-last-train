@@ -154,6 +154,15 @@ export const LICENSE_GROUPS: LicenseGroup[] = [
           { label: '제작자', url: 'https://pixabay.com/users/crab_audio-47493304/' },
         ],
       },
+      {
+        name: 'Unlock new item game notification — Mixkit',
+        usage: '목표 달성 효과음',
+        license: 'Mixkit Sound Effects Free License',
+        links: [
+          { label: '음원', url: 'https://mixkit.co/free-sound-effects/game/' },
+          { label: '라이선스', url: 'https://mixkit.co/license/#sfxFree' },
+        ],
+      },
     ],
   },
 ]

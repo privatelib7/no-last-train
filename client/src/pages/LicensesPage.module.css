@@ -131,6 +131,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  /* 좁은 화면에서는 배지를 아랫줄로 내린다. */
+  flex-wrap: wrap;
 }
 
 .itemName {
@@ -138,6 +140,8 @@
   font-weight: 700;
   color: var(--text);
   word-break: break-word;
+  /* 이름 길이와 무관하게 최소 폭을 확보해, 배지에 밀려 한 글자씩 쪼개지지 않게 한다. */
+  flex: 1 1 8rem;
 }
 
 .badge {
