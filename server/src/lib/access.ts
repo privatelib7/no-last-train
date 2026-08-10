@@ -23,7 +23,7 @@ function cityCache() {
   return globalForAuth.__nltCityExists
 }
 
-async function resolvePlayer(token: string): Promise<Player | null> {
+export async function resolvePlayerByToken(token: string): Promise<Player | null> {
   const now = Date.now()
   const cached = playerCache().get(token)
   if (cached && cached.expiresAt > now) return cached.player
@@ -37,7 +37,7 @@ async function resolvePlayer(token: string): Promise<Player | null> {
   return player
 }
 
-async function cityExists(cityId: string): Promise<boolean> {
+export async function cityExists(cityId: string): Promise<boolean> {
   const now = Date.now()
   const cachedUntil = cityCache().get(cityId)
   if (cachedUntil && cachedUntil > now) return true
@@ -81,7 +81,7 @@ export async function authorizeCityAccess(
     return { error: NextResponse.json({ error: '로그인이 필요합니다.' }, { status: 401 }) }
   }
 
-  const player = await resolvePlayer(token)
+  const player = await resolvePlayerByToken(token)
   if (!player) {
     return { error: NextResponse.json({ error: '세션이 만료되었습니다. 다시 로그인해주세요.' }, { status: 401 }) }
   }

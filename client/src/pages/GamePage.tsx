@@ -5,7 +5,6 @@ import {
   CONGESTION_WARN,
   executeCityAction,
   fetchCity,
-  fetchCityMotion,
   planCityCommand,
   TICKS_PER_DAY,
   TICKS_PER_HOUR,
@@ -20,6 +19,7 @@ import {
 import type { AuthSession } from '../api/auth'
 import { updateRoomTitle } from '../api/cities'
 import { leaveCursor, syncCursor, type RemoteCursor } from '../api/cursors'
+import { connectRealtime } from '../api/realtime'
 import { notifyEmergency } from '../lib/notifications'
 import { playGoalUnlockSfx } from '../lib/sfx'
 import InviteModal from './InviteModal'
@@ -93,9 +93,6 @@ type SegmentUndoEntry = {
 }
 
 const LIVE_TICK_MS = 3000
-const CITY_POLL_MS = 2500
-// 차량 좌표/동기화 틱은 가벼운 motion API로 더 자주 맞춘다.
-const MOTION_POLL_MS = 500
 // 대기 인원 낙관적 차감용 상한. 차량 이동 자체에는 쓰지 않는다(쓰면 틱 경계에서 멈춤).
 const MAX_WAITING_PREVIEW_TICKS = 1.25
 // motion 스냅샷이 안 바뀌는 동안 로컬로 최대 이만큼만 전진 (폴링 실패 시 폭주 방지).
@@ -282,7 +279,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     text: '역과 노선 이름을 사용해 운영 명령을 내려주세요. 노선 건설·연장, 역 신설, 차량 구매와 배차, 일괄 운행 조정까지 맡길 수 있고 한 문장에 여러 지시를 담아도 됩니다.',
   }])
   const [remoteCursors, setRemoteCursors] = useState<RemoteCursor[]>([])
-  const ticking = useRef(false)
   const cursorPosRef = useRef<{ x: number; y: number; ts: number } | null>(null)
   const cursorLastSentRef = useRef<{ x: number; y: number } | null>(null)
   const stationDragRef = useRef<StationLinkDrag | null>(null)
@@ -586,38 +582,16 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     return () => { cancelled = true }
   }, [cityId, session?.token, onBack])
 
+  // 도시 상태·차량 위치를 서버가 밀어주는 WebSocket 구독 — 예전 2500ms/500ms
+  // HTTP 폴링을 대체한다. 액션(역 짓기 등)은 여전히 HTTP REST로 남아 있다.
   useEffect(() => {
-    let cancelled = false
-    const timer = window.setInterval(async () => {
-      if (ticking.current || busy) return
-      ticking.current = true
-      try {
-        const next = await fetchCity(cityId, session?.token)
-        if (!cancelled) {
-          setState(next)
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : '자동 운행 연결 오류')
-          setErrorStatus(err instanceof ApiError ? err.status : null)
-        }
-      } finally {
-        ticking.current = false
-      }
-    }, CITY_POLL_MS)
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
-    }
-  }, [busy, cityId, session?.token])
-
-  // 서버 syncTick·차량 위치를 맞춰 버스/지하철을 부드럽게 그린다.
-  useEffect(() => {
-    let cancelled = false
-    const pullMotion = async () => {
-      try {
-        const next = await fetchCityMotion(cityId, session?.token)
-        if (cancelled) return
+    const connection = connectRealtime(cityId, session?.token, {
+      onCity: next => {
+        setState(next)
+        setError(null)
+        setErrorStatus(null)
+      },
+      onMotion: next => {
         motionPollCountRef.current += 1
         motionClockOffsetRef.current = next.serverNow - Date.now()
         motionRef.current = next
@@ -632,8 +606,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
           || (next.gameMinutesPerTick / (next.liveTickMs / 1000))
         if (!prev || prev.fingerprint !== fingerprint) {
           // 차량 DB/틱이 바뀜 → 서버 syncTick·속도로 리베이스.
-          // 폴링 사이에 실제 틱이 2개 이상 진행됐으면(자리 비움 뒤 밀린 틱 따라잡기)
-          // 순항 속도로는 다음 폴링이 오기 전에 못 따라잡으므로 스냅으로 전환한다.
+          // 브로드캐스트 사이에 실제 틱이 2개 이상 진행됐으면(자리 비움 뒤 밀린 틱 따라잡기)
+          // 순항 속도로는 다음 메시지가 오기 전에 못 따라잡으므로 스냅으로 전환한다.
           const tickDelta = prev ? next.currentTick - prev.currentTick : 0
           motionDriveRef.current = {
             fingerprint,
@@ -649,7 +623,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
           }
         } else {
           // 같은 차량 상태: 속도 상수는 갱신하고, syncTick이 앞서면 앵커만 전진.
-          // 틱이 바뀌지 않은 채로 폴링이 도는 중이므로 밀린 틱 따라잡기는 끝난 상태다.
+          // 틱이 바뀌지 않은 채로 메시지가 오는 중이므로 밀린 틱 따라잡기는 끝난 상태다.
           prev.catchingUp = false
           prev.physics = next.physics
           prev.liveTickMs = next.liveTickMs
@@ -663,16 +637,12 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
           }
         }
         setMotionEpoch(epoch => epoch + 1)
-      } catch {
-        // motion 실패는 도시 폴링으로 충분 — 차량만 잠시 로컬 보간
-      }
-    }
-    const timer = window.setInterval(() => { void pullMotion() }, MOTION_POLL_MS)
-    void pullMotion()
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
-    }
+      },
+      onError: message => {
+        setError(message)
+      },
+    })
+    return () => connection.close()
   }, [cityId, session?.token])
 
   // 브라우저 창 전체 포인터 추적 (지도만이 아니라 페이지 전역, 뷰포트 % 좌표 0~100)

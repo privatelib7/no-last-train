@@ -27,12 +27,11 @@ export async function simulateTicks(cityId: string, count: number): Promise<SimR
   return enqueueCitySimulation(cityId, () => simulateTicksUnlocked(cityId, count))
 }
 
-// 실시간 폴링(/city, /motion) 한 요청이 한 번에 따라잡는 상한. 이 값을 넘겨 잡으면
-// 화면이 열려 있는 동안 한 요청이 수 초씩 막히고, 클라이언트가 그만큼을 한꺼번에
-// 그려야 해서 순간이동처럼 보인다. 반면 백그라운드 하트비트(tickAllActiveCities)는
-// 아무도 화면을 보고 있지 않은 상태라 이 제약이 필요 없다 — 그쪽은 더 큰 상한을 쓴다.
+// 한 번의 syncCityClock 호출이 따라잡는 상한. HTTP 라이브 요청(/api/cities/[id])은
+// 화면이 열려 있는 동안 한 요청이 수 초씩 막히면 안 되므로 기본값(3틱)을 그대로 쓰고,
+// 실시간 WebSocket 브로드캐스트(scripts/realtime-server.ts)는 구독 중인 도시에만
+// 적용되므로 더 큰 상한을 넘겨 호출한다 — 두 경우 모두 이 하나의 진입점을 공유한다.
 const LIVE_POLL_MAX_TICKS = 3
-const TICK_LOOP_MAX_TICKS = 60
 
 export async function syncCityClock(cityId: string, maxTicks: number = LIVE_POLL_MAX_TICKS): Promise<SimResult | null> {
   return enqueueCitySimulation(cityId, async () => {
@@ -49,43 +48,6 @@ export async function syncCityClock(cityId: string, maxTicks: number = LIVE_POLL
     if (pendingTicks < 1) return null
     return simulateTicksUnlocked(cityId, pendingTicks)
   })
-}
-
-// 동시에 락 트랜잭션(커넥션 1개)을 쥔 채로 실제 작업(커넥션 1개 이상)도 돌리므로,
-// 도시 하나를 처리하는 데 최소 커넥션 2개가 필요하다. 풀 크기(10)를 넘겨 한꺼번에
-// 돌리면 서로 커넥션을 기다리다 트랜잭션이 타임아웃난다 — 동시 처리 도시 수를 제한한다.
-const TICK_LOOP_CONCURRENCY = 4
-
-// 오래 방치된(개발 중 만들고 잊어버린 등) 도시는 밀린 틱이 수만~수십만 초에 달해,
-// 한 번에 60틱씩 처리해도 실시간을 따라잡는 데 영원히 걸린다. 이런 도시를 하트비트가
-// 계속 붙잡고 있으면 워커 풀 전체가 여기 묶여서, 정작 최근에 접속했던(사람이 신경 쓰는)
-// 도시가 하트비트를 못 받고 굶는다. 이 상한을 넘겨 밀린 도시는 하트비트에서 제외하고,
-// 실제로 누가 들어왔을 때(라이브 폴링)만 조금씩 따라잡게 둔다.
-const TICK_LOOP_STALE_CUTOFF_MS = 30 * 60 * 1000
-
-// 아무도 관제실을 보고 있지 않으면(요청이 안 옴) 틱이 전혀 진행되지 않다가, 다시
-// 들어왔을 때 밀린 만큼을 한꺼번에 따라잡아야 했다. 이 함수는 백그라운드 하트비트
-// (scripts/tick-loop.ts)에서 주기적으로 호출해, 사용자가 없어도 실시간에 맞춰 틱이
-// 계속 진행되게 한다 — 그러면 다시 들어왔을 때 이미 정확한 위치에서 시작할 수 있다.
-export async function tickAllActiveCities(): Promise<void> {
-  const cities = await db.city.findMany({
-    where: {
-      status: 'ACTIVE',
-      lastTickAt: { gt: new Date(Date.now() - TICK_LOOP_STALE_CUTOFF_MS) },
-    },
-    select: { id: true },
-  })
-  let cursor = 0
-  async function worker() {
-    while (cursor < cities.length) {
-      const city = cities[cursor++]
-      await syncCityClock(city.id, TICK_LOOP_MAX_TICKS).catch(err => {
-        console.error(`[tick-loop] syncCityClock failed for ${city.id}`, err)
-      })
-    }
-  }
-  const workerCount = Math.min(TICK_LOOP_CONCURRENCY, cities.length)
-  await Promise.all(Array.from({ length: workerCount }, () => worker()))
 }
 
 // Cloudflare Workers 배포에서는 요청마다 격리된 isolate가 뜰 수 있어 위 in-memory
