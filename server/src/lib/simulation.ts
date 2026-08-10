@@ -56,13 +56,23 @@ export async function syncCityClock(cityId: string, maxTicks: number = LIVE_POLL
 // 돌리면 서로 커넥션을 기다리다 트랜잭션이 타임아웃난다 — 동시 처리 도시 수를 제한한다.
 const TICK_LOOP_CONCURRENCY = 4
 
+// 오래 방치된(개발 중 만들고 잊어버린 등) 도시는 밀린 틱이 수만~수십만 초에 달해,
+// 한 번에 60틱씩 처리해도 실시간을 따라잡는 데 영원히 걸린다. 이런 도시를 하트비트가
+// 계속 붙잡고 있으면 워커 풀 전체가 여기 묶여서, 정작 최근에 접속했던(사람이 신경 쓰는)
+// 도시가 하트비트를 못 받고 굶는다. 이 상한을 넘겨 밀린 도시는 하트비트에서 제외하고,
+// 실제로 누가 들어왔을 때(라이브 폴링)만 조금씩 따라잡게 둔다.
+const TICK_LOOP_STALE_CUTOFF_MS = 30 * 60 * 1000
+
 // 아무도 관제실을 보고 있지 않으면(요청이 안 옴) 틱이 전혀 진행되지 않다가, 다시
 // 들어왔을 때 밀린 만큼을 한꺼번에 따라잡아야 했다. 이 함수는 백그라운드 하트비트
 // (scripts/tick-loop.ts)에서 주기적으로 호출해, 사용자가 없어도 실시간에 맞춰 틱이
 // 계속 진행되게 한다 — 그러면 다시 들어왔을 때 이미 정확한 위치에서 시작할 수 있다.
 export async function tickAllActiveCities(): Promise<void> {
   const cities = await db.city.findMany({
-    where: { status: 'ACTIVE' },
+    where: {
+      status: 'ACTIVE',
+      lastTickAt: { gt: new Date(Date.now() - TICK_LOOP_STALE_CUTOFF_MS) },
+    },
     select: { id: true },
   })
   let cursor = 0
