@@ -1,6 +1,12 @@
 import { SIM } from '@/types/game'
 import { isVehicleInService } from './vehicle-service'
 
+// City.cashBalance/totalRevenue/revenueGoal/score와 SimTick의 같은 컬럼이 DB에서
+// 32비트 Int라, 오래(수십 게임일) 흑자로 운영된 도시는 이 값을 넘기면 매 틱 DB 쓰기가
+// 실패해 도시가 그대로 멈춰버린다. 실제로 두 도시가 이 한도(cashBalance, 그리고
+// 목표 단계가 올라가며 2차식으로 커지는 revenueGoal)에 부딪혀 멈춘 적이 있다.
+const MAX_SAFE_ECONOMY_VALUE = 2_000_000_000
+
 export const ECONOMY = {
   INITIAL_CASH: 350_000_000,
   INITIAL_HAPPINESS: 82,
@@ -85,7 +91,9 @@ export function managementGoalForLevel(level: number): ManagementGoal {
   const safeLevel = Math.max(1, Math.floor(level))
   return {
     level: safeLevel,
-    revenueGoal: 4_000_000 * safeLevel * (safeLevel + 7),
+    // 2차식이라 20단계 안팎에서 이미 Int 한계(약 21억)를 넘는다 — 목표가 무한히
+    // 안 넘어가는 것보다는, 어차피 넘기 힘든 상한에서 더는 안 커지게 막는 편이 낫다.
+    revenueGoal: Math.min(4_000_000 * safeLevel * (safeLevel + 7), MAX_SAFE_ECONOMY_VALUE),
     deadlineDay: safeLevel * (safeLevel + 5) / 2,
   }
 }
@@ -150,11 +158,6 @@ export function calculateOperatingCost(lines: EconomyLine[]): number {
     return total + lineCost + activeVehicles * vehicleCost
   }, 0)
 }
-
-// City.cashBalance/totalRevenue/score와 SimTick의 같은 컬럼이 DB에서 32비트 Int라,
-// 오래(수십 게임일) 흑자로 운영된 도시는 이 값을 넘기면 매 틱 DB 쓰기가 실패해 도시가
-// 그대로 멈춰버린다. 실제로 한 도시가 이 한도에 부딪혀 멈춘 적이 있어 안전하게 막아둔다.
-const MAX_SAFE_ECONOMY_VALUE = 2_000_000_000
 
 export function calculateTickEconomy(input: TickEconomyInput): TickEconomyResult {
   const revenue = input.transported * ECONOMY.FARE_PER_PASSENGER
