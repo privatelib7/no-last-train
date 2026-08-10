@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { syncCityClock } from '@/lib/simulation'
 import { authorizeCityAccess, authorizeCityOwner } from '@/lib/access'
 import { buildCityStateSnapshot } from '@/lib/city-state'
+import { invalidateCityMotionCache } from '@/lib/city-motion'
 import { z } from 'zod'
 
 const UpdateCitySchema = z.object({
@@ -59,4 +60,38 @@ export async function PATCH(
   })
 
   return NextResponse.json(city)
+}
+
+const DeleteCitySchema = z.object({
+  // 클라이언트 UI에서 이미 확인 절차를 거치지만, 서버에서도 방제목이 정확히
+  // 일치하는지 한 번 더 검증해 실수/오작동으로 인한 삭제를 막는다.
+  roomTitle: z.string(),
+})
+
+// DELETE /api/cities/[id] — 관제실(도시) 영구 삭제 (관제장만)
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params
+
+  const auth = await authorizeCityOwner(req, id)
+  if (auth.error) return auth.error
+
+  const body = await req.json().catch(() => null)
+  const parsed = DeleteCitySchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json({ error: '관제실 이름을 입력해주세요.' }, { status: 400 })
+  }
+
+  const city = await db.city.findUnique({ where: { id }, select: { roomTitle: true } })
+  if (!city) return NextResponse.json({ error: '도시를 찾을 수 없습니다.' }, { status: 404 })
+  if (parsed.data.roomTitle !== city.roomTitle) {
+    return NextResponse.json({ error: '입력한 이름이 관제실 이름과 일치하지 않습니다.' }, { status: 400 })
+  }
+
+  await db.city.delete({ where: { id } })
+  invalidateCityMotionCache(id)
+
+  return NextResponse.json({ message: '관제실을 삭제했습니다.' })
 }

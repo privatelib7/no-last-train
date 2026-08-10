@@ -80,3 +80,22 @@ export async function updateRoomTitle(
   }
   return body as { id: string; name: string; roomTitle: string }
 }
+
+export async function deleteCity(
+  cityId: string,
+  playerToken: string,
+  roomTitle: string,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/cities/${cityId}`, {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-player-token': playerToken,
+    },
+    body: JSON.stringify({ roomTitle }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error ?? `관제실을 삭제하지 못했습니다. (${res.status})`)
+  }
+}

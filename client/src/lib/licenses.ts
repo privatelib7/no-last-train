@@ -87,6 +87,24 @@ export const LICENSE_GROUPS: LicenseGroup[] = [
         links: [{ label: 'GitHub', url: 'https://github.com/brianc/node-postgres' }],
       },
       {
+        name: 'Redis',
+        usage: '실시간 차량 모션 캐시·pub/sub',
+        license: 'RSALv2 / SSPL',
+        links: [{ label: 'redis.io', url: 'https://redis.io' }],
+      },
+      {
+        name: 'ioredis 6.0.0',
+        usage: 'Node Redis 클라이언트',
+        license: 'MIT',
+        links: [{ label: 'GitHub', url: 'https://github.com/redis/ioredis' }],
+      },
+      {
+        name: 'ws 8.21.0',
+        usage: '실시간 WebSocket 서버 (nlt-realtime)',
+        license: 'MIT',
+        links: [{ label: 'GitHub', url: 'https://github.com/websockets/ws' }],
+      },
+      {
         name: 'Nodemailer 9.0.4',
         usage: '비밀번호 재설정 등 이메일 발송',
         license: 'MIT-0',

@@ -22,6 +22,7 @@ import { connectRealtime } from '../api/realtime'
 import { notifyEmergency } from '../lib/notifications'
 import { playGoalUnlockSfx } from '../lib/sfx'
 import InviteModal from './InviteModal'
+import CitySettingsModal from './CitySettingsModal'
 import { getCityMap, polyPath, type CityMapDef } from '../maps'
 import { depotTerminusOf } from '../vehicle-motion'
 import LiveTransitLayer, { type HudSample, type MotionDrive } from './LiveTransitLayer'
@@ -233,6 +234,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const [busy, setBusy] = useState(false)
   const [hudSample, setHudSample] = useState<HudSample>({ continuousTick: 0, waitingPassengers: 0 })
   const [showInviteModal, setShowInviteModal] = useState(false)
+  const [showCitySettingsModal, setShowCitySettingsModal] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
   const [titleSaving, setTitleSaving] = useState(false)
@@ -1586,6 +1588,20 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                 </div>
               )}
             </div>
+            {state.isOwner && session && (
+              <button
+                className={styles.inviteButton}
+                onClick={() => setShowCitySettingsModal(true)}
+                aria-label="관제실 설정"
+                title="관제실 설정"
+              >
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M19.4 13.5a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V19.5a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H4.5a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H10a1.65 1.65 0 0 0 1-1.51V4.5a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V10a1.65 1.65 0 0 0 1.51 1H19.5a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                <span>관제실 설정</span>
+              </button>
+            )}
             {session && (
               <button
                 className={styles.inviteButton}
@@ -1607,6 +1623,19 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
           <InviteModal
             cityId={cityId}
             onClose={() => setShowInviteModal(false)}
+          />
+        )}
+
+        {state.isOwner && session && showCitySettingsModal && (
+          <CitySettingsModal
+            cityId={cityId}
+            roomTitle={state.city.roomTitle}
+            playerToken={session.token}
+            onClose={() => setShowCitySettingsModal(false)}
+            onDeleted={() => {
+              setShowCitySettingsModal(false)
+              onBack()
+            }}
           />
         )}
 

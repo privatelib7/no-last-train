@@ -5,7 +5,9 @@
   height: 100%;
   min-height: 100svh;
   min-height: 100dvh;
-  align-items: center;
+  /* 카드가 뷰포트보다 길 때 center면 위쪽이 잘려 스크롤로도 못 올라간다.
+     flex-start + 카드 margin auto로, 짧을 때만 가운데·길면 위에서부터 스크롤. */
+  align-items: flex-start;
   justify-content: center;
   background: var(--bg);
   position: relative;
@@ -26,6 +28,8 @@
   position: relative;
   width: 100%;
   max-width: 560px;
+  /* 남는 세로 공간이 있을 때만 가운데. 넘치면 0으로 줄어 상단부터 보인다. */
+  margin-block: auto;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
