@@ -6,7 +6,13 @@ import {
   stationDwellMinutes,
   type TransitMotionPhysics,
 } from './vehicle-motion'
+import { safeRedisCall } from './redis-client'
 import { SIM } from '@/types/game'
+
+/** Redis는 순수 보조 캐시 — PostgreSQL이 여전히 유일한 진실 공급원(source of truth)이다 */
+const REDIS_BASE_KEY_PREFIX = 'nlt:motion:base:'
+const REDIS_BASE_TTL_SEC = 15
+export const REDIS_MOTION_UPDATE_CHANNEL = 'nlt:motion:updates'
 
 /**
  * 마지막 DB 틱 이후 벽시계로 미리 보여줄 수 있는 최대 틱.
@@ -91,8 +97,38 @@ export type CityMotionBase = {
 const motionBaseCache = new Map<string, CityMotionBase>()
 
 export function invalidateCityMotionCache(cityId?: string) {
-  if (cityId) motionBaseCache.delete(cityId)
-  else motionBaseCache.clear()
+  if (cityId) {
+    motionBaseCache.delete(cityId)
+    void safeRedisCall(client => client.del(REDIS_BASE_KEY_PREFIX + cityId))
+  } else {
+    motionBaseCache.clear()
+  }
+}
+
+/**
+ * Redis pub/sub으로 받은(또는 이미 계산해둔) base를 로컬 메모리에 바로 반영한다.
+ * DB/Redis 왕복 없이 즉시 다음 push부터 새 상태로 그린다.
+ */
+export function setCachedMotionBase(base: CityMotionBase) {
+  motionBaseCache.set(base.cityId, base)
+}
+
+/** 로컬 메모리에 없을 때 PostgreSQL을 치기 전에 먼저 확인하는 보조 캐시 조회 */
+async function readMotionBaseFromRedis(cityId: string): Promise<CityMotionBase | null> {
+  const raw = await safeRedisCall(client => client.get(REDIS_BASE_KEY_PREFIX + cityId))
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as CityMotionBase
+  } catch {
+    return null
+  }
+}
+
+/** DB에서 새로 읽은 base를 Redis에 채워두고(TTL) 구독자들에게 즉시 알린다 */
+function publishMotionBase(base: CityMotionBase) {
+  const payload = JSON.stringify(base)
+  void safeRedisCall(client => client.set(REDIS_BASE_KEY_PREFIX + base.cityId, payload, 'EX', REDIS_BASE_TTL_SEC))
+  void safeRedisCall(client => client.publish(REDIS_MOTION_UPDATE_CHANNEL, payload))
 }
 
 /**
@@ -152,6 +188,7 @@ export async function loadCityMotionBase(cityId: string): Promise<CityMotionBase
     })),
   }
   motionBaseCache.set(cityId, base)
+  publishMotionBase(base)
   return base
 }
 
@@ -298,8 +335,10 @@ export function renderCityMotionSnapshot(
 }
 
 /**
- * push 경로: 캐시가 있으면 무조건 캐시로 렌더(DB 금지).
- * sync/구독 경로: forceRefresh로 베이스를 갱신한 뒤 렌더.
+ * push 경로: 로컬 메모리 → (미스 시) Redis 보조 캐시 → (그마저 없으면) PostgreSQL 순으로
+ * 찾는다. 어느 단계든 DB를 직접 치지 않고도 답이 나오면 그걸로 렌더하므로,
+ * 다중 realtime-server 인스턴스로 늘어나도 각자 PostgreSQL을 반복해서 두드리지 않는다.
+ * sync/구독 경로: forceRefresh로 PostgreSQL에서 베이스를 갱신한 뒤 렌더.
  */
 export async function buildCityMotionSnapshot(
   cityId: string,
@@ -307,6 +346,10 @@ export async function buildCityMotionSnapshot(
 ): Promise<CityMotionSnapshot | null> {
   const forceRefresh = options?.forceRefresh ?? false
   let base = motionBaseCache.get(cityId) ?? null
+  if (!forceRefresh && !base) {
+    base = await readMotionBaseFromRedis(cityId)
+    if (base) motionBaseCache.set(cityId, base)
+  }
   if (forceRefresh || !base) {
     base = await loadCityMotionBase(cityId)
   }

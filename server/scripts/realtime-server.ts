@@ -2,9 +2,15 @@
  * 실시간 상태(차량 위치·틱, 도시 전체 상태) 전용 WebSocket 서버.
  *
  * 차량 좌표는 DB 틱(3초)과 분리해 자주 push 한다.
- * - motion push (~100ms): 캐시된 DB 상태에서 벽시계 preview로 x/y만 계산 (DB I/O 없음)
- * - motion sync (~500ms): 밀린 틱을 따라잡고 캐시를 무효화 → 다음 push가 새 DB 기준
+ * - motion push (~100ms): 캐시된 상태에서 벽시계 preview로 x/y만 계산 (DB I/O 없음)
+ * - motion sync (~400ms): 밀린 틱을 따라잡고 PostgreSQL에서 베이스를 다시 읽는다
  * - city state (~2500ms): 잔고·대기인원 등 무거운 스냅샷
+ *
+ * Redis는 motion 베이스의 보조 캐시 + pub/sub 계층이다(PostgreSQL 대체 아님):
+ * sync가 PostgreSQL에서 읽을 때마다 Redis에도 채워두고 채널로 publish하므로,
+ * 나중에 이 WS 서버를 여러 인스턴스로 늘려도 각 인스턴스가 PostgreSQL을 각자
+ * 두드리지 않고 Redis만으로 최신 상태를 즉시 받아 push할 수 있다. Redis가
+ * 죽어도 sync 루프는 그대로 PostgreSQL에서 읽으므로 동작에는 지장이 없다.
  *
  *   npx tsx scripts/realtime-server.ts
  */
@@ -17,7 +23,12 @@ import {
   invalidateCityMotionCache,
   loadCityMotionBase,
   refreshCityMotionBase,
+  renderCityMotionSnapshot,
+  setCachedMotionBase,
+  REDIS_MOTION_UPDATE_CHANNEL,
+  type CityMotionBase,
 } from '../src/lib/city-motion'
+import { getRedisSubscriberClient } from '../src/lib/redis-client'
 import { buildCityStateSnapshot } from '../src/lib/city-state'
 import { SIM } from '../src/types/game'
 
@@ -101,21 +112,52 @@ async function sendCityStateTo(ws: WebSocket, cityId: string, playerId: string |
   }
 }
 
+function pushMotionSnapshotToCity(cityId: string, snapshot: ReturnType<typeof renderCityMotionSnapshot>) {
+  const sockets = citySubscribers.get(cityId)
+  if (!sockets || sockets.size === 0) return
+  const message = JSON.stringify({ type: 'motion', payload: snapshot })
+  for (const ws of sockets) {
+    if (ws.readyState === WebSocket.OPEN) ws.send(message)
+  }
+}
+
 /** 캐시 기준 좌표만 밀어준다 — 매 사이클 DB/틱 처리 없음 */
 async function broadcastMotionPush() {
   const cityIds = subscribedCityIds()
   await mapPool(cityIds, 8, async cityId => {
-    const sockets = citySubscribers.get(cityId)
-    if (!sockets || sockets.size === 0) return
+    if (!citySubscribers.get(cityId)?.size) return
     try {
       const snapshot = await buildCityMotionSnapshot(cityId)
-      if (!snapshot) return
-      const message = JSON.stringify({ type: 'motion', payload: snapshot })
-      for (const ws of sockets) {
-        if (ws.readyState === WebSocket.OPEN) ws.send(message)
-      }
+      if (snapshot) pushMotionSnapshotToCity(cityId, snapshot)
     } catch (err) {
       console.error(`[realtime] motion push failed for ${cityId}`, err)
+    }
+  })
+}
+
+/**
+ * Redis pub/sub으로 다른 곳(이 프로세스의 sync 루프 포함)에서 갱신된 motion 베이스가
+ * 도착하면, 다음 100ms 주기를 기다리지 않고 바로 렌더해서 밀어준다 — sync/구독 직후처럼
+ * 상태가 막 바뀐 순간의 체감 지연을 줄인다. 구독자가 없는 도시는 무시해 메모리를 아낀다.
+ */
+function subscribeMotionUpdates() {
+  const sub = getRedisSubscriberClient()
+  sub.subscribe(REDIS_MOTION_UPDATE_CHANNEL).catch(err => {
+    console.error('[realtime] redis subscribe failed (계속 폴링 기반으로 동작)', err.message)
+  })
+  sub.on('message', (_channel, raw) => {
+    let base: CityMotionBase
+    try {
+      base = JSON.parse(raw) as CityMotionBase
+    } catch {
+      return
+    }
+    if (!citySubscribers.get(base.cityId)?.size) return
+    setCachedMotionBase(base)
+    try {
+      pushMotionSnapshotToCity(base.cityId, renderCityMotionSnapshot(base))
+    } catch (err) {
+      console.error(`[realtime] redis-triggered push failed for ${base.cityId}`, err)
     }
   })
 }
@@ -219,6 +261,8 @@ wss.on('connection', ws => {
     connState.delete(ws)
   })
 })
+
+subscribeMotionUpdates()
 
 let motionPushRunning = false
 setInterval(() => {
