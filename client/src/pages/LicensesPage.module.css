@@ -1,3 +1,4 @@
+/* 설정 화면과 같은 카드 레이아웃을 쓰되, 목록이 길어 카드 폭을 조금 넓히고 스크롤을 허용한다. */
 .page {
   display: flex;
   width: 100%;
@@ -24,7 +25,7 @@
 .card {
   position: relative;
   width: 100%;
-  max-width: 440px;
+  max-width: 560px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -93,12 +94,12 @@
 .section {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 
 .section + .section {
-  margin-top: 28px;
-  padding-top: 24px;
+  margin-top: 24px;
+  padding-top: 20px;
   border-top: 1px solid var(--border-light);
 }
 
@@ -109,170 +110,95 @@
   letter-spacing: 0.02em;
 }
 
-.row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px 14px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-sidebar);
-}
-
-.rowLabel {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.rowTitle {
-  font-size: 0.92rem;
-  font-weight: 700;
-  color: var(--text);
-}
-
-.rowHint {
-  font-size: 0.86rem;
-  color: var(--text-muted);
-}
-
-/* 하위 화면으로 넘어가는 행 — .row와 같은 모양이되 버튼이라 기본 스타일을 되돌려 준다. */
-.linkRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  width: 100%;
-  padding: 12px 14px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-sidebar);
-  text-align: left;
-  transition: background 0.15s;
-}
-
-.linkRow:hover {
-  background: var(--border-light);
-}
-
-.rowArrow {
-  flex-shrink: 0;
-  font-size: 1.25rem;
-  line-height: 1;
-  color: var(--text-muted);
-}
-
-/* 토글 스위치 */
-.switch {
-  position: relative;
-  display: inline-block;
-  width: 44px;
-  height: 26px;
-  flex-shrink: 0;
-}
-
-.switch input {
-  position: absolute;
-  opacity: 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  cursor: pointer;
-}
-
-.switchTrack {
-  position: absolute;
-  inset: 0;
-  background: var(--border);
-  border-radius: 999px;
-  transition: background 0.18s ease;
-  pointer-events: none;
-}
-
-.switchTrack::before {
-  content: '';
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--bg-card);
-  box-shadow: var(--shadow-sm);
-  transition: transform 0.18s ease;
-}
-
-.switch input:checked + .switchTrack {
-  background: var(--orange);
-}
-
-.switch input:checked + .switchTrack::before {
-  transform: translateX(18px);
-}
-
-.switch input:focus-visible + .switchTrack {
-  outline: 2px solid var(--orange);
-  outline-offset: 2px;
-}
-
-/* 체크박스 (BGM/효과음 on-off) */
-.checkbox {
-  width: 20px;
-  height: 20px;
-  accent-color: var(--orange);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.volumeBlock {
+.list {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   padding: 12px 14px;
   border-radius: var(--radius-sm);
   background: var(--bg-sidebar);
 }
 
-.volumeHeader {
+.itemHead {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  /* 좁은 화면에서는 배지를 아랫줄로 내린다. */
+  flex-wrap: wrap;
 }
 
-.volumeLabel {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.itemName {
   font-size: 0.92rem;
   font-weight: 700;
   color: var(--text);
+  word-break: break-word;
+  /* 이름 길이와 무관하게 최소 폭을 확보해, 배지에 밀려 한 글자씩 쪼개지지 않게 한다. */
+  flex: 1 1 8rem;
 }
 
-.volumeValue {
-  font-size: 0.92rem;
-  font-weight: 700;
-  color: var(--text-muted);
-  min-width: 2.4em;
-  text-align: right;
-}
-
-.slider {
-  width: 100%;
-  height: 6px;
+.badge {
+  flex-shrink: 0;
+  padding: 3px 9px;
   border-radius: 999px;
-  appearance: none;
-  background: var(--border);
-  accent-color: var(--orange);
-  cursor: pointer;
+  background: var(--orange-muted);
+  color: var(--orange-dark);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
-.slider:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.itemUsage {
+  font-size: 0.86rem;
+  color: var(--text-muted);
+  word-break: keep-all;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.link {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--orange-dark);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s;
+}
+
+.link:hover {
+  border-bottom-color: var(--orange-dark);
+}
+
+.link:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.footnote {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-light);
+  font-size: 0.84rem;
+  line-height: 1.6;
+  color: var(--text-light);
+  word-break: keep-all;
 }
 
 .doneBtn {
-  margin-top: 28px;
+  margin-top: 24px;
   width: 100%;
   padding: 13px;
   border-radius: var(--radius-sm);
