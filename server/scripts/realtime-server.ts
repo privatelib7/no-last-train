@@ -1,14 +1,10 @@
 /**
  * 실시간 상태(차량 위치·틱, 도시 전체 상태) 전용 WebSocket 서버.
  *
- * HTTP 폴링(예전 /motion 500ms, /city 2500ms)을 대체한다 — 클라이언트가 반복해서
- * 요청하는 대신, 이 서버가 계산해서 밀어준다(push). 액션(역 짓기 등)과 인증은
- * 그대로 HTTP REST로 남아 있다.
- *
- * 구독 중인 도시는 빠르게(500ms, 큰 상한) 따라잡고, 최근에(30분 이내) 활동이 있던
- * 나머지 활성 도시도 가벼운 배경 하트비트로 실시간에 가깝게 유지한다 — 그래야
- * 나중에 들어왔을 때 밀린 틱을 몰아서 따라잡느라 순간이동처럼 보이는 일이 없다.
- * 오래(수십 시간) 방치된 도시는 하트비트에서 제외해 워커 풀을 굶기지 않는다.
+ * 차량 좌표는 DB 틱(3초)과 분리해 자주 push 한다.
+ * - motion push (~100ms): 캐시된 DB 상태에서 벽시계 preview로 x/y만 계산 (DB I/O 없음)
+ * - motion sync (~500ms): 밀린 틱을 따라잡고 캐시를 무효화 → 다음 push가 새 DB 기준
+ * - city state (~2500ms): 잔고·대기인원 등 무거운 스냅샷
  *
  *   npx tsx scripts/realtime-server.ts
  */
@@ -16,18 +12,24 @@ import { createServer } from 'node:http'
 import { WebSocketServer, WebSocket } from 'ws'
 import { resolvePlayerByToken, cityExists } from '../src/lib/access'
 import { syncCityClock, tickRecentlyActiveCities } from '../src/lib/simulation'
-import { buildCityMotionSnapshot } from '../src/lib/city-motion'
+import {
+  buildCityMotionSnapshot,
+  invalidateCityMotionCache,
+  loadCityMotionBase,
+  refreshCityMotionBase,
+} from '../src/lib/city-motion'
 import { buildCityStateSnapshot } from '../src/lib/city-state'
 import { SIM } from '../src/types/game'
 
 const PORT = Number(process.env.REALTIME_PORT ?? 3012)
-const MOTION_INTERVAL_MS = 500
+/** 좌표 push — 캐시 렌더만 하므로 짧게 가져도 DB를 때리지 않는다 */
+const MOTION_PUSH_MS = 100
+/** 틱 따라잡기 + 모션 베이스 갱신 (push보다 드물게, 캐시는 비우지 않고 교체) */
+const MOTION_SYNC_MS = 400
 const CITY_INTERVAL_MS = 2500
 const HEARTBEAT_INTERVAL_MS = SIM.LIVE_TICK_MS
-// 데스크톱을 켜둔 채 오래 자리를 비웠다 돌아온 구독이라도 몇 초 안에 실시간을 따라잡도록,
-// 이 브로드캐스트 루프는 HTTP 라이브 폴링(3틱)보다 넉넉한 상한을 쓴다. 오직 "지금 구독
-// 중인" 도시에만 적용되므로 예전 하트비트처럼 방치된 도시들에 발목 잡히지 않는다.
 const WS_CATCHUP_MAX_TICKS = 20
+const SYNC_CONCURRENCY = 4
 
 type ConnState = { cityId: string | null; playerId: string | null }
 
@@ -48,7 +50,10 @@ function unsubscribe(ws: WebSocket) {
   if (!state?.cityId) return
   const set = citySubscribers.get(state.cityId)
   set?.delete(ws)
-  if (set && set.size === 0) citySubscribers.delete(state.cityId)
+  if (set && set.size === 0) {
+    citySubscribers.delete(state.cityId)
+    invalidateCityMotionCache(state.cityId)
+  }
   state.cityId = null
 }
 
@@ -57,8 +62,29 @@ function send(ws: WebSocket, message: unknown) {
   ws.send(JSON.stringify(message))
 }
 
+function subscribedCityIds(): string[] {
+  return [...citySubscribers.entries()]
+    .filter(([, sockets]) => sockets.size > 0)
+    .map(([cityId]) => cityId)
+}
+
+async function mapPool<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>) {
+  if (items.length === 0) return
+  let index = 0
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (index < items.length) {
+      const current = items[index]
+      index += 1
+      await fn(current)
+    }
+  })
+  await Promise.all(workers)
+}
+
 async function sendMotionTo(ws: WebSocket, cityId: string) {
   try {
+    // 구독 직후는 최신 DB를 강제 로드해 캐시를 데운다.
+    await loadCityMotionBase(cityId)
     const snapshot = await buildCityMotionSnapshot(cityId)
     if (snapshot) send(ws, { type: 'motion', payload: snapshot })
   } catch (err) {
@@ -75,31 +101,48 @@ async function sendCityStateTo(ws: WebSocket, cityId: string, playerId: string |
   }
 }
 
-async function broadcastMotion() {
-  for (const [cityId, sockets] of citySubscribers) {
-    if (sockets.size === 0) continue
+/** 캐시 기준 좌표만 밀어준다 — 매 사이클 DB/틱 처리 없음 */
+async function broadcastMotionPush() {
+  const cityIds = subscribedCityIds()
+  await mapPool(cityIds, 8, async cityId => {
+    const sockets = citySubscribers.get(cityId)
+    if (!sockets || sockets.size === 0) return
     try {
-      await syncCityClock(cityId, WS_CATCHUP_MAX_TICKS)
       const snapshot = await buildCityMotionSnapshot(cityId)
-      if (!snapshot) continue
+      if (!snapshot) return
       const message = JSON.stringify({ type: 'motion', payload: snapshot })
       for (const ws of sockets) {
         if (ws.readyState === WebSocket.OPEN) ws.send(message)
       }
     } catch (err) {
-      console.error(`[realtime] motion broadcast failed for ${cityId}`, err)
+      console.error(`[realtime] motion push failed for ${cityId}`, err)
     }
-  }
+  })
+}
+
+/** 틱을 따라잡고 모션 베이스를 원자적으로 교체한다(push 중 캐시 공백 없음) */
+async function broadcastMotionSync() {
+  const cityIds = subscribedCityIds()
+  await mapPool(cityIds, SYNC_CONCURRENCY, async cityId => {
+    try {
+      await syncCityClock(cityId, WS_CATCHUP_MAX_TICKS)
+      await refreshCityMotionBase(cityId)
+    } catch (err) {
+      console.error(`[realtime] motion sync failed for ${cityId}`, err)
+    }
+  })
 }
 
 async function broadcastCityState() {
-  for (const [cityId, sockets] of citySubscribers) {
-    if (sockets.size === 0) continue
+  const cityIds = subscribedCityIds()
+  await mapPool(cityIds, SYNC_CONCURRENCY, async cityId => {
+    const sockets = citySubscribers.get(cityId)
+    if (!sockets || sockets.size === 0) return
     try {
-      // isOwner는 구독자(플레이어)마다 다르므로 스냅샷 자체는 한 번만 계산하고,
-      // 소켓별로 ownerPlayerId와 비교해 붙여 보낸다.
+      // 건설/배차 반영: 캐시를 비우지 않고 새 베이스로 교체한 뒤 city 상태를 보낸다.
+      await refreshCityMotionBase(cityId)
       const snapshot = await buildCityStateSnapshot(cityId, null)
-      if (!snapshot) continue
+      if (!snapshot) return
       for (const ws of sockets) {
         if (ws.readyState !== WebSocket.OPEN) continue
         const playerId = connState.get(ws)?.playerId ?? null
@@ -109,7 +152,7 @@ async function broadcastCityState() {
     } catch (err) {
       console.error(`[realtime] city broadcast failed for ${cityId}`, err)
     }
-  }
+  })
 }
 
 const httpServer = createServer((req, res) => {
@@ -156,7 +199,6 @@ wss.on('connection', ws => {
       unsubscribe(ws)
       connState.set(ws, { cityId, playerId: player.id })
       subscribersFor(cityId).add(ws)
-      // 구독 직후 다음 브로드캐스트 주기를 기다리지 않고 바로 한 번 밀어준다.
       void sendMotionTo(ws, cityId)
       void sendCityStateTo(ws, cityId, player.id)
       return
@@ -178,34 +220,42 @@ wss.on('connection', ws => {
   })
 })
 
-let motionRunning = false
+let motionPushRunning = false
 setInterval(() => {
-  if (motionRunning) return
-  motionRunning = true
-  broadcastMotion().catch(err => console.error('[realtime] broadcastMotion failed', err)).finally(() => {
-    motionRunning = false
-  })
-}, MOTION_INTERVAL_MS)
+  if (motionPushRunning) return
+  motionPushRunning = true
+  broadcastMotionPush()
+    .catch(err => console.error('[realtime] broadcastMotionPush failed', err))
+    .finally(() => { motionPushRunning = false })
+}, MOTION_PUSH_MS)
+
+let motionSyncRunning = false
+setInterval(() => {
+  if (motionSyncRunning) return
+  motionSyncRunning = true
+  broadcastMotionSync()
+    .catch(err => console.error('[realtime] broadcastMotionSync failed', err))
+    .finally(() => { motionSyncRunning = false })
+}, MOTION_SYNC_MS)
 
 let cityRunning = false
 setInterval(() => {
   if (cityRunning) return
   cityRunning = true
-  broadcastCityState().catch(err => console.error('[realtime] broadcastCityState failed', err)).finally(() => {
-    cityRunning = false
-  })
+  broadcastCityState()
+    .catch(err => console.error('[realtime] broadcastCityState failed', err))
+    .finally(() => { cityRunning = false })
 }, CITY_INTERVAL_MS)
 
-// 아무도 구독하지 않은 도시도(최근에 활동이 있었다면) 가볍게 실시간을 유지한다.
 let heartbeatRunning = false
 setInterval(() => {
   if (heartbeatRunning) return
   heartbeatRunning = true
-  tickRecentlyActiveCities().catch(err => console.error('[realtime] heartbeat failed', err)).finally(() => {
-    heartbeatRunning = false
-  })
+  tickRecentlyActiveCities()
+    .catch(err => console.error('[realtime] heartbeat failed', err))
+    .finally(() => { heartbeatRunning = false })
 }, HEARTBEAT_INTERVAL_MS)
 
 httpServer.listen(PORT, () => {
-  console.log(`[realtime] listening on :${PORT} (ws path /ws)`)
+  console.log(`[realtime] listening on :${PORT} (ws path /ws, motion push ${MOTION_PUSH_MS}ms, sync ${MOTION_SYNC_MS}ms)`)
 })

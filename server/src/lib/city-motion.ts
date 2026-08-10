@@ -8,8 +8,12 @@ import {
 } from './vehicle-motion'
 import { SIM } from '@/types/game'
 
-/** 클라이언트가 따라갈 미리보기 상한 (게임 화면과 동일) */
-export const MOTION_MAX_PREVIEW_TICKS = 1.25
+/**
+ * 마지막 DB 틱 이후 벽시계로 미리 보여줄 수 있는 최대 틱.
+ * sync가 잠깐 늦어도(수 초) 화면 차량이 멈추지 않게 여유를 둔다.
+ * 승차는 여전히 DB 틱에서만 확정되므로, 시각만 조금 앞설 수 있다.
+ */
+export const MOTION_MAX_PREVIEW_TICKS = 4
 
 export type CityMotionVehicle = {
   id: string
@@ -53,7 +57,53 @@ export type CityMotionSnapshot = {
   vehicles: CityMotionVehicle[]
 }
 
-export async function buildCityMotionSnapshot(cityId: string): Promise<CityMotionSnapshot | null> {
+type CachedStation = { id: string; posX: number; posY: number }
+
+type CachedVehicle = {
+  id: string
+  status: string
+  isSpare: boolean
+  currentStationId: string | null
+  direction: number
+  segmentProgressMinutes: number
+}
+
+type CachedLine = {
+  id: string
+  mode: string
+  status: string
+  depotX: number
+  depotY: number
+  stations: CachedStation[]
+  vehicles: CachedVehicle[]
+}
+
+/** DB에서 읽은 고정 상태 — 벽시계만 바꿔 여러 번 렌더할 수 있다 */
+export type CityMotionBase = {
+  cityId: string
+  status: string
+  currentTick: number
+  lastTickAtMs: number
+  lines: CachedLine[]
+  loadedAt: number
+}
+
+const motionBaseCache = new Map<string, CityMotionBase>()
+
+export function invalidateCityMotionCache(cityId?: string) {
+  if (cityId) motionBaseCache.delete(cityId)
+  else motionBaseCache.clear()
+}
+
+/**
+ * 캐시를 비우지 않고 DB에서 읽어 원자적으로 교체한다.
+ * (invalidate → load 사이에 push가 캐시 미스로 DB를 치면 끊김이 난다)
+ */
+export async function refreshCityMotionBase(cityId: string): Promise<CityMotionBase | null> {
+  return loadCityMotionBase(cityId)
+}
+
+export async function loadCityMotionBase(cityId: string): Promise<CityMotionBase | null> {
   const city = await db.city.findUnique({
     where: { id: cityId },
     select: {
@@ -74,19 +124,56 @@ export async function buildCityMotionSnapshot(cityId: string): Promise<CityMotio
   })
   if (!city) return null
 
-  const serverNow = Date.now()
-  const lastTickAtMs = city.lastTickAt.getTime()
-  const rawLiveTicks = city.status === 'ACTIVE'
-    ? Math.max(0, (serverNow - lastTickAtMs) / SIM.LIVE_TICK_MS)
+  const base: CityMotionBase = {
+    cityId: city.id,
+    status: city.status,
+    currentTick: city.currentTick,
+    lastTickAtMs: city.lastTickAt.getTime(),
+    loadedAt: Date.now(),
+    lines: city.lines.map(line => ({
+      id: line.id,
+      mode: line.mode,
+      status: line.status,
+      depotX: line.depotX,
+      depotY: line.depotY,
+      stations: line.lineStations.map(ls => ({
+        id: ls.station.id,
+        posX: ls.station.posX,
+        posY: ls.station.posY,
+      })),
+      vehicles: line.vehicles.map(vehicle => ({
+        id: vehicle.id,
+        status: vehicle.status,
+        isSpare: vehicle.isSpare,
+        currentStationId: vehicle.currentStationId,
+        direction: vehicle.direction,
+        segmentProgressMinutes: vehicle.segmentProgressMinutes,
+      })),
+    })),
+  }
+  motionBaseCache.set(cityId, base)
+  return base
+}
+
+/**
+ * 캐시된 DB 상태 + 현재 시각으로 차량 좌표를 계산한다 (DB I/O 없음).
+ * 같은 베이스로 100ms마다 호출해도 preview만 전진해 부드럽게 이어진다.
+ */
+export function renderCityMotionSnapshot(
+  base: CityMotionBase,
+  serverNow = Date.now(),
+): CityMotionSnapshot {
+  const rawLiveTicks = base.status === 'ACTIVE'
+    ? Math.max(0, (serverNow - base.lastTickAtMs) / SIM.LIVE_TICK_MS)
     : 0
   const previewTicks = Math.min(rawLiveTicks, MOTION_MAX_PREVIEW_TICKS)
-  const syncTick = city.currentTick + previewTicks
+  const syncTick = base.currentTick + previewTicks
   const elapsedGameMinutes = previewTicks * SIM.GAME_MINUTES_PER_TICK
 
   const vehicles: CityMotionVehicle[] = []
 
-  for (const line of city.lines) {
-    const stations = line.lineStations.map(ls => ls.station)
+  for (const line of base.lines) {
+    const stations = line.stations
     const terminus = (() => {
       if (stations.length === 0) return null
       if (stations.length === 1) return stations[0]
@@ -98,7 +185,7 @@ export async function buildCityMotionSnapshot(cityId: string): Promise<CityMotio
     })()
 
     for (const vehicle of line.vehicles) {
-      const base: CityMotionVehicle = {
+      const baseVehicle: CityMotionVehicle = {
         id: vehicle.id,
         lineId: line.id,
         mode: line.mode,
@@ -121,25 +208,25 @@ export async function buildCityMotionSnapshot(cityId: string): Promise<CityMotio
 
       if (vehicle.isSpare || vehicle.status === 'SPARE' || !vehicle.currentStationId) {
         if (terminus) {
-          base.fromStationId = terminus.id
-          base.toStationId = terminus.id
-          base.x = line.depotX
-          base.y = line.depotY
-          base.isDwelling = true
+          baseVehicle.fromStationId = terminus.id
+          baseVehicle.toStationId = terminus.id
+          baseVehicle.x = line.depotX
+          baseVehicle.y = line.depotY
+          baseVehicle.isDwelling = true
         }
-        vehicles.push(base)
+        vehicles.push(baseVehicle)
         continue
       }
 
       if (line.status !== 'OPERATING' || vehicle.status !== 'OPERATING') {
         const station = stations.find(s => s.id === vehicle.currentStationId) ?? stations[0]
         if (station) {
-          base.fromStationId = station.id
-          base.x = station.posX
-          base.y = station.posY
-          base.isDwelling = true
+          baseVehicle.fromStationId = station.id
+          baseVehicle.x = station.posX
+          baseVehicle.y = station.posY
+          baseVehicle.isDwelling = true
         }
-        vehicles.push(base)
+        vehicles.push(baseVehicle)
         continue
       }
 
@@ -148,7 +235,6 @@ export async function buildCityMotionSnapshot(cityId: string): Promise<CityMotio
       const pullout = depotPulloutMinutes(line.mode)
       const launchingFromDepot = storedProgress < -baseDwell
 
-      // 출고 중에는 미리보기를 과하게 쓰지 않고 출고 구간만 소비
       const stepMinutes = launchingFromDepot
         ? Math.min(elapsedGameMinutes, Math.max(0, -storedProgress - 0.05))
         : elapsedGameMinutes
@@ -179,8 +265,7 @@ export async function buildCityMotionSnapshot(cityId: string): Promise<CityMotio
       }
 
       vehicles.push({
-        ...base,
-        // currentStationId / direction / segmentProgressMinutes 는 DB 원본 유지
+        ...baseVehicle,
         fromStationId: motion.currentStationId,
         toStationId: motion.nextStationId,
         x,
@@ -196,11 +281,11 @@ export async function buildCityMotionSnapshot(cityId: string): Promise<CityMotio
   }
 
   return {
-    cityId: city.id,
-    status: city.status,
+    cityId: base.cityId,
+    status: base.status,
     serverNow,
-    currentTick: city.currentTick,
-    lastTickAt: city.lastTickAt.toISOString(),
+    currentTick: base.currentTick,
+    lastTickAt: new Date(base.lastTickAtMs).toISOString(),
     liveTickMs: SIM.LIVE_TICK_MS,
     gameMinutesPerTick: SIM.GAME_MINUTES_PER_TICK,
     gameMinutesPerWallSecond: SIM.GAME_MINUTES_PER_TICK / (SIM.LIVE_TICK_MS / 1000),
@@ -210,4 +295,24 @@ export async function buildCityMotionSnapshot(cityId: string): Promise<CityMotio
     physics: getTransitMotionPhysics(),
     vehicles,
   }
+}
+
+/**
+ * push 경로: 캐시가 있으면 무조건 캐시로 렌더(DB 금지).
+ * sync/구독 경로: forceRefresh로 베이스를 갱신한 뒤 렌더.
+ */
+export async function buildCityMotionSnapshot(
+  cityId: string,
+  options?: { forceRefresh?: boolean },
+): Promise<CityMotionSnapshot | null> {
+  const forceRefresh = options?.forceRefresh ?? false
+  let base = motionBaseCache.get(cityId) ?? null
+  if (forceRefresh || !base) {
+    base = await loadCityMotionBase(cityId)
+  }
+  if (!base) {
+    motionBaseCache.delete(cityId)
+    return null
+  }
+  return renderCityMotionSnapshot(base)
 }

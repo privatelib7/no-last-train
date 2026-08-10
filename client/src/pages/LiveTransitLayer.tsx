@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState, type MutableRefObject } from 'react'
 import type { CityMotionSnapshot, CityState, GameLine, Station, TransitMotionPhysics } from '../api/game'
-import { resolveSmoothVehiclePosition } from '../lib/smooth-vehicle'
+import { resolveSmoothVehiclePosition, type LastMoveState } from '../lib/smooth-vehicle'
 import {
   advanceCitizenJourneys,
   locateCitizen,
@@ -109,7 +109,7 @@ function LiveTransitLayer({
   const lastHudSampleRef = useRef(0)
   const citizenJourneysRef = useRef<CitizenJourney[]>([])
   const smoothVehicleRef = useRef(new Map<string, { x: number; y: number }>())
-  const vehicleLastMoveRef = useRef(new Map<string, { lastMs: number }>())
+  const vehicleLastMoveRef = useRef(new Map<string, LastMoveState>())
   const earningsFlashRef = useRef(new Map<string, { amount: number; startedAt: number }>())
   const lastConfirmedStationRef = useRef(new Map<string, string>())
   const onHudSampleRef = useRef(onHudSample)
