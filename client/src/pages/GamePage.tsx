@@ -13,7 +13,6 @@ import {
   type CityState,
   type GameLine,
   type Station,
-  type TransitMotionPhysics,
   type Vehicle,
 } from '../api/game'
 import type { AuthSession } from '../api/auth'
@@ -24,19 +23,8 @@ import { notifyEmergency } from '../lib/notifications'
 import { playGoalUnlockSfx } from '../lib/sfx'
 import InviteModal from './InviteModal'
 import { getCityMap, polyPath, type CityMapDef } from '../maps'
-import {
-  advanceCitizenJourneys,
-  locateCitizen,
-  type CitizenJourney,
-  type CitizenTravelMode,
-} from '../mobility'
-import { resolveSmoothVehiclePosition } from '../lib/smooth-vehicle'
-import {
-  depotTerminusOf,
-  locateVehicle,
-  modeCruiseSpeed,
-  type RenderedVehicleMotion,
-} from '../vehicle-motion'
+import { depotTerminusOf } from '../vehicle-motion'
+import LiveTransitLayer, { type HudSample, type MotionDrive } from './LiveTransitLayer'
 import styles from './GamePage.module.css'
 
 interface Props {
@@ -94,22 +82,16 @@ type SegmentUndoEntry = {
 const LIVE_TICK_MS = 3000
 // HUD 시계(일차·시각)가 밀린 틱을 따라잡을 때도 이 배수를 넘지 않는 속도로만 전진한다
 // (그냥 서버 값으로 스냅하면 시계가 훅 튀어 보인다).
-const CLOCK_CATCHUP_MULTIPLIER = 1.15
 // 커서: 움직일 때는 200ms, 가만히 있을 때는 2초 하트비트 (예전 45ms는 DB/액션을 굶김)
 const CURSOR_MOVE_SYNC_MS = 200
 const CURSOR_HEARTBEAT_MS = 2000
 const CURSOR_MOVE_THRESHOLD = 0.35
 // 서버 cursor-presence.ts 의 CURSOR_COLORS 와 동일한 팔레트 (본인 아바타 색 계산용)
 const PRESENCE_COLORS = ['#ff6f91', '#4fc9a8', '#5b8cf2', '#ffb648', '#a77dfb', '#3ecbd0', '#f4886b'] as const
-const CITIZEN_TIME_SCALE = 0.72
 // 차량이 승차로 번 돈을 옆에 잠깐 띄워 보여주는 연출 지속 시간·떠오르는 높이
-const EARNINGS_FLASH_DURATION_MS = 1600
-const EARNINGS_FLASH_RISE_UNITS = 3.5
 // 서버 actions 라우트의 MAX_VEHICLES_PER_LINE 과 같아야 한다
 const MAX_VEHICLES_PER_LINE = 8
-const GAME_MINUTES_PER_TICK = 60 / TICKS_PER_HOUR
 // 전철·버스 글리프 축소 배율 — 역/선로에 비해 차량이 너무 커 보이지 않게 한다
-const VEHICLE_SCALE = 0.62
 const INITIAL_MAP_VIEW: MapView = { x: 0, y: 0, width: 100, height: 100 }
 
 const LINE_COLORS: Record<string, string> = {
@@ -118,18 +100,6 @@ const LINE_COLORS: Record<string, string> = {
   GREEN: '#55A96A',
   YELLOW: '#E1B735',
   PURPLE: '#8E6CC1',
-}
-
-const CITIZEN_MODE_LABELS: Record<CitizenTravelMode, string> = {
-  WALK: '역으로 이동 중',
-  WAIT: '역에서 대기 중',
-  BOARDING: '차량 탑승 중',
-}
-
-const CITIZEN_MODE_CLASSES: Record<CitizenTravelMode, string> = {
-  WALK: styles.personWalking,
-  WAIT: styles.personWaiting,
-  BOARDING: styles.personBoarding,
 }
 
 // 지형(물)은 클라이언트만 알고 있으므로, 서버가 계획한 신설역 좌표는 여기서 가장 가까운 땅으로 당긴다.
@@ -261,7 +231,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const [successLeaving, setSuccessLeaving] = useState(false)
   const prevGoalsCompletedRef = useRef<number | null>(null)
   const [busy, setBusy] = useState(false)
-  const [clockNowMs, setClockNowMs] = useState(() => Date.now())
+  const [hudSample, setHudSample] = useState<HudSample>({ continuousTick: 0, waitingPassengers: 0 })
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
@@ -304,35 +274,10 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const cashEmergencyRef = useRef(false)
   const gameOverRiskRef = useRef(false)
   const gameOverFiredRef = useRef(false)
-  // 차량 보간용 시각 틱 — 벽시계로만 증가, 폴링으로 절대 되감기지 않음 (중간 멈춤 방지)
-  const visualTickRef = useRef<number | null>(null)
-  const lastClockWallRef = useRef<number | null>(null)
-  /** 차량별 "방금 승차로 번 돈" 표시 — 값과 표시 시작 시각 */
-  const earningsFlashRef = useRef(new Map<string, { amount: number; startedAt: number }>())
-  /** 차량별 마지막으로 확인한 확정 역 — 이게 바뀌는 순간을 "방금 도착"으로 본다 */
-  const lastConfirmedStationRef = useRef(new Map<string, string>())
-  /** 서버 /motion 스냅샷 — syncTick·차량 DB 원본 */
+  /** 서버 /motion 스냅샷 — LiveTransitLayer가 읽어 차량 좌표를 그린다 */
   const motionRef = useRef<CityMotionSnapshot | null>(null)
   const motionClockOffsetRef = useRef(0)
-  /** 서버 syncTick·속도(physics)에 맞춘 차량 드라이브 상태 */
-  const motionDriveRef = useRef<{
-    fingerprint: string
-    currentTick: number
-    baseSyncTick: number
-    baseServerNow: number
-    vehicles: CityMotionSnapshot['vehicles']
-    liveTickMs: number
-    gameMinutesPerTick: number
-    gameMinutesPerWallSecond: number
-    physics: TransitMotionPhysics
-    /** 자리를 비운 동안 밀린 틱을 한꺼번에 따라잡는 중 — 이땐 순항 속도로 보간하면
-     *  다음 폴링이 또 앞질러버려 계속 뒤처지다 결국 스냅되길 반복해 오히려 더 어수선하다.
-     *  그냥 즉시 위치를 맞추고, 실시간을 따라잡으면 다시 부드러운 보간으로 돌아간다. */
-    catchingUp: boolean
-  } | null>(null)
-  const smoothVehicleRef = useRef(new Map<string, { x: number; y: number }>())
-  const vehicleLastMoveRef = useRef(new Map<string, { lastMs: number }>())
-  const [motionEpoch, setMotionEpoch] = useState(0)
+  const motionDriveRef = useRef<MotionDrive | null>(null)
   /** motion 폴링 성공 횟수 — 밀린 틱을 몰아가는 중인지 판단하려면 최소 두 번은 받아봐야 한다 */
   const motionPollCountRef = useRef(0)
   /** 이 도시가 로딩 화면을 벗어난 시각 — motion이 계속 실패해도 로딩에 영원히 갇히지 않게 상한을 둔다 */
@@ -343,8 +288,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const hasRevealedMapRef = useRef(false)
   /** 로딩 화면 진행률 계산용 — 이 도시를 열었을 때 기준으로 밀린 틱이 얼마나 있었는지 스냅샷 */
   const loadingBacklogRef = useRef<{ initialTick: number; estimatedPendingTicks: number } | null>(null)
-  /** 화면 위 시민 — 역·노선이 바뀌어도 걷던 사람은 그대로 두고 여정이 끝난 사람만 교체한다 */
-  const citizenJourneysRef = useRef<CitizenJourney[]>([])
 
   useEffect(() => {
     stateRef.current = state
@@ -545,20 +488,14 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
 
   useEffect(() => {
     let cancelled = false
-    visualTickRef.current = null
-    lastClockWallRef.current = null
     segmentUndoStackRef.current = []
-    earningsFlashRef.current.clear()
-    lastConfirmedStationRef.current.clear()
     motionRef.current = null
     motionDriveRef.current = null
-    smoothVehicleRef.current.clear()
-    vehicleLastMoveRef.current.clear()
     motionPollCountRef.current = 0
     readyGateStartedAtRef.current = Date.now()
     hasRevealedMapRef.current = false
     loadingBacklogRef.current = null
-    citizenJourneysRef.current = []
+    setHudSample({ continuousTick: 0, waitingPassengers: 0 })
     fetchCity(cityId, session?.token)
       .then(next => {
         if (cancelled) return
@@ -635,7 +572,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             prev.baseServerNow = next.serverNow
           }
         }
-        setMotionEpoch(epoch => epoch + 1)
       },
       onError: message => {
         setError(message)
@@ -693,7 +629,19 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
         if (cancelled) return
         lastSentAt = Date.now()
         cursorLastSentRef.current = { x, y }
-        setRemoteCursors(result.cursors)
+        setRemoteCursors(prev => {
+          const next = result.cursors
+          if (
+            prev.length === next.length
+            && prev.every((item, i) => (
+              item.playerId === next[i].playerId
+              && item.x === next[i].x
+              && item.y === next[i].y
+              && item.nickname === next[i].nickname
+            ))
+          ) return prev
+          return next
+        })
       } catch {
         // 일시 네트워크 오류는 다음 틱에서 재시도 — 기존 표시는 유지
       } finally {
@@ -713,39 +661,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     }
   }, [cityId, session?.token])
 
-  useEffect(() => {
-    let animationFrame = 0
-    let lastPaint = 0
-    const animate = (now: number) => {
-      // ~30fps면 차량 이동은 부드럽고, 건설 UI는 크게 안 버벅인다
-      if (now - lastPaint >= 33) {
-        lastPaint = now
-        const wallNow = Date.now()
-        if (visualTickRef.current != null && lastClockWallRef.current != null) {
-          const dtMs = Math.max(0, wallNow - lastClockWallRef.current)
-          let nextTick = visualTickRef.current + dtMs / LIVE_TICK_MS
-          const drive = motionDriveRef.current
-          if (drive && stateRef.current?.city.status === 'ACTIVE') {
-            const serverNow = wallNow + motionClockOffsetRef.current
-            const anchorTick = drive.baseSyncTick + Math.max(0, (serverNow - drive.baseServerNow) / drive.liveTickMs)
-            if (anchorTick > nextTick) {
-              // 서버가 더 앞서 있다(밀린 틱을 몰아서 따라잡음) — 시계가 훅 튀지 않도록
-              // 실시간의 CLOCK_CATCHUP_MULTIPLIER배를 넘지 않는 속도로만 따라잡는다.
-              const maxAdvance = (dtMs / LIVE_TICK_MS) * CLOCK_CATCHUP_MULTIPLIER
-              nextTick = Math.min(anchorTick, visualTickRef.current + maxAdvance)
-            }
-          }
-          visualTickRef.current = nextTick
-        }
-        lastClockWallRef.current = wallNow
-        setClockNowMs(wallNow)
-      }
-      animationFrame = window.requestAnimationFrame(animate)
-    }
-
-    animationFrame = window.requestAnimationFrame(animate)
-    return () => window.cancelAnimationFrame(animationFrame)
-  }, [])
+  // 차량/시민 애니메이션 rAF 는 LiveTransitLayer 안에서만 돈다.
+  // 여기서 setState 하면 사이드바·HUD까지 30fps로 다시 그려져 버벅인다.
 
   // 본인 + 다른 접속자를 상단 프레즌스 동그라미로 표시
   const presencePlayers = useMemo(() => {
@@ -943,7 +860,39 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     setBusy(true)
     setError(null)
     try {
-      await executeCityAction(cityId, action, session?.token)
+      const result = await executeCityAction(cityId, action, session?.token)
+      // 서버가 이미 확정한 결과를 loadCity()의 네트워크 왕복을 기다리지 않고 먼저
+      // 반영한다 — 역/노선 짓기 체감 지연의 실제 원인은 낙관적 UI가 없어서가 아니라
+      // 성공 응답을 버리고 도시 전체를 다시 받아온 뒤에야 그리기 때문이었다.
+      // line/station 응답에는 lineStations·vehicles 같은 연관 배열이 없어(방금
+      // 만든 행 그대로라) 빈 배열로 채우고, 뒤이은 loadCity()가 정확히 맞춘다.
+      if (action.type === 'BUILD_STATION' && result.station) {
+        const station = result.station
+        const cost = stateRef.current?.economyRules.buildCosts.station ?? 0
+        const base = stateRef.current
+        if (!base) return null
+        const patched: CityState = {
+          ...base,
+          city: { ...base.city, stations: [...base.city.stations, station], cashBalance: base.city.cashBalance - cost },
+          stationStats: [...base.stationStats, { stationId: station.id, waitingCount: 0, congestion: 0 }],
+        }
+        setState(patched)
+        void loadCity()
+        return patched
+      }
+      if (action.type === 'CREATE_LINE' && result.line) {
+        const line: GameLine = { ...result.line, lineStations: [], vehicles: [], policies: [] }
+        const cost = (action.mode === 'BUS'
+          ? stateRef.current?.economyRules.buildCosts.busLine
+          : stateRef.current?.economyRules.buildCosts.subwayLine) ?? 0
+        const base = stateRef.current
+        if (base) {
+          setState({
+            ...base,
+            city: { ...base.city, lines: [...base.city.lines, line], cashBalance: base.city.cashBalance - cost },
+          })
+        }
+      }
       const next = await loadCity()
       if (pendingUndo) pushSegmentUndo(pendingUndo)
       if (action.type === 'REMOVE_VEHICLE') setSelectedVehicleId('')
@@ -1072,6 +1021,16 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     setError(null)
     try {
       const result = await executeCityAction(cityId, { type: 'CREATE_LINE', mode }, session?.token)
+      if (result.line) {
+        const line: GameLine = { ...result.line, lineStations: [], vehicles: [], policies: [] }
+        const cost = (mode === 'BUS'
+          ? stateRef.current?.economyRules.buildCosts.busLine
+          : stateRef.current?.economyRules.buildCosts.subwayLine) ?? 0
+        setState(current => current && {
+          ...current,
+          city: { ...current.city, lines: [...current.city.lines, line], cashBalance: current.city.cashBalance - cost },
+        })
+      }
       await loadCity()
       if (result.line?.id) {
         setSelectedLineId(result.line.id)
@@ -1516,139 +1475,22 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
 
   const motionSnap = motionRef.current
   const motionDrive = motionDriveRef.current
-  // motion API의 syncTick·physics를 우선해 서버와 같은 속도로 맞춘다.
   const currentTick = motionDrive?.currentTick ?? motionSnap?.currentTick ?? state.city.currentTick
-  const liveTickMs = motionDrive?.liveTickMs ?? motionSnap?.liveTickMs ?? LIVE_TICK_MS
-  const gameMinutesPerTick = motionDrive?.gameMinutesPerTick ?? motionSnap?.gameMinutesPerTick ?? GAME_MINUTES_PER_TICK
-  const gameMinutesPerWallSecond = motionDrive?.gameMinutesPerWallSecond
-    ?? motionSnap?.gameMinutesPerWallSecond
-    ?? (gameMinutesPerTick / (liveTickMs / 1000))
-  const motionPhysics = motionDrive?.physics ?? motionSnap?.physics ?? null
-  const serverNowMs = clockNowMs + motionClockOffsetRef.current
-  // motionEpoch: motion 폴링이 시각 틱 재계산을 트리거하도록 의존
-  void motionEpoch
-  // 서버 syncTick 앵커 + 벽시계로 로컬 syncTick 전진 (서버가 캡에 걸려도 되감지 않음).
-  // motion이 아직 없으면(막 진입 직후) 추측하지 않고 마지막 확정 틱만 쓴다 — 차량 위치와
-  // 같은 이유로, 잘못된 추측은 곧 도착할 실제 값과 어긋나 시계가 훅 튀어 보이게 만든다.
-  const localSyncTick = motionDrive && state.city.status === 'ACTIVE'
-    ? motionDrive.baseSyncTick + Math.max(0, (serverNowMs - motionDrive.baseServerNow) / liveTickMs)
-    : currentTick
-  // 실제 화면 표시용 틱(visualTickRef)의 전진은 requestAnimationFrame 루프에서
-  // 실시간의 CLOCK_CATCHUP_MULTIPLIER배를 넘지 않는 속도로만 맞춘다(아래 애니메이션
-  // 루프 참고). 여기서는 아직 값이 없을 때만 최초 앵커로 시드한다 — 여기서 그냥
-  // localSyncTick으로 스냅해버리면(예전 방식) 밀린 틱을 한꺼번에 따라잡을 때 시계가
-  // 훅 튀어 보인다.
-  if (state.city.status === 'ACTIVE') {
-    if (visualTickRef.current == null) visualTickRef.current = localSyncTick
-  } else {
-    visualTickRef.current = currentTick
-  }
-  const continuousTick = state.city.status === 'ACTIVE' && visualTickRef.current != null
-    ? visualTickRef.current
-    : currentTick
+  // HUD 시계/대기인원은 LiveTransitLayer가 500ms마다 샘플링해 올려준다.
+  const continuousTick = hudSample.continuousTick > 0 ? hudSample.continuousTick : currentTick
   const currentGameDay = Math.floor(continuousTick / TICKS_PER_DAY) + 1
-  // 확대해도 역·글씨·점이 화면 기준 크기를 유지하도록 counter-scale
   const mapScale = mapView.width / 100
   const selectedStation = stationById.get(selectedStationId) ?? null
   const gameHour = (continuousTick / TICKS_PER_HOUR) % 24
-  // 서버 isWeekendTick과 동일 공식 (1게임일 = 144틱, 7일 주기 중 6·7일차)
   const isWeekend = Math.floor(continuousTick / TICKS_PER_DAY) % 7 >= 5
   const elapsedSeconds = continuousTick * (LIVE_TICK_MS / 1000)
-  const journeyTime = continuousTick * CITIZEN_TIME_SCALE
-  // 역·노선이 바뀌어도 이미 걷고 있는 시민은 그대로 두고, 여정을 끝낸 시민만 새로 뽑는다.
-  const citizenJourneys = advanceCitizenJourneys({
-    previous: citizenJourneysRef.current,
-    journeyTime,
-    seed: state.city.seed,
-    waitingCount: state.stationStats.reduce((sum, stat) => sum + stat.waitingCount, 0),
-    gameHour,
-    weekend: isWeekend,
-    stations: state.city.stations,
-    lines: state.city.lines,
-    map: mapDef,
-  })
-  citizenJourneysRef.current = citizenJourneys
-  const movingCitizens = citizenJourneys.map(journey => ({
-    ...journey,
-    position: locateCitizen(journey, journeyTime),
-  }))
-  // 차량 위치는 클라이언트가 임의로 만들지 않는다. WebSocket motion 의 x/y 를 목표로
-  // 두고, 패킷 사이·틱 점프만 순항 속도로 부드럽게 따라간다.
+  // 사이드바 차량 상태는 motion 스냅샷만 가볍게 읽는다(전체 리렌더 유발 없음).
   const motionVehicleById = new Map((motionDrive?.vehicles ?? motionSnap?.vehicles ?? []).map(item => [item.id, item]))
-  const vehicleMotionById = new Map(
-    state.city.lines.flatMap(line => orderedVehicles(line).map(vehicle => {
-      const synced = motionVehicleById.get(vehicle.id)
-      let located: RenderedVehicleMotion
-      if (synced && synced.x != null && synced.y != null) {
-        const fromStation = synced.fromStationId ? stationById.get(synced.fromStationId) ?? null : null
-        const toStation = synced.toStationId ? stationById.get(synced.toStationId) ?? null : null
-        located = {
-          fromStation,
-          toStation,
-          arrivedStationIds: synced.isDwelling && synced.fromStationId ? [synced.fromStationId] : [],
-          direction: synced.direction,
-          segmentDurationMinutes: synced.segmentDurationMinutes,
-          segmentProgressMinutes: synced.renderSegmentProgressMinutes,
-          dwellRemainingMinutes: synced.dwellRemainingMinutes,
-          isDwelling: synced.isDwelling,
-          isPullingOut: synced.isPullingOut,
-          progress: synced.progress,
-          x: synced.x,
-          y: synced.y,
-        }
-      } else {
-        // motion 도착 전 폴백: DB 스냅샷 위치만 (로컬 경과 없음)
-        located = locateVehicle(line, vehicle, 0, motionPhysics)
-      }
-      const smoothed = resolveSmoothVehiclePosition(
-        vehicle.id,
-        located.x != null && located.y != null ? { x: located.x, y: located.y } : null,
-        clockNowMs,
-        smoothVehicleRef.current,
-        vehicleLastMoveRef.current,
-        modeCruiseSpeed(line.mode, motionPhysics),
-        gameMinutesPerWallSecond,
-        motionDrive?.catchingUp ?? false,
-      )
-      if (smoothed) {
-        return [vehicle.id, { ...located, x: smoothed.x, y: smoothed.y }] as const
-      }
-      return [vehicle.id, located] as const
-    })),
-  )
-  // 서버 motion 이 정차 중이라고 보낸 역만 대기 인원을 낙관적으로 줄인다.
-  // (클라이언트가 도착을 미리 예측하지 않음)
-  const waitingByStation = new Map(state.stationStats.map(stat => [stat.stationId, stat.waitingCount]))
-  for (const line of state.city.lines) {
-    if (line.status !== 'OPERATING') continue
-    for (const vehicle of orderedVehicles(line)) {
-      if (vehicle.status !== 'OPERATING' || vehicle.isSpare) continue
-      const synced = motionVehicleById.get(vehicle.id)
-      if (synced?.isDwelling && synced.fromStationId) {
-        const waiting = waitingByStation.get(synced.fromStationId) ?? 0
-        waitingByStation.set(synced.fromStationId, Math.max(0, waiting - vehicle.capacity))
-      }
-      // 승차로 번 돈 표시: 서버가 확정한 현재 역(currentStationId)이 바뀌는 순간.
-      const confirmedStationId = synced?.currentStationId ?? vehicle.currentStationId
-      const lastConfirmedStationId = lastConfirmedStationRef.current.get(vehicle.id)
-      if (confirmedStationId && confirmedStationId !== lastConfirmedStationId) {
-        lastConfirmedStationRef.current.set(vehicle.id, confirmedStationId)
-        // 최초 관찰(막 진입/재접속)은 "방금 도착"이 아니므로 건너뛴다.
-        if (lastConfirmedStationId != null) {
-          const waitingBefore = state.stationStats.find(stat => stat.stationId === confirmedStationId)?.waitingCount ?? 0
-          const boarding = Math.min(waitingBefore, vehicle.capacity)
-          const earned = boarding * state.economyRules.farePerPassenger
-          if (earned > 0) {
-            earningsFlashRef.current.set(vehicle.id, { amount: earned, startedAt: clockNowMs })
-          }
-        }
-      }
-    }
-  }
   const latestMetric = state.city.ticks[0]
   const serviceScore = latestMetric?.serviceScore ?? 100
   const totalVehicles = state.city.lines.reduce((sum, line) => sum + line.vehicles.length, 0)
-  const waitingPassengers = [...waitingByStation.values()].reduce((sum, waiting) => sum + waiting, 0)
+  const waitingPassengers = hudSample.waitingPassengers
+    || state.stationStats.reduce((sum, stat) => sum + stat.waitingCount, 0)
   const goalProgress = state.city.revenueGoal > 0
     ? Math.min(100, (state.city.totalRevenue / state.city.revenueGoal) * 100)
     : 0
@@ -1935,13 +1777,14 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             </div>
             <div className={styles.vehicleList}>
               {orderedVehicles(selectedLine).map((vehicle, index) => {
-                const motion = vehicleMotionById.get(vehicle.id)
-                const station = motion?.fromStation
-                const isDwelling = selectedLine.status === 'OPERATING' && vehicle.status === 'OPERATING' && motion?.isDwelling
-                const isMoving = selectedLine.status === 'OPERATING' && vehicle.status === 'OPERATING' && motion?.toStation && !isDwelling
+                const synced = motionVehicleById.get(vehicle.id)
+                const fromStation = synced?.fromStationId ? stationById.get(synced.fromStationId) : null
+                const toStation = synced?.toStationId ? stationById.get(synced.toStationId) : null
+                const isDwelling = selectedLine.status === 'OPERATING' && vehicle.status === 'OPERATING' && !!synced?.isDwelling
+                const isMoving = selectedLine.status === 'OPERATING' && vehicle.status === 'OPERATING' && !!toStation && !isDwelling
                 const routeStatus = isMoving
-                  ? `${station?.name} → ${motion.toStation?.name}`
-                  : station?.name ?? '대기'
+                  ? `${fromStation?.name ?? '?'} → ${toStation?.name}`
+                  : fromStation?.name ?? '대기'
                 const vehicleInService = vehicle.status === 'OPERATING' && !vehicle.isSpare
                 return (
                   <div key={vehicle.id} className={styles.vehicleRow}>
@@ -2209,35 +2052,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
               ))}
             </g>
 
-            <g
-              className={styles.peopleLayer}
-              clipPath="url(#city-land-clip)"
-              aria-label={`외부에서 역과 정류장으로 이동하는 시민 ${movingCitizens.length}명`}
-              data-moving-citizen-count={movingCitizens.length}
-            >
-              {movingCitizens.map(citizen => {
-                const { position } = citizen
-                return (
-                  <circle
-                    key={citizen.id}
-                    cx={position.x}
-                    cy={position.y}
-                    r={citizen.radius * position.radiusScale * mapScale}
-                    opacity={citizen.opacity * position.opacityScale}
-                    className={`${styles.personDot} ${CITIZEN_MODE_CLASSES[position.mode]} ${citizen.warm ? styles.personDotWarm : ''}`}
-                    data-citizen-id={citizen.id}
-                    data-travel-mode={position.mode}
-                    data-target-station={citizen.targetStationId}
-                    data-access-mode={citizen.accessMode}
-                    data-land-safe={citizen.landSafe}
-                    data-leg-progress={position.progress.toFixed(3)}
-                  >
-                    <title>{citizen.targetStationName} · {CITIZEN_MODE_LABELS[position.mode]}</title>
-                  </circle>
-                )
-              })}
-            </g>
-
             {sortedLines.filter(line => line.lineStations.length > 1).map(line => (
               <g
                 key={line.id}
@@ -2372,112 +2186,32 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                       {depotLabel}
                     </text>
                   )}
-                  <text
-                    x="1.55"
-                    y="0.45"
-                    className={`${styles.waitingCount}${
-                      congestion >= CONGESTION_SATURATED
-                        ? ` ${styles.waitingCountSaturated}`
-                        : congestion >= CONGESTION_WARN
-                          ? ` ${styles.waitingCountWarn}`
-                          : ''
-                    }`}
-                  >
-                    {waitingByStation.get(station.id) ?? 0}
-                  </text>
                 </g>
               )
             })}
 
-            {state.city.lines.flatMap(line => orderedVehicles(line)
-              .filter(vehicle => vehicle.status === 'OPERATING' && !vehicle.isSpare)
-              .map(vehicle => {
-                const motion = vehicleMotionById.get(vehicle.id)
-                const station = motion?.fromStation
-                const nextStation = motion?.toStation
-                if (!motion || motion.x === null || motion.y === null) return null
-                const lineNo = line.name.match(/\d+/)?.[0] ?? line.name.slice(0, 1)
-                const progress = line.status === 'OPERATING' ? motion.progress : 0
-                const trainX = motion.x
-                const trainY = motion.y
-                const facing = motion.isPullingOut && station
-                  ? { x: station.posX - line.depotX, y: station.posY - line.depotY }
-                  : nextStation && station
-                    ? { x: nextStation.posX - station.posX, y: nextStation.posY - station.posY }
-                    : { x: 1, y: 0 }
-                const rawAngle = Math.atan2(facing.y, facing.x) * 180 / Math.PI
-                // 왼쪽 방향 이동 시 180° 회전으로 뒤집히지 않게 좌우 반전으로 처리
-                const trainFlipped = Math.abs(rawAngle) > 90
-                const trainAngle = trainFlipped ? rawAngle - 180 * Math.sign(rawAngle || 1) : rawAngle
-                return (
-                  <g
-                    key={vehicle.id}
-                    transform={`translate(${trainX} ${trainY}) rotate(${trainAngle})${trainFlipped ? ' scale(-1,1)' : ''} scale(${mapScale * VEHICLE_SCALE})`}
-                    className={`${styles.trainIcon} ${vehicle.id === selectedVehicleId ? styles.selectedTrain : ''}`}
-                    onClick={event => { event.stopPropagation(); selectVehicle(line.id, vehicle.id) }}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`${lineDisplayName(line.name)} 차량 선택`}
-                    aria-pressed={vehicle.id === selectedVehicleId}
-                    data-vehicle-id={vehicle.id}
-                    data-from-station={station?.id ?? ''}
-                    data-to-station={nextStation?.id ?? station?.id ?? ''}
-                    data-motion-progress={progress.toFixed(3)}
-                    data-segment-minutes={motion.segmentDurationMinutes}
-                    data-motion-state={motion.isPullingOut ? 'PULLOUT' : motion.isDwelling ? 'DWELLING' : 'MOVING'}
-                    data-dwell-remaining={motion.dwellRemainingMinutes.toFixed(3)}
-                    data-map-interactive="true"
-                  >
-                    {line.mode === 'BUS' ? (
-                      <>
-                        {/* 버스: 둥근 차체 + 넓은 창 + 문 + 지붕 표시등 */}
-                        <rect x="-3" y="-2.1" width="6" height="4.2" rx="1.6" fill={LINE_COLORS[line.color]} className={styles.trainBody} />
-                        <rect x="-2.2" y="-1.35" width="2.7" height="1.35" rx=".3" className={styles.trainWindow} />
-                        <rect x="1" y="-1.15" width="1.15" height="2.5" rx=".22" className={styles.busDoor} />
-                        <circle cx="-1.6" cy="2.05" r=".56" className={styles.trainWheel} />
-                        <circle cx="1.6" cy="2.05" r=".56" className={styles.trainWheel} />
-                        <text x="-.6" y=".9" textAnchor="middle" className={styles.trainNumber} transform={trainFlipped ? 'scale(-1,1)' : undefined}>{lineNo}</text>
-                      </>
-                    ) : (
-                      <>
-                        {/* 팬터그래프: 지붕 접이식 집전장치 + 가선 접촉봉 */}
-                        <path d="M-1.6 -2.9H1.6M-1.1 -2L0 -2.85L1.1 -2" className={styles.pantograph} />
-                        <rect x="-3.7" y="-2" width="7.4" height="4" rx="1.2" fill={LINE_COLORS[line.color]} className={styles.trainBody} />
-                        <rect x="-2.8" y="-1.2" width="1.55" height="1.25" rx=".28" className={styles.trainWindow} />
-                        <rect x="-.65" y="-1.2" width="1.55" height="1.25" rx=".28" className={styles.trainWindow} />
-                        <circle cx="-2.15" cy="1.85" r=".56" className={styles.trainWheel} />
-                        <circle cx="2.15" cy="1.85" r=".56" className={styles.trainWheel} />
-                        <text x="2.2" y=".55" textAnchor="middle" className={styles.trainNumber} transform={trainFlipped ? 'scale(-1,1)' : undefined}>{lineNo}</text>
-                      </>
-                    )}
-                  </g>
-                )
-              }))}
-
-            {/* 승차로 번 돈 — 회전하는 차량 그룹 밖에서 그려 글씨가 항상 똑바로 보이게 한다 */}
-            {state.city.lines.flatMap(line => orderedVehicles(line)
-              .filter(vehicle => vehicle.status === 'OPERATING' && !vehicle.isSpare)
-              .map(vehicle => {
-                const flash = earningsFlashRef.current.get(vehicle.id)
-                if (!flash) return null
-                const elapsed = clockNowMs - flash.startedAt
-                if (elapsed < 0 || elapsed > EARNINGS_FLASH_DURATION_MS) return null
-                const motion = vehicleMotionById.get(vehicle.id)
-                if (!motion || motion.x === null || motion.y === null) return null
-                const progress = elapsed / EARNINGS_FLASH_DURATION_MS
-                const riseY = -EARNINGS_FLASH_RISE_UNITS * progress
-                return (
-                  <text
-                    key={`earn-${vehicle.id}`}
-                    transform={`translate(${motion.x} ${motion.y + riseY - 3}) scale(${mapScale})`}
-                    textAnchor="middle"
-                    className={styles.earningsFlash}
-                    style={{ opacity: 1 - progress }}
-                  >
-                    +{formatMoney(flash.amount)}
-                  </text>
-                )
-              }))}
+            <LiveTransitLayer
+              resetKey={cityId}
+              city={state.city}
+              stationStats={state.stationStats}
+              mapDef={mapDef}
+              mapScale={mapScale}
+              selectedVehicleId={selectedVehicleId}
+              motionRef={motionRef}
+              motionDriveRef={motionDriveRef}
+              motionClockOffsetRef={motionClockOffsetRef}
+              stationById={stationById}
+              farePerPassenger={state.economyRules.farePerPassenger}
+              onSelectVehicle={selectVehicle}
+              onHudSample={sample => {
+                setHudSample(prev => (
+                  prev.waitingPassengers === sample.waitingPassengers
+                  && Math.abs(prev.continuousTick - sample.continuousTick) < 0.08
+                    ? prev
+                    : sample
+                ))
+              }}
+            />
 
             {/* 역 이름은 항상 최상단 (SVG는 그리는 순서 = z-order) */}
             <g className={styles.stationLabelLayer}>

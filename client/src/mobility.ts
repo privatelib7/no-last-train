@@ -323,7 +323,8 @@ export function advanceCitizenJourneys(
   },
 ): CitizenJourney[] {
   const { seed, waitingCount, gameHour, weekend, stations, lines, map, previous, journeyTime } = options
-  const count = Math.min(128, Math.max(64, Math.round(48 + Math.log10(waitingCount + 10) * 14)))
+  // 렌더 비용이 커서 상한을 낮춘다(예전 64~128 → 24~48).
+  const count = Math.min(48, Math.max(24, Math.round(20 + Math.log10(waitingCount + 10) * 10)))
   // 역이 하나도 없으면(노선 유무와 무관) 배회 시민으로 도시가 비어 보이지 않게 한다.
   const availableStations = allStationsWithAccess(lines, stations)
   const busStops = availableStations.filter(item => item.accessMode === 'BUS')

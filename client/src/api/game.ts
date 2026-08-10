@@ -301,7 +301,9 @@ export type CityAction =
   | { type: 'REMOVE_VEHICLE'; lineId: string; vehicleId: string }
 
 export function executeCityAction(cityId: string, action: CityAction, playerToken?: string) {
-  return request<{ message: string; line?: GameLine }>(`/api/cities/${cityId}/actions`, {
+  // line/station은 서버가 방금 만든 행(row) 그대로라 GameLine의 lineStations/vehicles/
+  // policies 같은 연관 배열은 안 들어있다 — 즉시 반영용 패치에서는 빈 배열로 채워 쓴다.
+  return request<{ message: string; line?: GameLine; station?: Station }>(`/api/cities/${cityId}/actions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders(playerToken) },
     body: JSON.stringify(action),
