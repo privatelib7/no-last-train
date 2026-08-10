@@ -389,6 +389,12 @@
   min-width: 0;
 }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .inviteButton {
   display: inline-flex;
   align-items: center;
@@ -409,6 +415,12 @@
   width: 15px;
   height: 15px;
   flex-shrink: 0;
+}
+
+.iconOnlyButton {
+  width: 34px;
+  padding: 0;
+  justify-content: center;
 }
 
 .inviteButton:hover {
