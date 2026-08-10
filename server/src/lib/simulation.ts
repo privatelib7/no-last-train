@@ -27,7 +27,14 @@ export async function simulateTicks(cityId: string, count: number): Promise<SimR
   return enqueueCitySimulation(cityId, () => simulateTicksUnlocked(cityId, count))
 }
 
-export async function syncCityClock(cityId: string): Promise<SimResult | null> {
+// 실시간 폴링(/city, /motion) 한 요청이 한 번에 따라잡는 상한. 이 값을 넘겨 잡으면
+// 화면이 열려 있는 동안 한 요청이 수 초씩 막히고, 클라이언트가 그만큼을 한꺼번에
+// 그려야 해서 순간이동처럼 보인다. 반면 백그라운드 하트비트(tickAllActiveCities)는
+// 아무도 화면을 보고 있지 않은 상태라 이 제약이 필요 없다 — 그쪽은 더 큰 상한을 쓴다.
+const LIVE_POLL_MAX_TICKS = 3
+const TICK_LOOP_MAX_TICKS = 60
+
+export async function syncCityClock(cityId: string, maxTicks: number = LIVE_POLL_MAX_TICKS): Promise<SimResult | null> {
   return enqueueCitySimulation(cityId, async () => {
     const city = await db.city.findUnique({
       where: { id: cityId },
@@ -38,7 +45,7 @@ export async function syncCityClock(cityId: string): Promise<SimResult | null> {
     const elapsedMs = Date.now() - city.lastTickAt.getTime()
     // 한 요청에서 너무 많이 따라잡으면 초기 로딩/폴링이 수 초씩 막힌다.
     // 나머지는 이후 폴링에서 조금씩 따라잡는다.
-    const pendingTicks = Math.min(Math.floor(elapsedMs / SIM.LIVE_TICK_MS), 3)
+    const pendingTicks = Math.min(Math.floor(elapsedMs / SIM.LIVE_TICK_MS), maxTicks)
     if (pendingTicks < 1) return null
     return simulateTicksUnlocked(cityId, pendingTicks)
   })
@@ -62,7 +69,7 @@ export async function tickAllActiveCities(): Promise<void> {
   async function worker() {
     while (cursor < cities.length) {
       const city = cities[cursor++]
-      await syncCityClock(city.id).catch(err => {
+      await syncCityClock(city.id, TICK_LOOP_MAX_TICKS).catch(err => {
         console.error(`[tick-loop] syncCityClock failed for ${city.id}`, err)
       })
     }
