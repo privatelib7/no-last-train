@@ -136,7 +136,15 @@ async function ensureBusLine(cityId: string, mapKey: string) {
   const existing = await db.line.findFirst({ where: { cityId, mode: 'BUS' } })
   if (existing) {
     // 지형 개편 시 정류장·차고지 좌표를 최신 레이아웃으로 동기화
-    await db.line.update({ where: { id: existing.id }, data: { depotX: layout.depotX, depotY: layout.depotY } })
+    await db.line.update({
+      where: { id: existing.id },
+      data: {
+        depotX: layout.depotX,
+        depotY: layout.depotY,
+        // 예전 "A" 표기를 "A노선"으로 맞춘다
+        ...(/^[A-Z]$/.test(existing.name) ? { name: `${existing.name}노선` } : {}),
+      },
+    })
     await db.station.updateMany({
       where: { cityId, name: layout.stop.name },
       data: { posX: layout.stop.posX, posY: layout.stop.posY },
@@ -163,7 +171,7 @@ async function ensureBusLine(cityId: string, mapKey: string) {
       cityId,
       color: 'GREEN',
       mode: 'BUS',
-      name: 'A',
+      name: 'A노선',
       status: 'OPERATING',
       depotX: layout.depotX,
       depotY: layout.depotY,
@@ -175,7 +183,7 @@ async function ensureBusLine(cityId: string, mapKey: string) {
   await db.vehicle.create({
     data: { lineId: line.id, capacity: 60, status: 'OPERATING', currentStationId: routeIds[0], headwayMinutes: 6, segmentProgressMinutes: -stationDwellMinutes('BUS') },
   })
-  console.log(`버스 A 추가: ${mapKey}`)
+  console.log(`버스 A노선 추가: ${mapKey}`)
 }
 
 async function main() {
