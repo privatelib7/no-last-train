@@ -348,6 +348,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
    *  전체 화면을 다시 로딩 화면으로 덮지 않는다 — 플레이 도중 UI가 통째로 사라지면서
    *  버튼 클릭이 씹히는 것처럼 보이던 원인. 이후의 따라잡기는 차량/시계 보간이 알아서 흡수한다. */
   const hasRevealedMapRef = useRef(false)
+  /** 로딩 화면 진행률 계산용 — 이 도시를 열었을 때 기준으로 밀린 틱이 얼마나 있었는지 스냅샷 */
+  const loadingBacklogRef = useRef<{ initialTick: number; estimatedPendingTicks: number } | null>(null)
   /** 화면 위 시민 — 역·노선이 바뀌어도 걷던 사람은 그대로 두고 여정이 끝난 사람만 교체한다 */
   const citizenJourneysRef = useRef<CitizenJourney[]>([])
 
@@ -561,6 +563,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     motionPollCountRef.current = 0
     readyGateStartedAtRef.current = Date.now()
     hasRevealedMapRef.current = false
+    loadingBacklogRef.current = null
     citizenJourneysRef.current = []
     fetchCity(cityId, session?.token)
       .then(next => {
@@ -1505,10 +1508,38 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     || (Date.now() - readyGateStartedAt > 6000)
 
   if (!motionSettled) {
+    // 진행률 표시용 — 이 도시를 열었을 때 얼마나 밀려 있었는지 최초 한 번만 스냅샷을 찍고,
+    // 그 이후 실제로 따라잡은 틱 수 비율로 진행률을 계산한다.
+    if (!loadingBacklogRef.current) {
+      const lastTickAtMs = Date.parse(state.city.lastTickAt)
+      const estimatedPendingTicks = state.city.status === 'ACTIVE' && Number.isFinite(lastTickAtMs)
+        ? Math.max(0, (Date.now() - lastTickAtMs) / LIVE_TICK_MS)
+        : 0
+      loadingBacklogRef.current = { initialTick: state.city.currentTick, estimatedPendingTicks }
+    }
+    const backlog = loadingBacklogRef.current
+    const caughtUpTicks = Math.max(0, (motionSettleGate?.currentTick ?? backlog.initialTick) - backlog.initialTick)
+    const tickProgress = backlog.estimatedPendingTicks > 0.1
+      ? Math.min(1, caughtUpTicks / backlog.estimatedPendingTicks)
+      : 1
+    // motion이 안 오는 등 틱 기준 진행률이 안 움직이는 경우를 대비해, 시간 기준 진행률과
+    // 둘 중 더 큰 쪽을 보여준다 — 진행 바가 멈춰 보이지 않게 하기 위함.
+    const timeProgress = Math.min(1, (Date.now() - readyGateStartedAt) / 6000)
+    const loadingProgress = Math.max(tickProgress, timeProgress)
     return (
       <div className={styles.loadingPage}>
-        <span className={styles.loadingDot} />
-        도시 로딩 중
+        <div className={styles.loadingContent}>
+          <div className={styles.loadingStatus}>
+            <span className={styles.loadingDot} />
+            <span>도시 로딩 중{caughtUpTicks >= 1 ? ` · 밀린 시간 따라잡는 중` : ''}</span>
+          </div>
+          <div className={styles.loadingProgressTrack}>
+            <div
+              className={styles.loadingProgressFill}
+              style={{ width: `${Math.round(loadingProgress * 100)}%` }}
+            />
+          </div>
+        </div>
       </div>
     )
   }

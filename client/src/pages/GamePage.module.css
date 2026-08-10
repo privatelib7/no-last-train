@@ -285,6 +285,35 @@
   font-size: 15px;
 }
 
+.loadingContent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 220px;
+}
+
+.loadingStatus {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.loadingProgressTrack {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--gp-surface-muted);
+  overflow: hidden;
+}
+
+.loadingProgressFill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--gp-accent);
+  transition: width 0.25s ease-out;
+}
+
 .accessScreen {
   display: flex;
   flex-direction: column;
