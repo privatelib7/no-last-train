@@ -98,6 +98,9 @@ const MAX_WAITING_PREVIEW_TICKS = 1.25
 // 멈춰버리지 않도록 여유를 넉넉히 둔다 — 그래도 상한은 있어야 장시간 끊겼을 때
 // 터무니없이 먼 위치를 추정해 보여주지 않는다.
 const MAX_VEHICLE_COAST_TICKS = 10
+// HUD 시계(일차·시각)가 밀린 틱을 따라잡을 때도 이 배수를 넘지 않는 속도로만 전진한다
+// (그냥 서버 값으로 스냅하면 시계가 훅 튀어 보인다 — 차량 위치와 같은 원칙).
+const CLOCK_CATCHUP_MULTIPLIER = 1.15
 // 커서: 움직일 때는 200ms, 가만히 있을 때는 2초 하트비트 (예전 45ms는 DB/액션을 굶김)
 const CURSOR_MOVE_SYNC_MS = 200
 const CURSOR_HEARTBEAT_MS = 2000
@@ -727,7 +730,20 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
         lastPaint = now
         const wallNow = Date.now()
         if (visualTickRef.current != null && lastClockWallRef.current != null) {
-          visualTickRef.current += (wallNow - lastClockWallRef.current) / LIVE_TICK_MS
+          const dtMs = Math.max(0, wallNow - lastClockWallRef.current)
+          let nextTick = visualTickRef.current + dtMs / LIVE_TICK_MS
+          const drive = motionDriveRef.current
+          if (drive && stateRef.current?.city.status === 'ACTIVE') {
+            const serverNow = wallNow + motionClockOffsetRef.current
+            const anchorTick = drive.baseSyncTick + Math.max(0, (serverNow - drive.baseServerNow) / drive.liveTickMs)
+            if (anchorTick > nextTick) {
+              // 서버가 더 앞서 있다(밀린 틱을 몰아서 따라잡음) — 시계가 훅 튀지 않도록
+              // 실시간의 CLOCK_CATCHUP_MULTIPLIER배를 넘지 않는 속도로만 따라잡는다.
+              const maxAdvance = (dtMs / LIVE_TICK_MS) * CLOCK_CATCHUP_MULTIPLIER
+              nextTick = Math.min(anchorTick, visualTickRef.current + maxAdvance)
+            }
+          }
+          visualTickRef.current = nextTick
         }
         lastClockWallRef.current = wallNow
         setClockNowMs(wallNow)
@@ -1491,7 +1507,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const motionDrive = motionDriveRef.current
   // motion API의 syncTick·physics를 우선해 서버와 같은 속도로 맞춘다.
   const currentTick = motionDrive?.currentTick ?? motionSnap?.currentTick ?? state.city.currentTick
-  const lastTickAtMs = Date.parse(motionSnap?.lastTickAt ?? state.city.lastTickAt)
   const liveTickMs = motionDrive?.liveTickMs ?? motionSnap?.liveTickMs ?? LIVE_TICK_MS
   const gameMinutesPerTick = motionDrive?.gameMinutesPerTick ?? motionSnap?.gameMinutesPerTick ?? GAME_MINUTES_PER_TICK
   const gameMinutesPerWallSecond = motionDrive?.gameMinutesPerWallSecond
@@ -1499,21 +1514,21 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     ?? (gameMinutesPerTick / (liveTickMs / 1000))
   const motionPhysics = motionDrive?.physics ?? motionSnap?.physics ?? null
   const serverNowMs = clockNowMs + motionClockOffsetRef.current
-  const serverLiveTicks = state.city.status === 'ACTIVE' && Number.isFinite(lastTickAtMs)
-    ? Math.max(0, (serverNowMs - lastTickAtMs) / liveTickMs)
-    : 0
-  // HUD/시계용 — 짧게만 앞서게 (대기 인원 낙관 차감과 동일 상한)
-  const previewTicks = Math.min(serverLiveTicks, MAX_WAITING_PREVIEW_TICKS)
-  const serverTick = currentTick + previewTicks
   // motionEpoch: motion 폴링이 시각 틱 재계산을 트리거하도록 의존
   void motionEpoch
-  // 서버 syncTick 앵커 + 벽시계로 로컬 syncTick 전진 (서버가 캡에 걸려도 되감지 않음)
+  // 서버 syncTick 앵커 + 벽시계로 로컬 syncTick 전진 (서버가 캡에 걸려도 되감지 않음).
+  // motion이 아직 없으면(막 진입 직후) 추측하지 않고 마지막 확정 틱만 쓴다 — 차량 위치와
+  // 같은 이유로, 잘못된 추측은 곧 도착할 실제 값과 어긋나 시계가 훅 튀어 보이게 만든다.
   const localSyncTick = motionDrive && state.city.status === 'ACTIVE'
     ? motionDrive.baseSyncTick + Math.max(0, (serverNowMs - motionDrive.baseServerNow) / liveTickMs)
-    : serverTick
+    : currentTick
+  // 실제 화면 표시용 틱(visualTickRef)의 전진은 requestAnimationFrame 루프에서
+  // 실시간의 CLOCK_CATCHUP_MULTIPLIER배를 넘지 않는 속도로만 맞춘다(아래 애니메이션
+  // 루프 참고). 여기서는 아직 값이 없을 때만 최초 앵커로 시드한다 — 여기서 그냥
+  // localSyncTick으로 스냅해버리면(예전 방식) 밀린 틱을 한꺼번에 따라잡을 때 시계가
+  // 훅 튀어 보인다.
   if (state.city.status === 'ACTIVE') {
     if (visualTickRef.current == null) visualTickRef.current = localSyncTick
-    else if (localSyncTick > visualTickRef.current) visualTickRef.current = localSyncTick
   } else {
     visualTickRef.current = currentTick
   }
