@@ -319,8 +319,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const pulloutAnimStartedAtRef = useRef(new Map<string, number>())
   /** 차량별 "방금 승차로 번 돈" 표시 — 값과 표시 시작 시각 */
   const earningsFlashRef = useRef(new Map<string, { amount: number; startedAt: number }>())
-  /** 같은 승차 도착을 중복으로 다시 표시하지 않기 위한 차량별 처리 이력 */
-  const flashedArrivalsRef = useRef(new Map<string, { fingerprint: string; stationIds: Set<string> }>())
+  /** 차량별 마지막으로 확인한 확정 역 — 이게 바뀌는 순간을 "방금 도착"으로 본다 */
+  const lastConfirmedStationRef = useRef(new Map<string, string>())
   /** 서버 /motion 스냅샷 — syncTick·차량 DB 원본 */
   const motionRef = useRef<CityMotionSnapshot | null>(null)
   const motionClockOffsetRef = useRef(0)
@@ -560,7 +560,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     segmentUndoStackRef.current = []
     pulloutAnimStartedAtRef.current.clear()
     earningsFlashRef.current.clear()
-    flashedArrivalsRef.current.clear()
+    lastConfirmedStationRef.current.clear()
     motionRef.current = null
     motionDriveRef.current = null
     smoothVehicleRef.current.clear()
@@ -1668,28 +1668,24 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
           }
         : vehicle
       const waitingMotion = locateVehicle(line, sourceVehicle, waitingPreviewGameMinutes, motionPhysics)
-      // 같은 도착을 여러 프레임에 걸쳐 중복 표시하지 않도록, 이 차량의 확정 스냅샷(fingerprint)이
-      // 바뀔 때만 "이미 표시한 도착역" 기록을 새로 시작한다.
-      const vehicleFingerprint = `${sourceVehicle.currentStationId}:${sourceVehicle.direction}:${sourceVehicle.segmentProgressMinutes}`
-      let arrivalTracking = flashedArrivalsRef.current.get(vehicle.id)
-      if (!arrivalTracking || arrivalTracking.fingerprint !== vehicleFingerprint) {
-        arrivalTracking = { fingerprint: vehicleFingerprint, stationIds: new Set() }
-        flashedArrivalsRef.current.set(vehicle.id, arrivalTracking)
-      }
       for (const stationId of waitingMotion.arrivedStationIds) {
         const waiting = waitingByStation.get(stationId) ?? 0
-        const boarding = Math.min(waiting, vehicle.capacity)
         waitingByStation.set(stationId, Math.max(0, waiting - vehicle.capacity))
-        if (!arrivalTracking.stationIds.has(stationId)) {
-          arrivalTracking.stationIds.add(stationId)
+      }
+      // 승차로 번 돈 표시: arrivedStationIds는 "앞으로 곧 도착할" 역만 잡고(예상 대기열
+      // 차감용), 정작 서버가 확정한 현재 역(currentStationId) 자체는 포함하지 않는다.
+      // 그래서 별도로 확정 역이 바뀌는 순간(= 그 역에서 막 승하차 처리됨)을 직접 감지한다.
+      const confirmedStationId = sourceVehicle.currentStationId
+      const lastConfirmedStationId = lastConfirmedStationRef.current.get(vehicle.id)
+      if (confirmedStationId && confirmedStationId !== lastConfirmedStationId) {
+        lastConfirmedStationRef.current.set(vehicle.id, confirmedStationId)
+        // 최초 관찰(막 진입/재접속)은 "방금 도착"이 아니므로 건너뛴다.
+        if (lastConfirmedStationId != null) {
+          const waitingBefore = state.stationStats.find(stat => stat.stationId === confirmedStationId)?.waitingCount ?? 0
+          const boarding = Math.min(waitingBefore, vehicle.capacity)
           const earned = boarding * state.economyRules.farePerPassenger
           if (earned > 0) {
-            const prevFlash = earningsFlashRef.current.get(vehicle.id)
-            // 짧은 시간 안에 여러 역에서 연달아 태우면(한 틱에 여러 정거장 통과) 금액을 합쳐 보여준다.
-            const amount = prevFlash && clockNowMs - prevFlash.startedAt < 600
-              ? prevFlash.amount + earned
-              : earned
-            earningsFlashRef.current.set(vehicle.id, { amount, startedAt: clockNowMs })
+            earningsFlashRef.current.set(vehicle.id, { amount: earned, startedAt: clockNowMs })
           }
         }
       }
