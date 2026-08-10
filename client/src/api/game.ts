@@ -64,6 +64,7 @@ export type GameCity = {
   name: string
   roomTitle: string
   mapKey: string
+  ownerPlayerId: string | null
   seed: number
   seasonDay: number
   status: 'ACTIVE' | 'SEASON_ENDED' | 'GAME_OVER'
@@ -121,6 +122,8 @@ export type CityState = {
       busSegmentPerMapUnit: number
       subwayInsert: number
       busInsert: number
+      subwayVehicle: number
+      busVehicle: number
     }
     buildDebtLimit: number
     bankruptLimit: number
@@ -237,6 +240,7 @@ export type CityAction =
   | { type: 'INSERT_STATION'; lineId: string; fromStationId: string; toStationId: string; stationId: string }
   | { type: 'BUILD_SEGMENT'; lineId: string; fromStationId: string; toStationId: string }
   | { type: 'SET_LINE_STATUS'; lineId: string; status: 'OPERATING' | 'SUSPENDED' }
+  | { type: 'BUY_VEHICLE'; lineId: string; count: number }
   | { type: 'SET_VEHICLE_SERVICE'; lineId: string; vehicleId: string; inService: boolean }
   | { type: 'TRANSFER_VEHICLE'; lineId: string; vehicleId: string; targetLineId: string }
   | { type: 'REMOVE_VEHICLE'; lineId: string; vehicleId: string }

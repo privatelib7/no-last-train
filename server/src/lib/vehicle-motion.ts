@@ -28,17 +28,23 @@ export type VehicleMotion = {
 
 const MODE_SPEED: Record<'SUBWAY' | 'BUS', number> = {
   SUBWAY: 1.05,
-  BUS: 0.72,
+  BUS: 1.0,
 }
 
 const MODE_DURATION_LIMITS: Record<'SUBWAY' | 'BUS', { min: number; max: number }> = {
   SUBWAY: { min: 4, max: 28 },
-  BUS: { min: 5.5, max: 35 },
+  BUS: { min: 4, max: 28 },
 }
 
 const MODE_DWELL_MINUTES: Record<'SUBWAY' | 'BUS', number> = {
   SUBWAY: 1.5,
-  BUS: 2.5,
+  BUS: 2.0,
+}
+
+/** 운행 시작 시 차고지(depot) → 종점 출고에 쓰는 게임 분 */
+const MODE_DEPOT_PULLOUT_MINUTES: Record<'SUBWAY' | 'BUS', number> = {
+  SUBWAY: 1.2,
+  BUS: 1.8,
 }
 
 function normalizedMode(mode: TransitMode): 'SUBWAY' | 'BUS' {
@@ -47,6 +53,10 @@ function normalizedMode(mode: TransitMode): 'SUBWAY' | 'BUS' {
 
 export function stationDwellMinutes(mode: TransitMode): number {
   return MODE_DWELL_MINUTES[normalizedMode(mode)]
+}
+
+export function depotPulloutMinutes(mode: TransitMode): number {
+  return MODE_DEPOT_PULLOUT_MINUTES[normalizedMode(mode)]
 }
 
 /**
@@ -190,5 +200,53 @@ export function advanceVehicleMotion(
     x: from.posX + (to.posX - from.posX) * progress,
     y: from.posY + (to.posY - from.posY) * progress,
     arrivedStationIds,
+  }
+}
+
+/**
+ * 노선 중간에 새 역을 끼워 넣을 때, 마침 그 구간을 지나던 차량의 진행 상태를 새 구간
+ * 기준으로 다시 계산한다. 그대로 두면 advanceVehicleMotion의 구간 길이 클램프 때문에
+ * (예전 긴 구간 기준 진행 시간이 훨씬 짧아진 새 구간 길이를 넘어서) 차량이 새 역까지
+ * 순간이동한 것처럼 보인다. 실제 이동한 물리적 거리를 보존해 자연스럽게 이어지게 한다.
+ * 정차 중이거나 삽입되는 구간을 지나고 있지 않으면 null(변경 없음)을 반환한다.
+ */
+export function reconcileVehicleForInsertedStation(
+  stations: MotionStation[],
+  state: VehicleMotionState,
+  segmentStationIds: readonly [string, string],
+  insertedStation: MotionStation,
+  mode: TransitMode,
+): { currentStationId: string; segmentProgressMinutes: number } | null {
+  if (!state.currentStationId) return null
+  const before = advanceVehicleMotion(stations, state, 0, mode)
+  if (before.isDwelling || !before.nextStationId) return null
+
+  const [aId, bId] = segmentStationIds
+  const matchesForward = before.currentStationId === aId && before.nextStationId === bId
+  const matchesReverse = before.currentStationId === bId && before.nextStationId === aId
+  if (!matchesForward && !matchesReverse) return null
+
+  const startStation = stations.find(station => station.id === before.currentStationId)
+  const endStation = stations.find(station => station.id === before.nextStationId)
+  if (!startStation || !endStation) return null
+
+  const distStartEnd = Math.hypot(endStation.posX - startStation.posX, endStation.posY - startStation.posY)
+  const distStartMid = Math.hypot(insertedStation.posX - startStation.posX, insertedStation.posY - startStation.posY)
+  const distMidEnd = Math.hypot(endStation.posX - insertedStation.posX, endStation.posY - insertedStation.posY)
+  const traveledDistance = before.progress * distStartEnd
+
+  if (distStartMid <= 0 || traveledDistance <= distStartMid) {
+    const fraction = distStartMid > 0 ? Math.min(1, traveledDistance / distStartMid) : 0
+    return {
+      currentStationId: startStation.id,
+      segmentProgressMinutes: fraction * segmentTravelMinutes(startStation, insertedStation, mode),
+    }
+  }
+
+  const remaining = traveledDistance - distStartMid
+  const fraction = distMidEnd > 0 ? Math.min(1, remaining / distMidEnd) : 0
+  return {
+    currentStationId: insertedStation.id,
+    segmentProgressMinutes: fraction * segmentTravelMinutes(insertedStation, endStation, mode),
   }
 }

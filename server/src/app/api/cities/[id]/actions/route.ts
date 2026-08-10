@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { authorizeCityAccess } from '@/lib/access'
-import { ECONOMY, lineBuildCost, segmentBuildCost, stationInsertCost } from '@/lib/economy'
-import { stationDwellMinutes } from '@/lib/vehicle-motion'
+import { ECONOMY, lineBuildCost, segmentBuildCost, stationInsertCost, vehiclePurchaseCost } from '@/lib/economy'
+
+function formatCash(value: number) {
+  return `₵${Math.round(value / 10_000).toLocaleString('ko-KR')}`
+}
+import { depotPulloutMinutes, reconcileVehicleForInsertedStation, stationDwellMinutes } from '@/lib/vehicle-motion'
 import { isVehicleInService, vehicleServiceUpdate } from '@/lib/vehicle-service'
 import { resetCityForNewGame } from '@/lib/city-reset'
 import type { Prisma } from '@prisma/client'
@@ -69,6 +73,11 @@ const ActionSchema = z.discriminatedUnion('type', [
     status: z.enum(['OPERATING', 'SUSPENDED']),
   }),
   z.object({
+    type: z.literal('BUY_VEHICLE'),
+    lineId: z.string(),
+    count: z.number().int().min(1).max(3).default(1),
+  }),
+  z.object({
     type: z.literal('SET_VEHICLE_SERVICE'),
     lineId: z.string(),
     vehicleId: z.string(),
@@ -90,6 +99,9 @@ const ActionSchema = z.discriminatedUnion('type', [
 class ConstructionFundsError extends Error {}
 
 const LINE_COLORS = ['RED', 'BLUE', 'GREEN', 'YELLOW', 'PURPLE'] as const
+
+// 한 노선이 보유할 수 있는 차량 상한 — 차고지 표시와 운영비가 감당 가능한 범위
+const MAX_VEHICLES_PER_LINE = 8
 
 function nextLineIdentity(
   lines: Array<{ name: string; mode: string; color: string }>,
@@ -218,7 +230,7 @@ export async function POST(
         posY: action.posY,
       },
     }))
-    const message = `${station.name}을 건설했습니다. (₵800)`
+    const message = `${station.name}을 건설했습니다. (${formatCash(ECONOMY.BUILD_COST.STATION)})`
     await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
     return NextResponse.json({ message, station })
   }
@@ -251,7 +263,7 @@ export async function POST(
       return nextLine
     })
     return NextResponse.json({
-      message: `${name} 노선을 만들었습니다. (${action.mode === 'BUS' ? '₵600' : '₵2,000'}) 역 두 개를 연달아 클릭해 선로를 부설하세요.`,
+      message: `${name} 노선을 만들었습니다. (${formatCash(cost)}) 역 두 개를 연달아 클릭해 선로를 부설하세요.`,
       line: created,
     })
   }
@@ -479,14 +491,41 @@ export async function POST(
     if (!station) return NextResponse.json({ error: '역을 찾을 수 없습니다.' }, { status: 404 })
     const insertAt = Math.min(fromMembership.order, toMembership.order) + 1
     const cost = stationInsertCost(line.mode)
+
+    // 삽입되는 구간을 지금 지나는 중인 차량은 새 역 기준으로 진행 상태를 다시 맞춰준다.
+    // 그대로 두면 예전 구간 길이 기준 진행 시간이 훨씬 짧아진 새 구간에 그대로 클램프되어
+    // 순간이동한 것처럼 새 역까지 튕겨 나간다.
+    const orderedStations = line.lineStations.map(item => item.station)
+    const vehicleFixes = line.vehicles.flatMap(vehicle => {
+      const fix = reconcileVehicleForInsertedStation(
+        orderedStations,
+        {
+          currentStationId: vehicle.currentStationId,
+          direction: vehicle.direction,
+          segmentProgressMinutes: vehicle.segmentProgressMinutes,
+        },
+        [fromMembership.stationId, toMembership.stationId],
+        station,
+        line.mode,
+      )
+      return fix ? [{ vehicleId: vehicle.id, ...fix }] : []
+    })
+
     await runPaidConstruction(id, cost, async tx => {
       await tx.lineStation.updateMany({
         where: { lineId: line.id, order: { gte: insertAt } },
         data: { order: { increment: 1 } },
       })
-      return tx.lineStation.create({
+      const created = await tx.lineStation.create({
         data: { lineId: line.id, stationId: action.stationId, order: insertAt },
       })
+      for (const fix of vehicleFixes) {
+        await tx.vehicle.update({
+          where: { id: fix.vehicleId },
+          data: { currentStationId: fix.currentStationId, segmentProgressMinutes: fix.segmentProgressMinutes },
+        })
+      }
+      return created
     })
     return NextResponse.json({ message: `${line.name}이 ${station.name}을 경유하도록 변경했습니다. (${formatWon(cost)})` })
   }
@@ -542,6 +581,28 @@ export async function POST(
     return NextResponse.json({ message })
   }
 
+  if (action.type === 'BUY_VEHICLE') {
+    if (line.vehicles.length + action.count > MAX_VEHICLES_PER_LINE) {
+      return NextResponse.json(
+        { error: `${line.name}은 차량을 최대 ${MAX_VEHICLES_PER_LINE}대까지 보유할 수 있습니다.` },
+        { status: 409 },
+      )
+    }
+    const cost = vehiclePurchaseCost(line.mode) * action.count
+    await runPaidConstruction(id, cost, tx => tx.vehicle.createMany({
+      data: Array.from({ length: action.count }, () => ({
+        lineId: line.id,
+        capacity: line.mode === 'BUS' ? 60 : 120,
+        status: 'SPARE' as const,
+        isSpare: true,
+        headwayMinutes: 6,
+      })),
+    }))
+    const message = `${line.name} 차량 ${action.count}대를 차고지에 들였습니다. (${formatWon(cost)})`
+    await db.activityLog.create({ data: { cityId: id, playerId: auth.player.id, message } })
+    return NextResponse.json({ message })
+  }
+
   const vehicle = line.vehicles.find(item => item.id === action.vehicleId)
   if (!vehicle) return NextResponse.json({ error: '차량을 찾을 수 없습니다.' }, { status: 404 })
 
@@ -577,12 +638,15 @@ export async function POST(
     })
     const stationIndex = line.lineStations.findIndex(item => item.stationId === depotStation.stationId)
     const direction = stationIndex >= line.lineStations.length - 1 ? -1 : 1
+    // 출고(차고지→종점) + 종점 정차를 합쳐 음수 progress로 저장. 클라이언트는
+    // dwellRemaining > 기본 정차시간 이면 차고지에서 빠져나오는 중으로 그린다.
+    const launchDwell = stationDwellMinutes(line.mode) + depotPulloutMinutes(line.mode)
     const updatedVehicle = await db.vehicle.update({
       where: { id: vehicle.id },
       data: vehicleServiceUpdate(true, {
         stationId: depotStation.stationId,
         direction,
-        dwellMinutes: stationDwellMinutes(line.mode),
+        dwellMinutes: launchDwell,
       }),
     })
     const message = `${line.name} 차량 운행을 시작했습니다.`

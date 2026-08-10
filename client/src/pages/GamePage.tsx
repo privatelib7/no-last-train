@@ -18,10 +18,11 @@ import type { AuthSession } from '../api/auth'
 import { updateRoomTitle } from '../api/cities'
 import { leaveCursor, syncCursor, type RemoteCursor } from '../api/cursors'
 import { notifyEmergency } from '../lib/notifications'
+import { playGoalUnlockSfx } from '../lib/sfx'
 import InviteModal from './InviteModal'
-import { getCityMap, polyPath } from '../maps'
+import { getCityMap, polyPath, type CityMapDef } from '../maps'
 import { createCitizenJourneys, locateCitizen, type CitizenTravelMode } from '../mobility'
-import { locateVehicle } from '../vehicle-motion'
+import { depotPulloutMinutes, depotTerminusOf, locateVehicle, stationDwellMinutes } from '../vehicle-motion'
 import styles from './GamePage.module.css'
 
 interface Props {
@@ -70,8 +71,17 @@ type CityCommandMessage = {
   isError?: boolean
 }
 
+/** Ctrl/Cmd+Z 로 되돌릴 구간 연결 (연장·첫 구간·중간 삽입) */
+type SegmentUndoEntry = {
+  lineId: string
+  addedStationIds: string[]
+}
+
 const LIVE_TICK_MS = 3000
 const CITY_POLL_MS = 2500
+// 서버 시계(lastTickAt)가 밀려도 클라이언트 미리보기는 최대 이 틱만큼만 앞선다.
+// 리드가 커지면 차량이 한 프레임에 여러 역을 "도착"한 것으로 잡혀 대기 인원이 0으로 사라진다.
+const MAX_CLIENT_PREVIEW_TICKS = 1.25
 // 커서: 움직일 때는 200ms, 가만히 있을 때는 2초 하트비트 (예전 45ms는 DB/액션을 굶김)
 const CURSOR_MOVE_SYNC_MS = 200
 const CURSOR_HEARTBEAT_MS = 2000
@@ -79,6 +89,8 @@ const CURSOR_MOVE_THRESHOLD = 0.35
 // 서버 cursor-presence.ts 의 CURSOR_COLORS 와 동일한 팔레트 (본인 아바타 색 계산용)
 const PRESENCE_COLORS = ['#ff6f91', '#4fc9a8', '#5b8cf2', '#ffb648', '#a77dfb', '#3ecbd0', '#f4886b'] as const
 const CITIZEN_TIME_SCALE = 0.72
+// 서버 actions 라우트의 MAX_VEHICLES_PER_LINE 과 같아야 한다
+const MAX_VEHICLES_PER_LINE = 8
 const GAME_MINUTES_PER_TICK = 60 / TICKS_PER_HOUR
 const INITIAL_MAP_VIEW: MapView = { x: 0, y: 0, width: 100, height: 100 }
 
@@ -100,6 +112,20 @@ const CITIZEN_MODE_CLASSES: Record<CitizenTravelMode, string> = {
   WALK: styles.personWalking,
   WAIT: styles.personWaiting,
   BOARDING: styles.personBoarding,
+}
+
+// 지형(물)은 클라이언트만 알고 있으므로, 서버가 계획한 신설역 좌표는 여기서 가장 가까운 땅으로 당긴다.
+function snapToLand(map: CityMapDef, posX: number, posY: number) {
+  if (map.isLand(posX, posY)) return { posX, posY }
+  for (let radius = 1; radius <= 12; radius += 1) {
+    for (let step = 0; step < 16; step += 1) {
+      const angle = (step / 16) * Math.PI * 2
+      const x = Math.round(Math.max(4, Math.min(96, posX + Math.cos(angle) * radius)) * 10) / 10
+      const y = Math.round(Math.max(4, Math.min(92, posY + Math.sin(angle) * radius)) * 10) / 10
+      if (map.isLand(x, y)) return { posX: x, posY: y }
+    }
+  }
+  return null
 }
 
 function formatHour(hour: number) {
@@ -207,6 +233,10 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const [isMapPanning, setIsMapPanning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [errorStatus, setErrorStatus] = useState<number | null>(null)
+  const [errorLeaving, setErrorLeaving] = useState(false)
+  const [successToast, setSuccessToast] = useState<string | null>(null)
+  const [successLeaving, setSuccessLeaving] = useState(false)
+  const prevGoalsCompletedRef = useRef<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [clockNowMs, setClockNowMs] = useState(() => Date.now())
   const [showInviteModal, setShowInviteModal] = useState(false)
@@ -218,7 +248,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const [commandMessages, setCommandMessages] = useState<CityCommandMessage[]>([{
     id: 0,
     role: 'assistant',
-    text: '역과 노선 이름을 사용해 운영 명령을 내려주세요. 실행 결과를 바로 보고드릴게요.',
+    text: '역과 노선 이름을 사용해 운영 명령을 내려주세요. 노선 건설·연장, 역 신설, 차량 구매와 배차, 일괄 운행 조정까지 맡길 수 있고 한 문장에 여러 지시를 담아도 됩니다.',
   }])
   const [remoteCursors, setRemoteCursors] = useState<RemoteCursor[]>([])
   const ticking = useRef(false)
@@ -233,6 +263,19 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const mapRef = useRef<SVGSVGElement | null>(null)
   const stateRef = useRef<CityState | null>(null)
   const performActionRef = useRef<((action: CityAction) => Promise<CityState | null>) | null>(null)
+  const undoLastSegmentRef = useRef<(() => Promise<void>) | null>(null)
+  const createLineRef = useRef<((mode: 'SUBWAY' | 'BUS') => Promise<void>) | null>(null)
+  const setLineVehicleServiceRef = useRef<((inService: boolean) => Promise<void>) | null>(null)
+  const busyRef = useRef(false)
+  const selectedLineIdRef = useRef('')
+  const selectedVehicleIdRef = useRef('')
+  const selectedStationIdRef = useRef('')
+  const linesSectionRef = useRef<HTMLElement | null>(null)
+  const stationSectionRef = useRef<HTMLElement | null>(null)
+  const stationRenameInputRef = useRef<HTMLInputElement | null>(null)
+  const commandSectionRef = useRef<HTMLElement | null>(null)
+  const commandInputRef = useRef<HTMLTextAreaElement | null>(null)
+  const segmentUndoStackRef = useRef<SegmentUndoEntry[]>([])
   const commandMessageId = useRef(0)
   const commandLogRef = useRef<HTMLDivElement | null>(null)
   const emergencyCityRef = useRef<string | null>(null)
@@ -242,19 +285,183 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   // 차량 보간용 시각 틱 — 벽시계로만 증가, 폴링으로 절대 되감기지 않음 (중간 멈춤 방지)
   const visualTickRef = useRef<number | null>(null)
   const lastClockWallRef = useRef<number | null>(null)
+  /** 대기→운행 출고 연출용: 차량별 벽시계 시작 시각 */
+  const pulloutAnimStartedAtRef = useRef(new Map<string, number>())
 
   useEffect(() => {
     stateRef.current = state
   }, [state])
 
-  // ESC로 역 선택·건설 모드 전부 해제
+  useEffect(() => {
+    selectedLineIdRef.current = selectedLineId
+  }, [selectedLineId])
+
+  useEffect(() => {
+    selectedVehicleIdRef.current = selectedVehicleId
+  }, [selectedVehicleId])
+
+  useEffect(() => {
+    selectedStationIdRef.current = selectedStationId
+  }, [selectedStationId])
+
+  // 오른쪽 하단 에러 토스트: 5초 뒤 페이드아웃 후 제거
+  useEffect(() => {
+    if (!error) {
+      setErrorLeaving(false)
+      return
+    }
+    setErrorLeaving(false)
+    const fadeTimer = window.setTimeout(() => setErrorLeaving(true), 5000)
+    const clearTimer = window.setTimeout(() => {
+      setError(null)
+      setErrorStatus(null)
+      setErrorLeaving(false)
+    }, 5600)
+    return () => {
+      window.clearTimeout(fadeTimer)
+      window.clearTimeout(clearTimer)
+    }
+  }, [error])
+
+  // 단계 목표 달성 시 초록 토스트 + 해금 효과음
+  useEffect(() => {
+    if (!state) return
+    const completed = state.city.goalsCompleted
+    const prev = prevGoalsCompletedRef.current
+    prevGoalsCompletedRef.current = completed
+    if (prev === null || completed <= prev) return
+    setSuccessToast(`${completed}단계 목표 달성 완료!`)
+    setSuccessLeaving(false)
+    playGoalUnlockSfx()
+  }, [state?.city.id, state?.city.goalsCompleted])
+
+  useEffect(() => {
+    if (!successToast) {
+      setSuccessLeaving(false)
+      return
+    }
+    setSuccessLeaving(false)
+    const fadeTimer = window.setTimeout(() => setSuccessLeaving(true), 5000)
+    const clearTimer = window.setTimeout(() => {
+      setSuccessToast(null)
+      setSuccessLeaving(false)
+    }, 5600)
+    return () => {
+      window.clearTimeout(fadeTimer)
+      window.clearTimeout(clearTimer)
+    }
+  }, [successToast])
+
+  // ESC / A 운영관 / B 짓기 / C 지하철 / V 버스 / F 노선 / T 역관리 / G 운행 / H 대기 / Ctrl·Cmd+Z
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      setSelectedStationId('')
-      setStationBuildMode(false)
-      setMoveStationMode(false)
-      setError(null)
+      if (event.key === 'Escape') {
+        setSelectedStationId('')
+        setStationBuildMode(false)
+        setMoveStationMode(false)
+        setError(null)
+        if (document.activeElement instanceof HTMLElement) {
+          const tag = document.activeElement.tagName
+          if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement.isContentEditable) {
+            document.activeElement.blur()
+          }
+        }
+        return
+      }
+
+      const target = event.target as HTMLElement | null
+      const typing = Boolean(
+        target
+        && (target.tagName === 'INPUT'
+          || target.tagName === 'TEXTAREA'
+          || target.isContentEditable),
+      )
+
+      const isUndo = (event.key === 'z' || event.key === 'Z')
+        && (event.ctrlKey || event.metaKey)
+        && !event.shiftKey
+      if (isUndo) {
+        if (typing) return
+        event.preventDefault()
+        void undoLastSegmentRef.current?.()
+        return
+      }
+
+      if (typing || event.ctrlKey || event.metaKey || event.altKey) return
+      if (stateRef.current?.city.status === 'GAME_OVER' || busyRef.current) return
+
+      if (event.key === 'a' || event.key === 'A') {
+        event.preventDefault()
+        commandSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+        window.setTimeout(() => commandInputRef.current?.focus(), 50)
+        return
+      }
+
+      if (event.key === 'b' || event.key === 'B') {
+        event.preventDefault()
+        setStationBuildMode(current => !current)
+        setMoveStationMode(false)
+        setSelectedVehicleId('')
+        setError(null)
+        return
+      }
+
+      if (event.key === 'c' || event.key === 'C') {
+        event.preventDefault()
+        void createLineRef.current?.('SUBWAY')
+        return
+      }
+
+      if (event.key === 'v' || event.key === 'V') {
+        event.preventDefault()
+        void createLineRef.current?.('BUS')
+        return
+      }
+
+      if (event.key === 'f' || event.key === 'F') {
+        event.preventDefault()
+        const lines = (stateRef.current?.city.lines ?? [])
+          .slice()
+          .sort((a, b) => a.name.localeCompare(b.name, 'ko'))
+        if (lines.length > 0) {
+          const currentIndex = lines.findIndex(line => line.id === selectedLineIdRef.current)
+          const next = lines[(currentIndex + 1) % lines.length]
+          setSelectedLineId(next.id)
+          setSelectedVehicleId('')
+          setError(null)
+        }
+        linesSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+        return
+      }
+
+      if (event.key === 't' || event.key === 'T') {
+        event.preventDefault()
+        if (!selectedStationIdRef.current) {
+          setError('먼저 지도에서 역을 선택한 뒤 T를 누르세요.')
+          return
+        }
+        setMoveStationMode(false)
+        setError(null)
+        stationSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+        window.setTimeout(() => {
+          const input = stationRenameInputRef.current
+          if (!input) return
+          input.focus()
+          input.select()
+        }, 50)
+        return
+      }
+
+      if (event.key === 'g' || event.key === 'G') {
+        event.preventDefault()
+        void setLineVehicleServiceRef.current?.(true)
+        return
+      }
+
+      if (event.key === 'h' || event.key === 'H') {
+        event.preventDefault()
+        void setLineVehicleServiceRef.current?.(false)
+      }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
@@ -282,6 +489,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     let cancelled = false
     visualTickRef.current = null
     lastClockWallRef.current = null
+    segmentUndoStackRef.current = []
+    pulloutAnimStartedAtRef.current.clear()
     fetchCity(cityId, session?.token)
       .then(next => {
         if (cancelled) return
@@ -473,20 +682,12 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     }
     return new Set([...modes].filter(([, set]) => set.size === 1 && set.has('BUS')).map(([stationId]) => stationId))
   }, [sortedLines])
-  // 예전 차고지가 붙던 쪽 종점만 (노선당 한쪽 — depot 좌표에 더 가까운 끝)
+  // 차고지 스퍼가 붙는 쪽 종점 (depot 좌표에 더 가까운 끝)
   const depotTerminusByStationId = useMemo(() => {
     const byStation = new Map<string, GameLine[]>()
     for (const line of sortedLines) {
-      const stations = orderedStations(line)
-      if (stations.length === 0) continue
-      let terminus = stations[0]
-      if (stations.length > 1) {
-        const first = stations[0]
-        const last = stations[stations.length - 1]
-        const distFirst = Math.hypot(first.posX - line.depotX, first.posY - line.depotY)
-        const distLast = Math.hypot(last.posX - line.depotX, last.posY - line.depotY)
-        terminus = distFirst <= distLast ? first : last
-      }
+      const terminus = depotTerminusOf(line)
+      if (!terminus) continue
       const list = byStation.get(terminus.id) ?? []
       list.push(line)
       byStation.set(terminus.id, list)
@@ -611,14 +812,37 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     if (!stillExists) setSelectedVehicleId('')
   }, [selectedVehicleId, state])
 
+  const pushSegmentUndo = (entry: SegmentUndoEntry) => {
+    segmentUndoStackRef.current = [...segmentUndoStackRef.current.slice(-19), entry]
+  }
+
   const performAction = async (action: CityAction) => {
+    let pendingUndo: SegmentUndoEntry | null = null
+    if (action.type === 'BUILD_SEGMENT') {
+      const line = stateRef.current?.city.lines.find(item => item.id === action.lineId)
+      if (line) {
+        const onLine = new Set(line.lineStations.map(item => item.stationId))
+        pendingUndo = onLine.size === 0
+          ? { lineId: action.lineId, addedStationIds: [action.fromStationId, action.toStationId] }
+          : {
+              lineId: action.lineId,
+              addedStationIds: [onLine.has(action.fromStationId) ? action.toStationId : action.fromStationId],
+            }
+      }
+    } else if (action.type === 'INSERT_STATION') {
+      pendingUndo = { lineId: action.lineId, addedStationIds: [action.stationId] }
+    }
+
+    busyRef.current = true
     setBusy(true)
     setError(null)
     try {
       await executeCityAction(cityId, action, session?.token)
       const next = await loadCity()
+      if (pendingUndo) pushSegmentUndo(pendingUndo)
       if (action.type === 'REMOVE_VEHICLE') setSelectedVehicleId('')
       if (action.type === 'RESET_CITY') {
+        segmentUndoStackRef.current = []
         setStationBuildMode(false)
         setMoveStationMode(false)
         setSelectedVehicleId('')
@@ -629,10 +853,45 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
       setError(err instanceof Error ? err.message : '작업 실행 오류')
       return null
     } finally {
+      busyRef.current = false
       setBusy(false)
     }
   }
   performActionRef.current = performAction
+
+  const undoLastSegment = async () => {
+    if (busyRef.current) return
+    const stack = segmentUndoStackRef.current
+    const entry = stack[stack.length - 1]
+    if (!entry) {
+      setError('되돌릴 구간 연결이 없습니다.')
+      return
+    }
+    segmentUndoStackRef.current = stack.slice(0, -1)
+
+    for (const stationId of [...entry.addedStationIds].reverse()) {
+      const line = stateRef.current?.city.lines.find(item => item.id === entry.lineId)
+      if (!line?.lineStations.some(item => item.stationId === stationId)) continue
+      const next = await performAction({
+        type: 'DETACH_STATION',
+        lineId: entry.lineId,
+        stationId,
+      })
+      if (!next) {
+        // 실패한 항목은 스택에 되돌려 재시도할 수 있게 한다
+        segmentUndoStackRef.current = [...segmentUndoStackRef.current, {
+          lineId: entry.lineId,
+          addedStationIds: entry.addedStationIds.filter(id => {
+            const current = stateRef.current?.city.lines.find(item => item.id === entry.lineId)
+            return current?.lineStations.some(item => item.stationId === id) ?? false
+          }),
+        }].filter(item => item.addedStationIds.length > 0)
+        return
+      }
+    }
+    setError(null)
+  }
+  undoLastSegmentRef.current = undoLastSegment
 
   const appendCommandMessage = (message: Omit<CityCommandMessage, 'id'>) => {
     commandMessageId.current += 1
@@ -649,6 +908,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     setBusy(true)
     setError(null)
 
+    // 여러 액션으로 펼쳐지는 계획은 중간에 실패할 수 있어, 이미 실행된 결과도 함께 보고한다.
+    const results: string[] = []
     try {
       const plan = await planCityCommand(cityId, command, session?.token)
       if (!plan.ok) {
@@ -660,10 +921,16 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
         return
       }
 
-      const results: string[] = []
       let createdLineId = ''
       for (const action of plan.actions) {
-        const result = await executeCityAction(cityId, action, session?.token)
+        const request = action.type === 'BUILD_STATION'
+          ? (() => {
+              const spot = snapToLand(mapDef, action.posX, action.posY)
+              if (!spot) throw new Error(`${action.name}을 지을 땅을 찾지 못했습니다. 지도에서 직접 지어주세요.`)
+              return { ...action, ...spot }
+            })()
+          : action
+        const result = await executeCityAction(cityId, request, session?.token)
         results.push(result.message)
         if (result.line?.id) createdLineId = result.line.id
       }
@@ -678,9 +945,12 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
         text: results.join('\n') || plan.summary,
       })
     } catch (err) {
+      const failure = err instanceof Error ? err.message : '명령을 실행하지 못했습니다.'
+      // 앞선 액션이 이미 반영됐을 수 있으므로 화면을 실제 상태로 되돌린다.
+      if (results.length > 0) await loadCity().catch(() => null)
       appendCommandMessage({
         role: 'assistant',
-        text: err instanceof Error ? err.message : '명령을 실행하지 못했습니다.',
+        text: results.length > 0 ? `${results.join('\n')}\n${failure}` : failure,
         isError: true,
       })
     } finally {
@@ -690,6 +960,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   }
 
   const createLine = async (mode: 'SUBWAY' | 'BUS') => {
+    if (busyRef.current) return
+    busyRef.current = true
     setBusy(true)
     setError(null)
     try {
@@ -703,9 +975,11 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     } catch (err) {
       setError(err instanceof Error ? err.message : '노선 생성 오류')
     } finally {
+      busyRef.current = false
       setBusy(false)
     }
   }
+  createLineRef.current = createLine
 
   const selectLine = (lineId: string) => {
     setSelectedLineId(lineId)
@@ -719,6 +993,49 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     setStationBuildMode(false)
     setError(null)
   }
+
+  const setLineVehicleService = async (inService: boolean) => {
+    const cityState = stateRef.current
+    const lineId = selectedLineIdRef.current
+    if (!cityState || !lineId || busyRef.current) return
+    const line = cityState.city.lines.find(item => item.id === lineId)
+    if (!line) {
+      setError('먼저 운영 노선을 선택하세요. (F)')
+      return
+    }
+
+    const isInService = (vehicle: (typeof line.vehicles)[number]) => (
+      vehicle.status === 'OPERATING' && !vehicle.isSpare
+    )
+    const eligible = (vehicle: (typeof line.vehicles)[number]) => {
+      if (!['OPERATING', 'SPARE'].includes(vehicle.status)) return false
+      return inService ? !isInService(vehicle) : isInService(vehicle)
+    }
+
+    const vehicles = orderedVehicles(line)
+    const selectedId = selectedVehicleIdRef.current
+    const vehicle = (
+      selectedId
+        ? vehicles.find(item => item.id === selectedId && eligible(item))
+        : undefined
+    ) ?? vehicles.find(eligible)
+
+    if (!vehicle) {
+      setError(inService
+        ? `${line.name}에 운행할 대기 차량이 없습니다.`
+        : `${line.name}에 대기시킬 운행 차량이 없습니다.`)
+      return
+    }
+
+    setSelectedVehicleId(vehicle.id)
+    await performActionRef.current?.({
+      type: 'SET_VEHICLE_SERVICE',
+      lineId: line.id,
+      vehicleId: vehicle.id,
+      inService,
+    })
+  }
+  setLineVehicleServiceRef.current = setLineVehicleService
 
   const beginSegmentDrag = (event: PointerEvent<SVGGElement>, line: GameLine) => {
     if (event.button !== 0 || busy || stationBuildMode || moveStationMode) return
@@ -1043,7 +1360,9 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const serverLiveTicks = state.city.status === 'ACTIVE' && Number.isFinite(lastTickAtMs)
     ? Math.max(0, (clockNowMs - lastTickAtMs) / LIVE_TICK_MS)
     : 0
-  const serverTick = currentTick + serverLiveTicks
+  // 시계 따라잡기 중(수십~수천 틱 지연)에도 미리보기는 짧게만 앞서게 한다.
+  const previewTicks = Math.min(serverLiveTicks, MAX_CLIENT_PREVIEW_TICKS)
+  const serverTick = currentTick + previewTicks
   // 서버 스냅샷이 앞서면 따라잡고, 폴링이 늦어 클라이언트가 앞선 경우에는 되감지 않는다.
   // (되감으면 지하철/버스가 가다가 툭 멈추는 것처럼 보인다)
   if (state.city.status === 'ACTIVE') {
@@ -1070,17 +1389,32 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     ...journey,
     position: locateCitizen(journey, journeyTime),
   }))
+  const pulloutAnims = pulloutAnimStartedAtRef.current
   const vehicleMotionById = new Map(
-    state.city.lines.flatMap(line => orderedVehicles(line).map(vehicle => [
-      vehicle.id,
-      locateVehicle(
-        line,
-        vehicle,
-        line.status === 'OPERATING' && vehicle.status === 'OPERATING' && !vehicle.isSpare
-          ? liveElapsedGameMinutes
-          : 0,
-      ),
-    ] as const)),
+    state.city.lines.flatMap(line => orderedVehicles(line).map(vehicle => {
+      const inService = line.status === 'OPERATING'
+        && vehicle.status === 'OPERATING'
+        && !vehicle.isSpare
+      const storedProgress = vehicle.segmentProgressMinutes || 0
+      const baseDwell = stationDwellMinutes(line.mode)
+      const pullout = depotPulloutMinutes(line.mode)
+      const launchingFromDepot = inService && storedProgress < -baseDwell
+
+      let elapsed = inService ? liveElapsedGameMinutes : 0
+      if (launchingFromDepot) {
+        if (!pulloutAnims.has(vehicle.id)) pulloutAnims.set(vehicle.id, clockNowMs)
+        const startedAt = pulloutAnims.get(vehicle.id) ?? clockNowMs
+        const wallSec = Math.max(0, (clockNowMs - startedAt) / 1000)
+        // 출고+종점정차를 약 2.8초 벽에 펼쳐 차고지에서 나오는 모습이 보이게 한다
+        const launchTotal = pullout + baseDwell
+        elapsed = Math.min(wallSec * (launchTotal / 2.8), Math.max(0, -storedProgress - 0.05))
+      } else {
+        pulloutAnims.delete(vehicle.id)
+      }
+      if (vehicle.isSpare || vehicle.status === 'SPARE') pulloutAnims.delete(vehicle.id)
+
+      return [vehicle.id, locateVehicle(line, vehicle, elapsed)] as const
+    })),
   )
   // 서버는 3초 경제 틱 끝에 승차를 확정한다. 화면에서는 차량이 역에 실제로
   // 도착한 프레임부터 예상 승차 인원을 먼저 반영해 대기열이 늦게 사라지지 않게 한다.
@@ -1127,6 +1461,22 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     if (!target) continue
     commandExamples.push(`${line.name}을 ${target.name} 방향으로 연장해줘.`)
     break
+  }
+  // 새 역을 끼울 만큼 떨어진 종점 쌍을 찾아 "사이에 새 역" 예시를 만든다 (서버 최소 간격 6과 동일)
+  for (const line of sortedLines) {
+    const [head, tail] = [line.lineStations[0]?.station, line.lineStations[line.lineStations.length - 1]?.station]
+    if (!head || !tail || head.id === tail.id) continue
+    if (Math.hypot(head.posX - tail.posX, head.posY - tail.posY) < 6) continue
+    commandExamples.push(`${head.name}과 ${tail.name} 사이에 새 역을 지어줘.`)
+    break
+  }
+  const primaryCommandLine = sortedLines[0]
+  if (primaryCommandLine) {
+    commandExamples.push(`${primaryCommandLine.name}에 차량 한 대 더 구매해줘.`)
+    commandExamples.push(`${primaryCommandLine.name} 차량 전부 운행에 투입해줘.`)
+  }
+  if (sortedLines.length > 1) {
+    commandExamples.push('모든 노선 운행을 재개해줘.')
   }
 
   return (
@@ -1225,7 +1575,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
               ? '이전 목표 보상을 지급하고 더 높은 다음 목표를 설정했습니다.'
               : goalDaysRemaining < 0
                 ? '기한 안에 매출 목표를 달성하지 못해 경영이 종료되었습니다.'
-                : '기한 안에 목표를 달성하면 지원금 ₵2,000과 5,000점을 받고 다음 목표가 열립니다.'}</p>
+                : `기한 안에 목표를 달성하면 지원금 ${formatMoney(state.economyRules.goalRewardCash)}과 8,000점을 받고 다음 목표가 열립니다.`}</p>
           </div>
           <div className={styles.economyGrid}>
             <span><small>운영 자금</small><b className={state.city.cashBalance < 0 ? styles.dangerValue : ''}>{formatMoney(state.city.cashBalance)}</b></span>
@@ -1242,10 +1592,10 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
         </section>
 
         {state.isOwner && (
-          <section className={styles.controlSection}>
+          <section className={styles.controlSection} ref={commandSectionRef}>
             <div className={styles.sectionHeading}>
               <span>AI</span>
-              <h2>도시 운영관</h2>
+              <h2>도시 운영관 · A</h2>
             </div>
             <div className={styles.aiCommandPanel}>
               <div className={styles.aiChatLog} role="log" aria-live="polite" ref={commandLogRef}>
@@ -1292,6 +1642,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                 }}
               >
                 <textarea
+                  ref={commandInputRef}
                   value={commandInput}
                   onChange={event => setCommandInput(event.target.value)}
                   onKeyDown={event => {
@@ -1299,7 +1650,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                     event.preventDefault()
                     void runCityCommand(commandInput)
                   }}
-                  placeholder="예: 1호선을 시청역 방향으로 연장해줘."
+                  placeholder="예: 1호선을 시청역 방향으로 연장하고 차량 한 대 더 사줘."
                   maxLength={300}
                   rows={2}
                   disabled={busy || commandBusy || isGameOver}
@@ -1313,8 +1664,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
           </section>
         )}
 
-        <section className={styles.controlSection}>
-          <div className={styles.sectionHeading}><span>01</span><h2>운영 노선</h2></div>
+        <section className={styles.controlSection} ref={linesSectionRef}>
+          <div className={styles.sectionHeading}><span>01</span><h2>운영 노선 · F</h2></div>
           <div className={styles.lineTabs}>
             {sortedLines.map(line => (
               <button
@@ -1329,8 +1680,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             ))}
           </div>
           <div className={styles.newLineRow}>
-            <button onClick={() => void createLine('SUBWAY')} disabled={busy || isGameOver}>＋ 지하철 · ₵2,000</button>
-            <button onClick={() => void createLine('BUS')} disabled={busy || isGameOver}>＋ 버스 · ₵600</button>
+            <button onClick={() => void createLine('SUBWAY')} disabled={busy || isGameOver}>＋ 지하철 · {formatMoney(state.economyRules.buildCosts.subwayLine)} · C</button>
+            <button onClick={() => void createLine('BUS')} disabled={busy || isGameOver}>＋ 버스 · {formatMoney(state.economyRules.buildCosts.busLine)} · V</button>
           </div>
           {selectedLine && (
             <button
@@ -1363,7 +1714,10 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
 
         {selectedLine && (
           <section className={styles.controlSection}>
-            <div className={styles.sectionHeading}><span>02</span><h2>{selectedLine.mode === 'BUS' ? '차량' : '철도 차량'}</h2></div>
+            <div className={styles.sectionHeading}>
+              <span>02</span>
+              <h2>{selectedLine.mode === 'BUS' ? '차량' : '철도 차량'} · 운행 G · 대기 H</h2>
+            </div>
             <div className={styles.vehicleList}>
               {orderedVehicles(selectedLine).map((vehicle, index) => {
                 const motion = vehicleMotionById.get(vehicle.id)
@@ -1373,6 +1727,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                 const routeStatus = isMoving
                   ? `${station?.name} → ${motion.toStation?.name}`
                   : station?.name ?? '대기'
+                const vehicleInService = vehicle.status === 'OPERATING' && !vehicle.isSpare
                 return (
                   <div key={vehicle.id} className={styles.vehicleRow}>
                     <button
@@ -1392,18 +1747,29 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                       </span>
                     </button>
                     <button
-                      className={vehicle.status === 'OPERATING' && !vehicle.isSpare ? styles.storeVehicleButton : styles.startVehicleButton}
+                      className={vehicleInService ? styles.storeVehicleButton : styles.startVehicleButton}
                       onClick={() => void performAction({
                         type: 'SET_VEHICLE_SERVICE',
                         lineId: selectedLine.id,
                         vehicleId: vehicle.id,
-                        inService: !(vehicle.status === 'OPERATING' && !vehicle.isSpare),
+                        inService: !vehicleInService,
                       })}
                       disabled={busy || !['OPERATING', 'SPARE'].includes(vehicle.status)}
-                    >{vehicle.status === 'OPERATING' && !vehicle.isSpare ? '대기' : '운행'}</button>
+                    >{vehicleInService ? '대기' : '운행'}</button>
                   </div>
                 )
               })}
+            </div>
+
+            <div className={styles.newLineRow}>
+              <button
+                onClick={() => void performAction({ type: 'BUY_VEHICLE', lineId: selectedLine.id, count: 1 })}
+                disabled={busy || isGameOver || selectedLine.vehicles.length >= MAX_VEHICLES_PER_LINE}
+              >
+                ＋ 차량 구매 · {formatMoney(selectedLine.mode === 'BUS'
+                  ? state.economyRules.buildCosts.busVehicle
+                  : state.economyRules.buildCosts.subwayVehicle)}
+              </button>
             </div>
 
             {selectedVehicle && (
@@ -1421,9 +1787,9 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
         )}
 
         {selectedStation && (
-          <section className={styles.controlSection}>
+          <section className={styles.controlSection} ref={stationSectionRef}>
             <div className={styles.sectionHeading}>
-              <span>03</span><h2>역 관리</h2>
+              <span>03</span><h2>역 관리 · T</h2>
               <button
                 className={styles.deselectButton}
                 onClick={() => {
@@ -1438,6 +1804,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
               <label htmlFor="station-rename">역 이름</label>
               <div>
                 <input
+                  ref={stationRenameInputRef}
                   id="station-rename"
                   className={styles.stationNameInput}
                   value={renameValue}
@@ -1496,8 +1863,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             >{selectedStation.name} 완전 삭제</button>
           </section>
         )}
-
-        {error && <div className={styles.operationError} role="alert">! {error}</div>}
       </aside>
 
       <main className={styles.gameStage}>
@@ -1518,6 +1883,9 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                     style={{ ['--presence-color' as string]: player.color }}
                     data-tooltip={player.nickname}
                   >
+                    {player.playerId === state.city.ownerPlayerId && (
+                      <span className={styles.presenceOwnerBadge}>관제장</span>
+                    )}
                     {getInitials(player.nickname)}
                   </span>
                 ))}
@@ -1552,7 +1920,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                   setError(null)
                 }}
                 disabled={isGameOver}
-              >역/정류장 짓기 · ₵800</button>
+              >역/정류장 짓기 · {formatMoney(state.economyRules.buildCosts.station)} · B</button>
               {stationBuildMode && (
                 <div>
                   <input
@@ -1677,7 +2045,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                   <polyline
                     points={linePoints(line)}
                     className={styles.lineShadow}
-                    style={{ strokeWidth: 4.2 * mapScale }}
+                    style={{ strokeWidth: 1.85 * mapScale }}
                   />
                 )}
                 <polyline
@@ -1685,11 +2053,11 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                   className={`${styles.linePath} ${line.mode === 'BUS' ? styles.busPath : ''} ${line.id === selectedLineId ? styles.selectedLinePath : ''}`}
                   style={{
                     stroke: LINE_COLORS[line.color],
-                    // 줌과 무관하게 화면 기준 두께 유지
+                    // Mini Metro 느낌: 얇은 선, 줌과 무관하게 화면 기준 두께 유지
                     strokeWidth: (line.mode === 'BUS'
-                      ? (line.id === selectedLineId ? 1.7 : 1.25)
-                      : (line.id === selectedLineId ? 2.9 : 2.25)) * mapScale,
-                    strokeDasharray: line.mode === 'BUS' ? `${2 * mapScale} ${1.2 * mapScale}` : undefined,
+                      ? (line.id === selectedLineId ? 0.75 : 0.55)
+                      : (line.id === selectedLineId ? 1.25 : 0.95)) * mapScale,
+                    strokeDasharray: line.mode === 'BUS' ? `${1.1 * mapScale} ${0.7 * mapScale}` : undefined,
                   }}
                 />
               </g>
@@ -1704,8 +2072,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
               const cursor = new DOMPoint(segmentDrag.x, segmentDrag.y).matrixTransform(matrix.inverse())
               const ghostStyle = {
                 stroke: LINE_COLORS[line?.color ?? 'RED'],
-                strokeWidth: 2.25 * mapScale,
-                strokeDasharray: `${2 * mapScale} ${1.5 * mapScale}`,
+                strokeWidth: 0.95 * mapScale,
+                strokeDasharray: `${1.1 * mapScale} ${0.8 * mapScale}`,
               }
               return (
                 <>
@@ -1729,8 +2097,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                   className={styles.linkGhost}
                   style={{
                     stroke: LINE_COLORS[selectedLine?.color ?? 'RED'],
-                    strokeWidth: 2.25 * mapScale,
-                    strokeDasharray: `${2 * mapScale} ${1.5 * mapScale}`,
+                    strokeWidth: 0.95 * mapScale,
+                    strokeDasharray: `${1.1 * mapScale} ${0.8 * mapScale}`,
                   }}
                 />
               )
@@ -1761,64 +2129,71 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                   aria-label={`${station.name} ${isBusStop ? '버스 정류장' : isInterchange ? '환승역' : '일반역'}${isDepotTerminus ? ` · ${depotLabel}` : ''} 선택`}
                 >
                   <title>{station.name} · {isBusStop ? '버스 정류장' : isInterchange ? '환승역' : '일반역'}{isDepotTerminus ? ` · ${depotLabel}` : ''}</title>
-                  {highlighted && <circle r="3.3" className={styles.stationSelection} />}
+                  {highlighted && <circle r="1.55" className={styles.stationSelection} />}
                   {congestion >= CONGESTION_SATURATED ? (
-                    <circle r="3" className={styles.saturatedRing} />
+                    <circle r="1.45" className={styles.saturatedRing} />
                   ) : congestion >= CONGESTION_WARN ? (
-                    <circle r="2.8" className={styles.warnRing} />
+                    <circle r="1.35" className={styles.warnRing} />
                   ) : null}
                   {isBusStop ? (
                     <>
-                      <rect x="-1.7" y="-1.7" width="3.4" height="3.4" rx=".5" className={styles.stationHalo} />
-                      <rect x="-1.2" y="-1.2" width="2.4" height="2.4" rx=".4" className={styles.stationNode} />
+                      <rect x="-.8" y="-.8" width="1.6" height="1.6" rx=".28" className={styles.stationHalo} />
+                      <rect x="-.55" y="-.55" width="1.1" height="1.1" rx=".22" className={styles.stationNode} />
                     </>
                   ) : isInterchange ? (
                     <>
-                      <circle r="2.45" className={styles.stationHalo} />
-                      <circle r="1.85" className={styles.stationNode} />
-                      <circle r=".75" className={styles.transferCore} />
+                      <circle r="1.15" className={styles.stationHalo} />
+                      <circle r="0.85" className={styles.stationNode} />
+                      <circle r=".35" className={styles.transferCore} />
                     </>
                   ) : (
                     <>
-                      <circle r="2" className={styles.stationHalo} />
-                      <circle r="1.4" className={styles.stationNode} />
+                      <circle r="0.95" className={styles.stationHalo} />
+                      <circle r="0.68" className={styles.stationNode} />
                     </>
                   )}
                   {isDepotTerminus && (
-                    <text y="4.6" textAnchor="middle" className={styles.depotTerminusLabel}>
+                    <text y="2.7" textAnchor="middle" className={styles.depotTerminusLabel}>
                       {depotLabel}
                     </text>
                   )}
-                  {Array.from({ length: Math.min(Math.ceil((waitingByStation.get(station.id) ?? 0) / 5), 12) }, (_, dotIndex) => (
-                    <circle
-                      key={dotIndex}
-                      cx={2.5 + (dotIndex % 6) * 0.95}
-                      cy={-0.4 + Math.floor(dotIndex / 6) * 1.05}
-                      r=".42"
-                      className={styles.queueDot}
-                    />
-                  ))}
+                  <text
+                    x="1.55"
+                    y="0.45"
+                    className={`${styles.waitingCount}${
+                      congestion >= CONGESTION_SATURATED
+                        ? ` ${styles.waitingCountSaturated}`
+                        : congestion >= CONGESTION_WARN
+                          ? ` ${styles.waitingCountWarn}`
+                          : ''
+                    }`}
+                  >
+                    {waitingByStation.get(station.id) ?? 0}
+                  </text>
                 </g>
               )
             })}
 
             {state.city.lines.flatMap(line => orderedVehicles(line)
-              .filter(vehicle => vehicle.status === 'OPERATING' && !vehicle.isSpare && vehicle.currentStationId)
+              .filter(vehicle => vehicle.status === 'OPERATING' && !vehicle.isSpare)
               .map(vehicle => {
                 const motion = vehicleMotionById.get(vehicle.id)
                 const station = motion?.fromStation
                 const nextStation = motion?.toStation
-                if (!motion || !station || motion.x === null || motion.y === null) return null
+                if (!motion || motion.x === null || motion.y === null) return null
                 const lineNo = line.name.match(/\d+/)?.[0] ?? line.name.slice(0, 1)
                 const progress = line.status === 'OPERATING' ? motion.progress : 0
                 const trainX = motion.x
                 const trainY = motion.y
-                const rawAngle = nextStation
-                  ? Math.atan2(nextStation.posY - station.posY, nextStation.posX - station.posX) * 180 / Math.PI
-                  : 0
+                const facing = motion.isPullingOut && station
+                  ? { x: station.posX - line.depotX, y: station.posY - line.depotY }
+                  : nextStation && station
+                    ? { x: nextStation.posX - station.posX, y: nextStation.posY - station.posY }
+                    : { x: 1, y: 0 }
+                const rawAngle = Math.atan2(facing.y, facing.x) * 180 / Math.PI
                 // 왼쪽 방향 이동 시 180° 회전으로 뒤집히지 않게 좌우 반전으로 처리
                 const trainFlipped = Math.abs(rawAngle) > 90
-                const trainAngle = trainFlipped ? rawAngle - 180 * Math.sign(rawAngle) : rawAngle
+                const trainAngle = trainFlipped ? rawAngle - 180 * Math.sign(rawAngle || 1) : rawAngle
                 return (
                   <g
                     key={vehicle.id}
@@ -1830,11 +2205,11 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                     aria-label={`${line.name} 차량 선택`}
                     aria-pressed={vehicle.id === selectedVehicleId}
                     data-vehicle-id={vehicle.id}
-                    data-from-station={station.id}
-                    data-to-station={nextStation?.id ?? station.id}
+                    data-from-station={station?.id ?? ''}
+                    data-to-station={nextStation?.id ?? station?.id ?? ''}
                     data-motion-progress={progress.toFixed(3)}
                     data-segment-minutes={motion.segmentDurationMinutes}
-                    data-motion-state={motion.isDwelling ? 'DWELLING' : 'MOVING'}
+                    data-motion-state={motion.isPullingOut ? 'PULLOUT' : motion.isDwelling ? 'DWELLING' : 'MOVING'}
                     data-dwell-remaining={motion.dwellRemainingMinutes.toFixed(3)}
                     data-map-interactive="true"
                   >
@@ -1971,6 +2346,45 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
           </div>
         ))}
       </div>
+
+      {successToast && (
+        <div
+          className={`${styles.successToast}${successLeaving ? ` ${styles.successToastLeaving}` : ''}${error ? ` ${styles.successToastStacked}` : ''}`}
+          role="status"
+        >
+          <span>✓</span>
+          {successToast}
+          <button
+            type="button"
+            className={styles.successToastClose}
+            onClick={() => {
+              setSuccessToast(null)
+              setSuccessLeaving(false)
+            }}
+            aria-label="알림 닫기"
+          >×</button>
+        </div>
+      )}
+
+      {error && (
+        <div
+          className={`${styles.errorToast}${errorLeaving ? ` ${styles.errorToastLeaving}` : ''}`}
+          role="alert"
+        >
+          <span>!</span>
+          {error}
+          <button
+            type="button"
+            className={styles.errorToastClose}
+            onClick={() => {
+              setError(null)
+              setErrorStatus(null)
+              setErrorLeaving(false)
+            }}
+            aria-label="알림 닫기"
+          >×</button>
+        </div>
+      )}
     </div>
   )
 }

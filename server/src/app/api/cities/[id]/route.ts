@@ -94,6 +94,8 @@ export async function GET(
         busSegmentPerMapUnit: ECONOMY.BUILD_COST.BUS_SEGMENT_PER_MAP_UNIT,
         subwayInsert: ECONOMY.BUILD_COST.SUBWAY_INSERT,
         busInsert: ECONOMY.BUILD_COST.BUS_INSERT,
+        subwayVehicle: ECONOMY.BUILD_COST.SUBWAY_VEHICLE,
+        busVehicle: ECONOMY.BUILD_COST.BUS_VEHICLE,
       },
       buildDebtLimit: ECONOMY.BUILD_DEBT_LIMIT,
       bankruptLimit: ECONOMY.BANKRUPT_LIMIT,

@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import styles from './SettingsPage.module.css'
 import LicensesPage from './LicensesPage'
 import { unlockBgm } from '../lib/bgm'
 import { applyTheme, loadSettings, saveSettings, type GameSettings } from '../lib/settings'
+import { playGoalUnlockSfx } from '../lib/sfx'
 
 interface Props {
   onBack: () => void
@@ -12,8 +13,18 @@ export default function SettingsPage({ onBack }: Props) {
   const [settings, setSettings] = useState<GameSettings>(() => loadSettings())
   // 설정 안에서만 오가는 화면이라 App의 페이지 상태 대신 여기서 관리한다.
   const [view, setView] = useState<'settings' | 'licenses'>('settings')
+  const sfxPreviewTimer = useRef<number | null>(null)
 
-  const update = (patch: Partial<GameSettings>) => {
+  const previewSfx = () => {
+    if (sfxPreviewTimer.current != null) window.clearTimeout(sfxPreviewTimer.current)
+    // 슬라이더 연속 입력 때는 잠깐 기다렸다가 한 번만 미리듣기
+    sfxPreviewTimer.current = window.setTimeout(() => {
+      playGoalUnlockSfx()
+      sfxPreviewTimer.current = null
+    }, 80)
+  }
+
+  const update = (patch: Partial<GameSettings>, options?: { previewSfx?: boolean }) => {
     // 슬라이더/토글 조작 자체가 사용자 제스처이므로 여기서 BGM 잠금을 푼다.
     unlockBgm()
     setSettings((prev) => {
@@ -22,6 +33,7 @@ export default function SettingsPage({ onBack }: Props) {
       if (patch.theme) applyTheme(patch.theme)
       return next
     })
+    if (options?.previewSfx) previewSfx()
   }
 
   if (view === 'licenses') return <LicensesPage onBack={() => setView('settings')} />
@@ -83,6 +95,35 @@ export default function SettingsPage({ onBack }: Props) {
               disabled={!settings.bgmEnabled}
               onChange={(e) => update({ bgmVolume: Number(e.target.value) })}
               aria-label="배경음악 음량"
+            />
+          </div>
+
+          <div className={styles.volumeBlock}>
+            <div className={styles.volumeHeader}>
+              <span className={styles.volumeLabel}>
+                <input
+                  className={styles.checkbox}
+                  type="checkbox"
+                  checked={settings.sfxEnabled}
+                  onChange={(e) => {
+                    const enabled = e.target.checked
+                    update({ sfxEnabled: enabled }, { previewSfx: enabled })
+                  }}
+                  aria-label="효과음 켜기/끄기"
+                />
+                효과음
+              </span>
+              <span className={styles.volumeValue}>{settings.sfxVolume}%</span>
+            </div>
+            <input
+              className={styles.slider}
+              type="range"
+              min={0}
+              max={100}
+              value={settings.sfxVolume}
+              disabled={!settings.sfxEnabled}
+              onChange={(e) => update({ sfxVolume: Number(e.target.value) }, { previewSfx: true })}
+              aria-label="효과음 음량"
             />
           </div>
         </div>

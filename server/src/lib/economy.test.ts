@@ -24,8 +24,8 @@ const baseInput = {
 }
 
 test('구간 공사비는 버스보다 지하철이 높고 거리에 따라 증가한다', () => {
-  assert.equal(segmentBuildCost('BUS', 10), 1_300_000)
-  assert.equal(segmentBuildCost('SUBWAY', 10), 5_000_000)
+  assert.equal(segmentBuildCost('BUS', 10), 700_000)
+  assert.equal(segmentBuildCost('SUBWAY', 10), 2_500_000)
   assert.ok(segmentBuildCost('SUBWAY', 20) > segmentBuildCost('SUBWAY', 10))
 })
 
@@ -42,9 +42,9 @@ test('매출 목표를 처음 넘을 때 한 번만 보상한다', () => {
   assert.equal(result.goalLevel, 2)
   assert.deepEqual(
     { revenueGoal: result.revenueGoal, deadlineDay: result.goalDeadlineDay },
-    { revenueGoal: 180_000_000, deadlineDay: 7 },
+    { revenueGoal: 72_000_000, deadlineDay: 7 },
   )
-  assert.equal(result.cashBalance, 10_000_000 + 160_000 + ECONOMY.GOAL_REWARD_CASH)
+  assert.equal(result.cashBalance, 10_000_000 + 500_000 + ECONOMY.GOAL_REWARD_CASH)
   assert.ok(result.score >= ECONOMY.GOAL_REWARD_SCORE)
 
   const next = calculateTickEconomy({
@@ -60,18 +60,18 @@ test('매출 목표를 처음 넘을 때 한 번만 보상한다', () => {
 })
 
 test('경영 목표는 단계마다 매출과 달성 기한을 높여 계속 이어진다', () => {
-  assert.deepEqual(managementGoalForLevel(1), { level: 1, revenueGoal: 80_000_000, deadlineDay: 3 })
-  assert.deepEqual(managementGoalForLevel(2), { level: 2, revenueGoal: 180_000_000, deadlineDay: 7 })
-  assert.deepEqual(managementGoalForLevel(3), { level: 3, revenueGoal: 300_000_000, deadlineDay: 12 })
+  assert.deepEqual(managementGoalForLevel(1), { level: 1, revenueGoal: 32_000_000, deadlineDay: 3 })
+  assert.deepEqual(managementGoalForLevel(2), { level: 2, revenueGoal: 72_000_000, deadlineDay: 7 })
+  assert.deepEqual(managementGoalForLevel(3), { level: 3, revenueGoal: 120_000_000, deadlineDay: 12 })
 
   const secondGoal = calculateTickEconomy({
     ...baseInput,
-    totalRevenue: 179_900_000,
-    revenueGoal: 180_000_000,
+    totalRevenue: 71_900_000,
+    revenueGoal: 72_000_000,
   })
   assert.equal(secondGoal.completedGoalLevel, 2)
   assert.equal(secondGoal.goalLevel, 3)
-  assert.equal(secondGoal.revenueGoal, 300_000_000)
+  assert.equal(secondGoal.revenueGoal, 120_000_000)
   assert.equal(secondGoal.goalDeadlineDay, 12)
   assert.equal(secondGoal.goalsCompleted, 2)
 })
@@ -86,7 +86,7 @@ test('기존 단일 목표 달성 도시는 보상을 중복 지급하지 않고
   assert.equal(migrated.goalReachedNow, false)
   assert.equal(migrated.goalLevel, 2)
   assert.equal(migrated.goalsCompleted, 1)
-  assert.equal(migrated.revenueGoal, 180_000_000)
+  assert.equal(migrated.revenueGoal, 72_000_000)
   assert.equal(migrated.cashBalance, baseInput.cashBalance)
 })
 
@@ -112,7 +112,7 @@ test('마감일 마지막 틱에 목표를 달성하면 성공하고 다음 목�
   const reached = calculateTickEconomy({
     ...baseInput,
     transported: 100,
-    totalRevenue: ECONOMY.REVENUE_GOAL - 160_000,
+    totalRevenue: ECONOMY.REVENUE_GOAL - 500_000,
     tickNumber: 3 * 24 * 6 - 1,
   })
 
