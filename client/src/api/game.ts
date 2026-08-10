@@ -214,6 +214,60 @@ export function fetchCity(cityId: string, playerToken?: string) {
   return request<CityState>(`/api/cities/${cityId}`, { headers: authHeaders(playerToken) })
 }
 
+/** 서버가 내려주는 동기화 틱 + 차량 렌더 좌표 */
+export type CityMotionVehicle = {
+  id: string
+  lineId: string
+  mode: 'SUBWAY' | 'BUS' | string
+  status: string
+  isSpare: boolean
+  currentStationId: string | null
+  direction: number
+  segmentProgressMinutes: number
+  fromStationId: string | null
+  toStationId: string | null
+  x: number | null
+  y: number | null
+  progress: number
+  dwellRemainingMinutes: number
+  isDwelling: boolean
+  isPullingOut: boolean
+  segmentDurationMinutes: number
+  renderSegmentProgressMinutes: number
+}
+
+export type TransitMotionPhysics = {
+  speed: { SUBWAY: number; BUS: number }
+  durationLimits: {
+    SUBWAY: { min: number; max: number }
+    BUS: { min: number; max: number }
+  }
+  dwellMinutes: { SUBWAY: number; BUS: number }
+  depotPulloutMinutes: { SUBWAY: number; BUS: number }
+}
+
+export type CityMotionSnapshot = {
+  cityId: string
+  status: string
+  serverNow: number
+  currentTick: number
+  lastTickAt: string
+  liveTickMs: number
+  gameMinutesPerTick: number
+  gameMinutesPerWallSecond: number
+  maxPreviewTicks: number
+  syncTick: number
+  previewTicks: number
+  physics: TransitMotionPhysics
+  vehicles: CityMotionVehicle[]
+}
+
+export function fetchCityMotion(cityId: string, playerToken?: string) {
+  return request<CityMotionSnapshot>(`/api/cities/${cityId}/motion`, {
+    headers: authHeaders(playerToken),
+  })
+}
+
 export function advanceCity(cityId: string, playerToken?: string) {
   return request<SimResult>(`/api/cities/${cityId}/simulate`, {
     method: 'POST',
