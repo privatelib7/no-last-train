@@ -816,7 +816,9 @@ function entityAliases(name: string, kind: 'station' | 'line') {
     return [...new Set([normalized, `${base}역`, ...(base.length > 1 ? [base] : [])])]
   }
   if (normalized.length <= 1) return [`${normalized}노선`, `${normalized}버스`]
-  return [...new Set([normalized, `${normalized}노선`])]
+  // 버스 노선(A노선·B노선…)은 "A버스"로도 부를 수 있게 한다
+  const busAlias = /^[a-z]노선$/.test(normalized) ? [`${normalized[0]}버스`] : []
+  return [...new Set([normalized, `${normalized}노선`, ...busAlias])]
 }
 
 function findMentionedVehicleNumber(rawInput: string) {

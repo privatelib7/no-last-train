@@ -21,7 +21,12 @@ import { notifyEmergency } from '../lib/notifications'
 import { playGoalUnlockSfx } from '../lib/sfx'
 import InviteModal from './InviteModal'
 import { getCityMap, polyPath, type CityMapDef } from '../maps'
-import { createCitizenJourneys, locateCitizen, type CitizenTravelMode } from '../mobility'
+import {
+  advanceCitizenJourneys,
+  locateCitizen,
+  type CitizenJourney,
+  type CitizenTravelMode,
+} from '../mobility'
 import { depotPulloutMinutes, depotTerminusOf, locateVehicle, stationDwellMinutes } from '../vehicle-motion'
 import styles from './GamePage.module.css'
 
@@ -92,6 +97,8 @@ const CITIZEN_TIME_SCALE = 0.72
 // 서버 actions 라우트의 MAX_VEHICLES_PER_LINE 과 같아야 한다
 const MAX_VEHICLES_PER_LINE = 8
 const GAME_MINUTES_PER_TICK = 60 / TICKS_PER_HOUR
+// 전철·버스 글리프 축소 배율 — 역/선로에 비해 차량이 너무 커 보이지 않게 한다
+const VEHICLE_SCALE = 0.62
 const INITIAL_MAP_VIEW: MapView = { x: 0, y: 0, width: 100, height: 100 }
 
 const LINE_COLORS: Record<string, string> = {
@@ -216,6 +223,11 @@ function pointSegmentDistance(px: number, py: number, ax: number, ay: number, bx
 function isAutoStationName(name: string) {
   return /^신설역 \d+$/.test(name)
 }
+
+// 버스 노선은 A노선·B노선…으로 표기한다. 예전에 "A"로만 저장된 노선도 같게 보이도록 보정.
+function lineDisplayName(name: string) {
+  return /^[A-Z]$/.test(name) ? `${name}노선` : name
+}
 export default function GamePage({ cityId, session, onBack, onRequireLogin }: Props) {
   const [state, setState] = useState<CityState | null>(null)
   const [selectedLineId, setSelectedLineId] = useState('')
@@ -287,6 +299,8 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const lastClockWallRef = useRef<number | null>(null)
   /** 대기→운행 출고 연출용: 차량별 벽시계 시작 시각 */
   const pulloutAnimStartedAtRef = useRef(new Map<string, number>())
+  /** 화면 위 시민 — 역·노선이 바뀌어도 걷던 사람은 그대로 두고 여정이 끝난 사람만 교체한다 */
+  const citizenJourneysRef = useRef<CitizenJourney[]>([])
 
   useEffect(() => {
     stateRef.current = state
@@ -491,6 +505,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     lastClockWallRef.current = null
     segmentUndoStackRef.current = []
     pulloutAnimStartedAtRef.current.clear()
+    citizenJourneysRef.current = []
     fetchCity(cityId, session?.token)
       .then(next => {
         if (cancelled) return
@@ -695,20 +710,6 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     return byStation
   }, [sortedLines])
   const mapDef = getCityMap(state?.city.mapKey)
-  const citizenJourneys = useMemo(() => {
-    if (!state) return []
-    const waiting = state.stationStats.reduce((sum, station) => sum + station.waitingCount, 0)
-    const tick = state.city.currentTick
-    return createCitizenJourneys({
-      seed: state.city.seed,
-      waitingCount: waiting,
-      gameHour: (tick / TICKS_PER_HOUR) % 24,
-      weekend: Math.floor(tick / TICKS_PER_DAY) % 7 >= 5,
-      stations: state.city.stations,
-      lines: state.city.lines,
-      map: mapDef,
-    })
-  }, [state, mapDef])
   const congestionByStation = useMemo(
     () => new Map(state?.stationStats.map(stat => [stat.stationId, stat.congestion]) ?? []),
     [state],
@@ -1385,6 +1386,19 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const isWeekend = Math.floor(continuousTick / TICKS_PER_DAY) % 7 >= 5
   const elapsedSeconds = continuousTick * (LIVE_TICK_MS / 1000)
   const journeyTime = continuousTick * CITIZEN_TIME_SCALE
+  // 역·노선이 바뀌어도 이미 걷고 있는 시민은 그대로 두고, 여정을 끝낸 시민만 새로 뽑는다.
+  const citizenJourneys = advanceCitizenJourneys({
+    previous: citizenJourneysRef.current,
+    journeyTime,
+    seed: state.city.seed,
+    waitingCount: state.stationStats.reduce((sum, stat) => sum + stat.waitingCount, 0),
+    gameHour,
+    weekend: isWeekend,
+    stations: state.city.stations,
+    lines: state.city.lines,
+    map: mapDef,
+  })
+  citizenJourneysRef.current = citizenJourneys
   const movingCitizens = citizenJourneys.map(journey => ({
     ...journey,
     position: locateCitizen(journey, journeyTime),
@@ -1674,7 +1688,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                 onClick={() => selectLine(line.id)}
               >
                 <i style={{ background: LINE_COLORS[line.color] }} />
-                <span>{line.name}</span>
+                <span>{lineDisplayName(line.name)}</span>
                 <small>{line.status === 'SUSPENDED' ? '폐쇄' : '운행'}</small>
               </button>
             ))}
@@ -1847,7 +1861,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                         stationId: selectedStation.id,
                       })}
                       disabled={busy}
-                    >{line.name}에서 제거</button>
+                    >{lineDisplayName(line.name)}에서 제거</button>
                   ))}
                 </div>
               )
@@ -2030,7 +2044,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                 data-map-interactive="true"
                 role="button"
                 tabIndex={0}
-                aria-label={`${line.name} 선택`}
+                aria-label={`${lineDisplayName(line.name)} 선택`}
                 onClick={event => {
                   event.stopPropagation()
                   if (suppressLineClick.current) {
@@ -2110,7 +2124,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
               const isBusStop = busOnlyStationIds.has(station.id)
               const depotLines = depotTerminusByStationId.get(station.id) ?? []
               const isDepotTerminus = depotLines.length > 0
-              const depotLabel = depotLines.map(line => `${line.name} 차고지`).join(' · ')
+              const depotLabel = depotLines.map(line => `${lineDisplayName(line.name)} 차고지`).join(' · ')
               const isCurrentVehicleStation = selectedVehicle?.currentStationId === station.id
               const isDropTarget = dragTarget?.kind === 'STATION' && dragTarget.id === station.id
               const highlighted = isCurrentVehicleStation || isDropTarget || station.id === selectedStationId
@@ -2197,12 +2211,12 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                 return (
                   <g
                     key={vehicle.id}
-                    transform={`translate(${trainX} ${trainY}) rotate(${trainAngle})${trainFlipped ? ' scale(-1,1)' : ''} scale(${mapScale})`}
+                    transform={`translate(${trainX} ${trainY}) rotate(${trainAngle})${trainFlipped ? ' scale(-1,1)' : ''} scale(${mapScale * VEHICLE_SCALE})`}
                     className={`${styles.trainIcon} ${vehicle.id === selectedVehicleId ? styles.selectedTrain : ''}`}
                     onClick={event => { event.stopPropagation(); selectVehicle(line.id, vehicle.id) }}
                     role="button"
                     tabIndex={0}
-                    aria-label={`${line.name} 차량 선택`}
+                    aria-label={`${lineDisplayName(line.name)} 차량 선택`}
                     aria-pressed={vehicle.id === selectedVehicleId}
                     data-vehicle-id={vehicle.id}
                     data-from-station={station?.id ?? ''}
@@ -2245,7 +2259,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                 <text
                   key={`label-${station.id}`}
                   transform={`translate(${station.posX} ${station.posY}) scale(${mapScale})`}
-                  y={station.name === '서면역' ? 4.9 : -3.15}
+                  y={station.name === '서면역' ? 4.4 : -2.7}
                   textAnchor="middle"
                   className={styles.stationLabel}
                 >{station.name}</text>
@@ -2262,7 +2276,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
                   className={line.id === selectedLineId ? styles.mapLegendActive : ''}
                   onClick={() => selectLine(line.id)}
                 >
-                  <i style={{ background: LINE_COLORS[line.color] }} />{line.name}{line.status === 'SUSPENDED' ? ' · 폐쇄' : ''}
+                  <i style={{ background: LINE_COLORS[line.color] }} />{lineDisplayName(line.name)}{line.status === 'SUSPENDED' ? ' · 폐쇄' : ''}
                 </button>
               ))}
               <button

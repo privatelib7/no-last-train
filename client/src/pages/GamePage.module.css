@@ -2221,12 +2221,12 @@
 }
 
 .stationLabel {
-  font-size: 1.7px;
+  font-size: 1.3px;
   font-weight: 800;
   fill: var(--gp-map-label);
   paint-order: stroke;
   stroke: var(--gp-map-label-halo);
-  stroke-width: 1.2px;
+  stroke-width: 0.9px;
   stroke-linejoin: round;
   pointer-events: none;
 }
@@ -2285,7 +2285,8 @@
 
 .trainNumber {
   fill: #fff;
-  font-size: 1.4px;
+  /* 차량 글리프를 축소(VEHICLE_SCALE)했으므로 번호는 그만큼 키워 읽을 수 있게 유지 */
+  font-size: 2.1px;
   font-weight: 900;
 }
 
