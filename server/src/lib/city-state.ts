@@ -1,6 +1,7 @@
 import { db } from './db'
 import { SIM } from '@/types/game'
 import { ECONOMY, resolveManagementGoal } from './economy'
+import { loadStationWaitingCounts } from './city-motion'
 
 // /api/cities/[id] GET과 WebSocket 실시간 브로드캐스트가 공유하는 "도시 전체 상태" 조합 로직.
 // 폴링(HTTP)과 push(WS) 양쪽에서 같은 모양의 페이로드를 만들기 위해 한 곳에 둔다.
@@ -29,12 +30,8 @@ export async function buildCityStateSnapshot(cityId: string, playerId: string | 
 
   if (!city) return null
 
-  const waitingCounts = await db.passenger.groupBy({
-    by: ['originStationId'],
-    where: { cityId, boardedAtTick: null },
-    _count: { id: true },
-  })
-  const waitingMap = new Map(waitingCounts.map(item => [item.originStationId, item._count.id]))
+  const waitingCounts = await loadStationWaitingCounts(cityId)
+  const waitingMap = new Map(waitingCounts.map(item => [item.stationId, item.waitingCount]))
   const stationStats = city.stations.map(station => {
     const waitingCount = waitingMap.get(station.id) ?? 0
     return {

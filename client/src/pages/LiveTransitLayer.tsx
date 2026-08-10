@@ -52,6 +52,7 @@ export type MotionDrive = {
   gameMinutesPerWallSecond: number
   physics: TransitMotionPhysics
   catchingUp: boolean
+  stationStats: CityMotionSnapshot['stationStats']
 }
 
 export type HudSample = {
@@ -243,7 +244,15 @@ function LiveTransitLayer({
     })),
   )
 
-  const waitingByStation = new Map(stationStats.map(stat => [stat.stationId, stat.waitingCount]))
+  // motion(Redis 보조 캐시, sync 주기마다 갱신)이 city state(2500ms)보다 훨씬 자주 새로
+  // 고쳐지므로, 있으면 그걸 우선 쓴다 — 그래야 승객 감소·매출 표시가 지연 없이 나온다.
+  const fastStationStats = motionDrive?.stationStats ?? motionSnap?.stationStats ?? null
+  const fastWaitingById = fastStationStats
+    ? new Map(fastStationStats.map(stat => [stat.stationId, stat.waitingCount]))
+    : null
+  const waitingByStation = new Map(
+    stationStats.map(stat => [stat.stationId, fastWaitingById?.get(stat.stationId) ?? stat.waitingCount]),
+  )
   for (const line of city.lines) {
     if (line.status !== 'OPERATING') continue
     for (const vehicle of orderedVehicles(line)) {
@@ -258,7 +267,9 @@ function LiveTransitLayer({
       if (confirmedStationId && confirmedStationId !== lastConfirmedStationId) {
         lastConfirmedStationRef.current.set(vehicle.id, confirmedStationId)
         if (lastConfirmedStationId != null) {
-          const waitingBefore = stationStats.find(stat => stat.stationId === confirmedStationId)?.waitingCount ?? 0
+          const waitingBefore = fastWaitingById?.get(confirmedStationId)
+            ?? stationStats.find(stat => stat.stationId === confirmedStationId)?.waitingCount
+            ?? 0
           const boarding = Math.min(waitingBefore, vehicle.capacity)
           const earned = boarding * farePerPassenger
           if (earned > 0) {

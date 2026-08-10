@@ -235,6 +235,8 @@ model Passenger {
 
   @@index([cityId, arrivedAtTick])
   @@index([originStationId, boardedAtTick])
+  // 대기 승객 수(역별 groupBy)를 motion 캐시 주기(400ms)로 자주 읽기 위한 인덱스
+  @@index([cityId, boardedAtTick])
 }
 
 enum PassengerType {

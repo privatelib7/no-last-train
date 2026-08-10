@@ -61,6 +61,23 @@ export type CityMotionSnapshot = {
   /** 버스/지하철 속도·정차 등 — 서버 시뮬과 동일 값 */
   physics: TransitMotionPhysics
   vehicles: CityMotionVehicle[]
+  /** 역별 대기 승객 수 — city state(2500ms)보다 훨씬 자주(sync 주기) 갱신된다 */
+  stationStats: CityMotionStationStat[]
+}
+
+export type CityMotionStationStat = { stationId: string; waitingCount: number }
+
+/**
+ * 역별 대기 승객 수(탑승 전) — city-state.ts의 stationStats와 같은 질의를 공유한다.
+ * cityId+boardedAtTick 인덱스가 있어야 이 빈도(수백ms)로 불러도 부담이 없다.
+ */
+export async function loadStationWaitingCounts(cityId: string): Promise<CityMotionStationStat[]> {
+  const rows = await db.passenger.groupBy({
+    by: ['originStationId'],
+    where: { cityId, boardedAtTick: null },
+    _count: { id: true },
+  })
+  return rows.map(row => ({ stationId: row.originStationId, waitingCount: row._count.id }))
 }
 
 type CachedStation = { id: string; posX: number; posY: number }
@@ -91,6 +108,7 @@ export type CityMotionBase = {
   currentTick: number
   lastTickAtMs: number
   lines: CachedLine[]
+  stationStats: CityMotionStationStat[]
   loadedAt: number
 }
 
@@ -140,24 +158,27 @@ export async function refreshCityMotionBase(cityId: string): Promise<CityMotionB
 }
 
 export async function loadCityMotionBase(cityId: string): Promise<CityMotionBase | null> {
-  const city = await db.city.findUnique({
-    where: { id: cityId },
-    select: {
-      id: true,
-      status: true,
-      currentTick: true,
-      lastTickAt: true,
-      lines: {
-        include: {
-          lineStations: {
-            include: { station: true },
-            orderBy: { order: 'asc' },
+  const [city, stationStats] = await Promise.all([
+    db.city.findUnique({
+      where: { id: cityId },
+      select: {
+        id: true,
+        status: true,
+        currentTick: true,
+        lastTickAt: true,
+        lines: {
+          include: {
+            lineStations: {
+              include: { station: true },
+              orderBy: { order: 'asc' },
+            },
+            vehicles: { orderBy: { id: 'asc' } },
           },
-          vehicles: { orderBy: { id: 'asc' } },
         },
       },
-    },
-  })
+    }),
+    loadStationWaitingCounts(cityId),
+  ])
   if (!city) return null
 
   const base: CityMotionBase = {
@@ -165,6 +186,7 @@ export async function loadCityMotionBase(cityId: string): Promise<CityMotionBase
     status: city.status,
     currentTick: city.currentTick,
     lastTickAtMs: city.lastTickAt.getTime(),
+    stationStats,
     loadedAt: Date.now(),
     lines: city.lines.map(line => ({
       id: line.id,
@@ -331,6 +353,7 @@ export function renderCityMotionSnapshot(
     previewTicks,
     physics: getTransitMotionPhysics(),
     vehicles,
+    stationStats: base.stationStats,
   }
 }
 

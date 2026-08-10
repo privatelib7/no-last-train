@@ -555,9 +555,10 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
             gameMinutesPerWallSecond,
             physics: next.physics,
             catchingUp: tickDelta > 1,
+            stationStats: next.stationStats,
           }
         } else {
-          // 같은 DB 틱이어도 서버가 매 메시지마다 계산한 x/y·dwell 은 계속 갱신된다.
+          // 같은 DB 틱이어도 서버가 매 메시지마다 계산한 x/y·dwell·대기 승객 수는 계속 갱신된다.
           // (예전에는 vehicles를 안 고쳐 클라이언트가 오래된 좌표를 붙잡고 있었다.)
           prev.catchingUp = false
           prev.vehicles = next.vehicles
@@ -565,6 +566,7 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
           prev.liveTickMs = next.liveTickMs
           prev.gameMinutesPerTick = next.gameMinutesPerTick
           prev.gameMinutesPerWallSecond = gameMinutesPerWallSecond
+          prev.stationStats = next.stationStats
           const predicted = prev.baseSyncTick
             + (next.serverNow - prev.baseServerNow) / prev.liveTickMs
           if (next.syncTick > predicted + 0.02) {

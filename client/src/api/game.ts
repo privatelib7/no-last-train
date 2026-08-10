@@ -247,6 +247,8 @@ export type TransitMotionPhysics = {
   depotPulloutMinutes: { SUBWAY: number; BUS: number }
 }
 
+export type CityMotionStationStat = { stationId: string; waitingCount: number }
+
 export type CityMotionSnapshot = {
   cityId: string
   status: string
@@ -261,6 +263,8 @@ export type CityMotionSnapshot = {
   previewTicks: number
   physics: TransitMotionPhysics
   vehicles: CityMotionVehicle[]
+  /** 역별 대기 승객 수 — city state(2500ms)보다 훨씬 자주 갱신된다(Redis 보조 캐시로 sync 주기마다) */
+  stationStats: CityMotionStationStat[]
 }
 
 export function fetchCityMotion(cityId: string, playerToken?: string) {
