@@ -1,4 +1,4 @@
-import type { GameLine, Station, Vehicle } from './api/game'
+import type { GameLine, Station, TransitMotionPhysics, Vehicle } from './api/game'
 
 export type RenderedVehicleMotion = {
   fromStation: Station | null
@@ -16,41 +16,50 @@ export type RenderedVehicleMotion = {
   y: number | null
 }
 
-const MODE_SPEED: Record<GameLine['mode'], number> = {
-  SUBWAY: 1.05,
-  BUS: 1.0,
+const DEFAULT_PHYSICS: TransitMotionPhysics = {
+  speed: { SUBWAY: 1.05, BUS: 0.72 },
+  durationLimits: {
+    SUBWAY: { min: 4, max: 28 },
+    BUS: { min: 5.5, max: 35 },
+  },
+  dwellMinutes: { SUBWAY: 1.5, BUS: 2.5 },
+  depotPulloutMinutes: { SUBWAY: 1.2, BUS: 1.8 },
 }
 
-const MODE_DURATION_LIMITS: Record<GameLine['mode'], { min: number; max: number }> = {
-  SUBWAY: { min: 4, max: 28 },
-  BUS: { min: 4, max: 28 },
+function resolvePhysics(physics?: TransitMotionPhysics | null): TransitMotionPhysics {
+  return physics ?? DEFAULT_PHYSICS
 }
 
-const MODE_DWELL_MINUTES: Record<GameLine['mode'], number> = {
-  SUBWAY: 1.5,
-  BUS: 2.0,
+function modeKey(mode: GameLine['mode']): 'SUBWAY' | 'BUS' {
+  return mode === 'BUS' ? 'BUS' : 'SUBWAY'
 }
 
-const MODE_DEPOT_PULLOUT_MINUTES: Record<GameLine['mode'], number> = {
-  SUBWAY: 1.2,
-  BUS: 1.8,
-}
-
-// 서버 vehicle-motion.ts와 같은 계산식이어야 한다.
-export function segmentTravelMinutes(from: Station, to: Station, mode: GameLine['mode']): number {
+// 서버 vehicle-motion.ts와 같은 계산식이어야 한다. physics는 motion API에서 받는다.
+export function segmentTravelMinutes(
+  from: Station,
+  to: Station,
+  mode: GameLine['mode'],
+  physics?: TransitMotionPhysics | null,
+): number {
+  const rules = resolvePhysics(physics)
+  const key = modeKey(mode)
   const distance = Math.hypot(to.posX - from.posX, to.posY - from.posY)
-  const limits = MODE_DURATION_LIMITS[mode]
-  const rawMinutes = distance / MODE_SPEED[mode]
+  const limits = rules.durationLimits[key]
+  const rawMinutes = distance / rules.speed[key]
   const clamped = Math.max(limits.min, Math.min(limits.max, rawMinutes))
   return Math.round(clamped * 2) / 2
 }
 
-export function stationDwellMinutes(mode: GameLine['mode']): number {
-  return MODE_DWELL_MINUTES[mode]
+export function stationDwellMinutes(mode: GameLine['mode'], physics?: TransitMotionPhysics | null): number {
+  return resolvePhysics(physics).dwellMinutes[modeKey(mode)]
 }
 
-export function depotPulloutMinutes(mode: GameLine['mode']): number {
-  return MODE_DEPOT_PULLOUT_MINUTES[mode]
+export function depotPulloutMinutes(mode: GameLine['mode'], physics?: TransitMotionPhysics | null): number {
+  return resolvePhysics(physics).depotPulloutMinutes[modeKey(mode)]
+}
+
+export function modeCruiseSpeed(mode: GameLine['mode'], physics?: TransitMotionPhysics | null): number {
+  return resolvePhysics(physics).speed[modeKey(mode)]
 }
 
 function orderedStations(line: GameLine) {
@@ -100,7 +109,9 @@ export function locateVehicle(
   line: GameLine,
   vehicle: Vehicle,
   elapsedGameMinutes: number,
+  physics?: TransitMotionPhysics | null,
 ): RenderedVehicleMotion {
+  const rules = resolvePhysics(physics)
   const stations = orderedStations(line)
   const terminus = depotTerminusOf(line)
 
@@ -142,8 +153,8 @@ export function locateVehicle(
         dwellRemainingMinutes = 0
       }
     }
-    const baseDwell = stationDwellMinutes(line.mode)
-    const pullout = depotPulloutMinutes(line.mode)
+    const baseDwell = stationDwellMinutes(line.mode, rules)
+    const pullout = depotPulloutMinutes(line.mode, rules)
     // 단일 역 노선도 출고 연출은 보여 준다
     if (dwellRemainingMinutes > baseDwell && terminus && station.id === terminus.id) {
       const pulloutLeft = Math.min(pullout, dwellRemainingMinutes - baseDwell)
@@ -196,7 +207,7 @@ export function locateVehicle(
     direction = next.direction
     const from = stations[currentIndex]
     const to = stations[next.nextIndex]
-    const duration = segmentTravelMinutes(from, to, line.mode)
+    const duration = segmentTravelMinutes(from, to, line.mode, rules)
     segmentProgressMinutes = Math.min(segmentProgressMinutes, duration)
     const minutesToArrival = duration - segmentProgressMinutes
 
@@ -209,7 +220,7 @@ export function locateVehicle(
     remainingMinutes -= minutesToArrival
     currentIndex = next.nextIndex
     segmentProgressMinutes = 0
-    dwellRemainingMinutes = stationDwellMinutes(line.mode)
+    dwellRemainingMinutes = stationDwellMinutes(line.mode, rules)
     arrivedStationIds.push(stations[currentIndex].id)
     if (remainingMinutes === 0) break
   }
@@ -218,10 +229,10 @@ export function locateVehicle(
   direction = next.direction
   const fromStation = stations[currentIndex]
   const toStation = stations[next.nextIndex]
-  const segmentDurationMinutes = segmentTravelMinutes(fromStation, toStation, line.mode)
+  const segmentDurationMinutes = segmentTravelMinutes(fromStation, toStation, line.mode, rules)
   const isDwelling = dwellRemainingMinutes > 0
-  const baseDwell = stationDwellMinutes(line.mode)
-  const pullout = depotPulloutMinutes(line.mode)
+  const baseDwell = stationDwellMinutes(line.mode, rules)
+  const pullout = depotPulloutMinutes(line.mode, rules)
   const atDepotTerminus = !!terminus && fromStation.id === terminus.id
   // 운행 시작 시에만 dwell > 기본 정차 — 출고 구간으로 해석
   const isPullingOut = isDwelling && atDepotTerminus && dwellRemainingMinutes > baseDwell

@@ -28,23 +28,43 @@ export type VehicleMotion = {
 
 const MODE_SPEED: Record<'SUBWAY' | 'BUS', number> = {
   SUBWAY: 1.05,
-  BUS: 1.0,
+  BUS: 0.72,
 }
 
 const MODE_DURATION_LIMITS: Record<'SUBWAY' | 'BUS', { min: number; max: number }> = {
   SUBWAY: { min: 4, max: 28 },
-  BUS: { min: 4, max: 28 },
+  BUS: { min: 5.5, max: 35 },
 }
 
 const MODE_DWELL_MINUTES: Record<'SUBWAY' | 'BUS', number> = {
   SUBWAY: 1.5,
-  BUS: 2.0,
+  BUS: 2.5,
 }
 
 /** 운행 시작 시 차고지(depot) → 종점 출고에 쓰는 게임 분 */
 const MODE_DEPOT_PULLOUT_MINUTES: Record<'SUBWAY' | 'BUS', number> = {
   SUBWAY: 1.2,
   BUS: 1.8,
+}
+
+/** 클라이언트가 서버와 동일한 속도로 보간하도록 motion API로 내려주는 물리 상수 */
+export type TransitMotionPhysics = {
+  speed: Record<'SUBWAY' | 'BUS', number>
+  durationLimits: Record<'SUBWAY' | 'BUS', { min: number; max: number }>
+  dwellMinutes: Record<'SUBWAY' | 'BUS', number>
+  depotPulloutMinutes: Record<'SUBWAY' | 'BUS', number>
+}
+
+export function getTransitMotionPhysics(): TransitMotionPhysics {
+  return {
+    speed: { ...MODE_SPEED },
+    durationLimits: {
+      SUBWAY: { ...MODE_DURATION_LIMITS.SUBWAY },
+      BUS: { ...MODE_DURATION_LIMITS.BUS },
+    },
+    dwellMinutes: { ...MODE_DWELL_MINUTES },
+    depotPulloutMinutes: { ...MODE_DEPOT_PULLOUT_MINUTES },
+  }
 }
 
 function normalizedMode(mode: TransitMode): 'SUBWAY' | 'BUS' {

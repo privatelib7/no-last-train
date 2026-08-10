@@ -43,11 +43,53 @@ export async function syncCityClock(cityId: string): Promise<SimResult | null> {
   })
 }
 
+// 동시에 락 트랜잭션(커넥션 1개)을 쥔 채로 실제 작업(커넥션 1개 이상)도 돌리므로,
+// 도시 하나를 처리하는 데 최소 커넥션 2개가 필요하다. 풀 크기(10)를 넘겨 한꺼번에
+// 돌리면 서로 커넥션을 기다리다 트랜잭션이 타임아웃난다 — 동시 처리 도시 수를 제한한다.
+const TICK_LOOP_CONCURRENCY = 4
+
+// 아무도 관제실을 보고 있지 않으면(요청이 안 옴) 틱이 전혀 진행되지 않다가, 다시
+// 들어왔을 때 밀린 만큼을 한꺼번에 따라잡아야 했다. 이 함수는 백그라운드 하트비트
+// (scripts/tick-loop.ts)에서 주기적으로 호출해, 사용자가 없어도 실시간에 맞춰 틱이
+// 계속 진행되게 한다 — 그러면 다시 들어왔을 때 이미 정확한 위치에서 시작할 수 있다.
+export async function tickAllActiveCities(): Promise<void> {
+  const cities = await db.city.findMany({
+    where: { status: 'ACTIVE' },
+    select: { id: true },
+  })
+  let cursor = 0
+  async function worker() {
+    while (cursor < cities.length) {
+      const city = cities[cursor++]
+      await syncCityClock(city.id).catch(err => {
+        console.error(`[tick-loop] syncCityClock failed for ${city.id}`, err)
+      })
+    }
+  }
+  const workerCount = Math.min(TICK_LOOP_CONCURRENCY, cities.length)
+  await Promise.all(Array.from({ length: workerCount }, () => worker()))
+}
+
+// Cloudflare Workers 배포에서는 요청마다 격리된 isolate가 뜰 수 있어 위 in-memory
+// 큐만으로는 같은 도시에 대한 동시 요청을 막지 못한다(각 isolate가 서로 다른
+// citySimulationQueues 인스턴스를 가짐). 이 경우 같은 틱이 두 번 처리되어 차량이
+// 순간이동하거나 갑자기 빨라지는 것처럼 보이는 원인이 된다. DB 어드바이저리 락으로
+// 프로세스/isolate 경계를 넘어 도시 단위 상호 배제를 보장한다.
+async function withCityLock<T>(cityId: string, task: () => Promise<T>): Promise<T> {
+  return db.$transaction(
+    async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${cityId})::bigint)`
+      return task()
+    },
+    { timeout: 60_000, maxWait: 15_000 },
+  )
+}
+
 function enqueueCitySimulation<T>(cityId: string, task: () => Promise<T>): Promise<T> {
   const previous = citySimulationQueues.get(cityId) ?? Promise.resolve()
   const next = previous
     .catch(() => undefined)
-    .then(task)
+    .then(() => withCityLock(cityId, task))
 
   citySimulationQueues.set(cityId, next)
 

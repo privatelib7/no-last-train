@@ -23,7 +23,7 @@ test('역간 거리와 교통수단에 따라 이동 시간이 달라진다', ()
   assert.ok(shortBus > shortSubway)
   assert.equal(shortSubway, 9.5)
   assert.equal(longSubway, 19)
-  assert.equal(shortBus, 10)
+  assert.equal(shortBus, 14)
 })
 
 test('10분 틱 경계에서도 차량은 구간 중간 위치를 이어서 이동한다', () => {
@@ -80,7 +80,7 @@ test('역 도착 후 승하차 시간만큼 정차한 뒤 다시 출발한다', 
   assert.equal(departed.isDwelling, false)
   assert.equal(departed.segmentProgressMinutes, 0.5)
   assert.ok((departed.x ?? 10) > 10)
-  assert.equal(stationDwellMinutes('BUS'), 2.0)
+  assert.equal(stationDwellMinutes('BUS'), 2.5)
 })
 
 // a-c 구간만 있던 노선(중간에 b가 없음)에 b를 끼워 넣는 시나리오.

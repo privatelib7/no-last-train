@@ -5,13 +5,16 @@ import {
   CONGESTION_WARN,
   executeCityAction,
   fetchCity,
+  fetchCityMotion,
   planCityCommand,
   TICKS_PER_DAY,
   TICKS_PER_HOUR,
   type CityAction,
+  type CityMotionSnapshot,
   type CityState,
   type GameLine,
   type Station,
+  type TransitMotionPhysics,
   type Vehicle,
 } from '../api/game'
 import type { AuthSession } from '../api/auth'
@@ -22,7 +25,14 @@ import { playGoalUnlockSfx } from '../lib/sfx'
 import InviteModal from './InviteModal'
 import { getCityMap, polyPath, type CityMapDef } from '../maps'
 import { createCitizenJourneys, locateCitizen, type CitizenTravelMode } from '../mobility'
-import { depotPulloutMinutes, depotTerminusOf, locateVehicle, stationDwellMinutes } from '../vehicle-motion'
+import { resolveSmoothVehiclePosition } from '../lib/smooth-vehicle'
+import {
+  depotPulloutMinutes,
+  depotTerminusOf,
+  locateVehicle,
+  modeCruiseSpeed,
+  stationDwellMinutes,
+} from '../vehicle-motion'
 import styles from './GamePage.module.css'
 
 interface Props {
@@ -79,9 +89,15 @@ type SegmentUndoEntry = {
 
 const LIVE_TICK_MS = 3000
 const CITY_POLL_MS = 2500
-// 서버 시계(lastTickAt)가 밀려도 클라이언트 미리보기는 최대 이 틱만큼만 앞선다.
-// 리드가 커지면 차량이 한 프레임에 여러 역을 "도착"한 것으로 잡혀 대기 인원이 0으로 사라진다.
-const MAX_CLIENT_PREVIEW_TICKS = 1.25
+// 차량 좌표/동기화 틱은 가벼운 motion API로 더 자주 맞춘다.
+const MOTION_POLL_MS = 500
+// 대기 인원 낙관적 차감용 상한. 차량 이동 자체에는 쓰지 않는다(쓰면 틱 경계에서 멈춤).
+const MAX_WAITING_PREVIEW_TICKS = 1.25
+// motion 스냅샷이 안 바뀌는 동안 로컬로 최대 이만큼만 전진 (폴링 실패 시 폭주 방지).
+// 서버 배포·재시작처럼 짧게(수 초) motion이 안 들어오는 동안에도 차량이 구간 중간에서
+// 멈춰버리지 않도록 여유를 넉넉히 둔다 — 그래도 상한은 있어야 장시간 끊겼을 때
+// 터무니없이 먼 위치를 추정해 보여주지 않는다.
+const MAX_VEHICLE_COAST_TICKS = 10
 // 커서: 움직일 때는 200ms, 가만히 있을 때는 2초 하트비트 (예전 45ms는 DB/액션을 굶김)
 const CURSOR_MOVE_SYNC_MS = 200
 const CURSOR_HEARTBEAT_MS = 2000
@@ -287,6 +303,32 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
   const lastClockWallRef = useRef<number | null>(null)
   /** 대기→운행 출고 연출용: 차량별 벽시계 시작 시각 */
   const pulloutAnimStartedAtRef = useRef(new Map<string, number>())
+  /** 서버 /motion 스냅샷 — syncTick·차량 DB 원본 */
+  const motionRef = useRef<CityMotionSnapshot | null>(null)
+  const motionClockOffsetRef = useRef(0)
+  /** 서버 syncTick·속도(physics)에 맞춘 차량 드라이브 상태 */
+  const motionDriveRef = useRef<{
+    fingerprint: string
+    currentTick: number
+    baseSyncTick: number
+    baseServerNow: number
+    vehicles: CityMotionSnapshot['vehicles']
+    liveTickMs: number
+    gameMinutesPerTick: number
+    gameMinutesPerWallSecond: number
+    physics: TransitMotionPhysics
+    /** 자리를 비운 동안 밀린 틱을 한꺼번에 따라잡는 중 — 이땐 순항 속도로 보간하면
+     *  다음 폴링이 또 앞질러버려 계속 뒤처지다 결국 스냅되길 반복해 오히려 더 어수선하다.
+     *  그냥 즉시 위치를 맞추고, 실시간을 따라잡으면 다시 부드러운 보간으로 돌아간다. */
+    catchingUp: boolean
+  } | null>(null)
+  const smoothVehicleRef = useRef(new Map<string, { x: number; y: number }>())
+  const vehicleLastMoveRef = useRef(new Map<string, { lastMs: number }>())
+  const [motionEpoch, setMotionEpoch] = useState(0)
+  /** motion 폴링 성공 횟수 — 밀린 틱을 몰아가는 중인지 판단하려면 최소 두 번은 받아봐야 한다 */
+  const motionPollCountRef = useRef(0)
+  /** 이 도시가 로딩 화면을 벗어난 시각 — motion이 계속 실패해도 로딩에 영원히 갇히지 않게 상한을 둔다 */
+  const readyGateStartedAtRef = useRef<number | null>(null)
 
   useEffect(() => {
     stateRef.current = state
@@ -491,6 +533,12 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     lastClockWallRef.current = null
     segmentUndoStackRef.current = []
     pulloutAnimStartedAtRef.current.clear()
+    motionRef.current = null
+    motionDriveRef.current = null
+    smoothVehicleRef.current.clear()
+    vehicleLastMoveRef.current.clear()
+    motionPollCountRef.current = 0
+    readyGateStartedAtRef.current = Date.now()
     fetchCity(cityId, session?.token)
       .then(next => {
         if (cancelled) return
@@ -536,6 +584,70 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
       window.clearInterval(timer)
     }
   }, [busy, cityId, session?.token])
+
+  // 서버 syncTick·차량 위치를 맞춰 버스/지하철을 부드럽게 그린다.
+  useEffect(() => {
+    let cancelled = false
+    const pullMotion = async () => {
+      try {
+        const next = await fetchCityMotion(cityId, session?.token)
+        if (cancelled) return
+        motionPollCountRef.current += 1
+        motionClockOffsetRef.current = next.serverNow - Date.now()
+        motionRef.current = next
+        const fingerprint = [
+          next.currentTick,
+          ...next.vehicles.map(v =>
+            `${v.id}:${v.currentStationId}:${v.direction}:${Math.round((v.segmentProgressMinutes || 0) * 2) / 2}:${v.status}:${v.isSpare ? 1 : 0}`,
+          ),
+        ].join('|')
+        const prev = motionDriveRef.current
+        const gameMinutesPerWallSecond = next.gameMinutesPerWallSecond
+          || (next.gameMinutesPerTick / (next.liveTickMs / 1000))
+        if (!prev || prev.fingerprint !== fingerprint) {
+          // 차량 DB/틱이 바뀜 → 서버 syncTick·속도로 리베이스.
+          // 폴링 사이에 실제 틱이 2개 이상 진행됐으면(자리 비움 뒤 밀린 틱 따라잡기)
+          // 순항 속도로는 다음 폴링이 오기 전에 못 따라잡으므로 스냅으로 전환한다.
+          const tickDelta = prev ? next.currentTick - prev.currentTick : 0
+          motionDriveRef.current = {
+            fingerprint,
+            currentTick: next.currentTick,
+            baseSyncTick: next.syncTick,
+            baseServerNow: next.serverNow,
+            vehicles: next.vehicles,
+            liveTickMs: next.liveTickMs,
+            gameMinutesPerTick: next.gameMinutesPerTick,
+            gameMinutesPerWallSecond,
+            physics: next.physics,
+            catchingUp: tickDelta > 1,
+          }
+        } else {
+          // 같은 차량 상태: 속도 상수는 갱신하고, syncTick이 앞서면 앵커만 전진.
+          // 틱이 바뀌지 않은 채로 폴링이 도는 중이므로 밀린 틱 따라잡기는 끝난 상태다.
+          prev.catchingUp = false
+          prev.physics = next.physics
+          prev.liveTickMs = next.liveTickMs
+          prev.gameMinutesPerTick = next.gameMinutesPerTick
+          prev.gameMinutesPerWallSecond = gameMinutesPerWallSecond
+          const predicted = prev.baseSyncTick
+            + (next.serverNow - prev.baseServerNow) / prev.liveTickMs
+          if (next.syncTick > predicted + 0.02) {
+            prev.baseSyncTick = next.syncTick
+            prev.baseServerNow = next.serverNow
+          }
+        }
+        setMotionEpoch(epoch => epoch + 1)
+      } catch {
+        // motion 실패는 도시 폴링으로 충분 — 차량만 잠시 로컬 보간
+      }
+    }
+    const timer = window.setInterval(() => { void pullMotion() }, MOTION_POLL_MS)
+    void pullMotion()
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [cityId, session?.token])
 
   // 브라우저 창 전체 포인터 추적 (지도만이 아니라 페이지 전역, 뷰포트 % 좌표 0~100)
   useEffect(() => {
@@ -1355,28 +1467,71 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     )
   }
 
-  const currentTick = state.city.currentTick
-  const lastTickAtMs = Date.parse(state.city.lastTickAt)
+  // 도시 데이터는 왔지만, 자리를 비운 동안 밀린 틱을 아직 몰아서 따라잡는 중이면
+  // 화면을 보여주지 않고 로딩 화면에 그 구간을 숨긴다. 사용자가 실제로 지도를 보는
+  // 첫 프레임부터 이미 정상 속도로 움직이는 모습만 보이게 하기 위함.
+  // motion을 최소 두 번은 받아봐야 "밀린 틱을 몰아가는 중"인지 판단할 기준(직전 대비 변화량)이
+  // 생기고, motion이 계속 실패하는 경우를 대비해 최대 6초까지만 기다린다.
+  const motionSettleGate = motionDriveRef.current
+  const readyGateStartedAt = readyGateStartedAtRef.current ?? Date.now()
+  const motionSettled = state.city.status !== 'ACTIVE'
+    || (motionPollCountRef.current >= 2 && !!motionSettleGate && !motionSettleGate.catchingUp)
+    || (Date.now() - readyGateStartedAt > 6000)
+
+  if (!motionSettled) {
+    return (
+      <div className={styles.loadingPage}>
+        <span className={styles.loadingDot} />
+        도시 로딩 중
+      </div>
+    )
+  }
+
+  const motionSnap = motionRef.current
+  const motionDrive = motionDriveRef.current
+  // motion API의 syncTick·physics를 우선해 서버와 같은 속도로 맞춘다.
+  const currentTick = motionDrive?.currentTick ?? motionSnap?.currentTick ?? state.city.currentTick
+  const lastTickAtMs = Date.parse(motionSnap?.lastTickAt ?? state.city.lastTickAt)
+  const liveTickMs = motionDrive?.liveTickMs ?? motionSnap?.liveTickMs ?? LIVE_TICK_MS
+  const gameMinutesPerTick = motionDrive?.gameMinutesPerTick ?? motionSnap?.gameMinutesPerTick ?? GAME_MINUTES_PER_TICK
+  const gameMinutesPerWallSecond = motionDrive?.gameMinutesPerWallSecond
+    ?? motionSnap?.gameMinutesPerWallSecond
+    ?? (gameMinutesPerTick / (liveTickMs / 1000))
+  const motionPhysics = motionDrive?.physics ?? motionSnap?.physics ?? null
+  const serverNowMs = clockNowMs + motionClockOffsetRef.current
   const serverLiveTicks = state.city.status === 'ACTIVE' && Number.isFinite(lastTickAtMs)
-    ? Math.max(0, (clockNowMs - lastTickAtMs) / LIVE_TICK_MS)
+    ? Math.max(0, (serverNowMs - lastTickAtMs) / liveTickMs)
     : 0
-  // 시계 따라잡기 중(수십~수천 틱 지연)에도 미리보기는 짧게만 앞서게 한다.
-  const previewTicks = Math.min(serverLiveTicks, MAX_CLIENT_PREVIEW_TICKS)
+  // HUD/시계용 — 짧게만 앞서게 (대기 인원 낙관 차감과 동일 상한)
+  const previewTicks = Math.min(serverLiveTicks, MAX_WAITING_PREVIEW_TICKS)
   const serverTick = currentTick + previewTicks
-  // 서버 스냅샷이 앞서면 따라잡고, 폴링이 늦어 클라이언트가 앞선 경우에는 되감지 않는다.
-  // (되감으면 지하철/버스가 가다가 툭 멈추는 것처럼 보인다)
+  // motionEpoch: motion 폴링이 시각 틱 재계산을 트리거하도록 의존
+  void motionEpoch
+  // 서버 syncTick 앵커 + 벽시계로 로컬 syncTick 전진 (서버가 캡에 걸려도 되감지 않음)
+  const localSyncTick = motionDrive && state.city.status === 'ACTIVE'
+    ? motionDrive.baseSyncTick + Math.max(0, (serverNowMs - motionDrive.baseServerNow) / liveTickMs)
+    : serverTick
   if (state.city.status === 'ACTIVE') {
-    if (visualTickRef.current == null) visualTickRef.current = serverTick
-    else if (serverTick > visualTickRef.current) visualTickRef.current = serverTick
+    if (visualTickRef.current == null) visualTickRef.current = localSyncTick
+    else if (localSyncTick > visualTickRef.current) visualTickRef.current = localSyncTick
   } else {
     visualTickRef.current = currentTick
   }
   const continuousTick = state.city.status === 'ACTIVE' && visualTickRef.current != null
     ? visualTickRef.current
     : currentTick
-  const liveElapsedTicks = Math.max(0, continuousTick - currentTick)
   const currentGameDay = Math.floor(continuousTick / TICKS_PER_DAY) + 1
-  const liveElapsedGameMinutes = liveElapsedTicks * GAME_MINUTES_PER_TICK
+  // 차량 경과: 서버 syncTick 기준. 속도 상수(physics)도 서버에서 받은 값 사용.
+  // motion 스냅샷이 아직 없으면(막 진입 직후) fetchCity의 오래된 lastTickAt으로 몇십 분을
+  // 추측해서 미리 보여주지 않는다 — 그 추측이 곧 도착할 실제 motion 값과 어긋나면 그게
+  // 바로 "들어오자마자 순간이동 후 안정화"로 보인다. 대신 DB 원본 위치에 가만히 있다가
+  // motion 응답이 오는 즉시(보통 수백 ms 내) 정확한 위치로 자연스럽게 이어간다.
+  const vehicleSyncElapsedTicks = motionDrive && state.city.status === 'ACTIVE'
+    ? Math.min(Math.max(0, localSyncTick - motionDrive.currentTick), MAX_VEHICLE_COAST_TICKS)
+    : 0
+  const liveElapsedGameMinutes = vehicleSyncElapsedTicks * gameMinutesPerTick
+  // 대기 인원 낙관 차감만 짧은 상한 유지
+  const waitingPreviewGameMinutes = Math.min(vehicleSyncElapsedTicks, MAX_WAITING_PREVIEW_TICKS) * gameMinutesPerTick
   // 확대해도 역·글씨·점이 화면 기준 크기를 유지하도록 counter-scale
   const mapScale = mapView.width / 100
   const selectedStation = stationById.get(selectedStationId) ?? null
@@ -1390,14 +1545,27 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
     position: locateCitizen(journey, journeyTime),
   }))
   const pulloutAnims = pulloutAnimStartedAtRef.current
+  const motionVehicleById = new Map((motionDrive?.vehicles ?? motionSnap?.vehicles ?? []).map(item => [item.id, item]))
   const vehicleMotionById = new Map(
     state.city.lines.flatMap(line => orderedVehicles(line).map(vehicle => {
+      // motion drive가 준 DB 원본이 있으면 그걸 기준으로 벽시계 coast 보간한다.
+      const synced = motionVehicleById.get(vehicle.id)
+      const sourceVehicle: Vehicle = synced
+        ? {
+            ...vehicle,
+            currentStationId: synced.currentStationId,
+            direction: synced.direction,
+            segmentProgressMinutes: synced.segmentProgressMinutes,
+            status: synced.status as Vehicle['status'],
+            isSpare: synced.isSpare,
+          }
+        : vehicle
       const inService = line.status === 'OPERATING'
-        && vehicle.status === 'OPERATING'
-        && !vehicle.isSpare
-      const storedProgress = vehicle.segmentProgressMinutes || 0
-      const baseDwell = stationDwellMinutes(line.mode)
-      const pullout = depotPulloutMinutes(line.mode)
+        && sourceVehicle.status === 'OPERATING'
+        && !sourceVehicle.isSpare
+      const storedProgress = sourceVehicle.segmentProgressMinutes || 0
+      const baseDwell = stationDwellMinutes(line.mode, motionPhysics)
+      const pullout = depotPulloutMinutes(line.mode, motionPhysics)
       const launchingFromDepot = inService && storedProgress < -baseDwell
 
       let elapsed = inService ? liveElapsedGameMinutes : 0
@@ -1411,20 +1579,47 @@ export default function GamePage({ cityId, session, onBack, onRequireLogin }: Pr
       } else {
         pulloutAnims.delete(vehicle.id)
       }
-      if (vehicle.isSpare || vehicle.status === 'SPARE') pulloutAnims.delete(vehicle.id)
+      if (sourceVehicle.isSpare || sourceVehicle.status === 'SPARE') pulloutAnims.delete(vehicle.id)
 
-      return [vehicle.id, locateVehicle(line, vehicle, elapsed)] as const
+      const located = locateVehicle(line, sourceVehicle, elapsed, motionPhysics)
+      // 서버 틱이 몰아서 점프해도 서버 속도에 맞춰 보간한다.
+      const smoothed = resolveSmoothVehiclePosition(
+        vehicle.id,
+        located.x != null && located.y != null ? { x: located.x, y: located.y } : null,
+        clockNowMs,
+        smoothVehicleRef.current,
+        vehicleLastMoveRef.current,
+        modeCruiseSpeed(line.mode, motionPhysics),
+        gameMinutesPerWallSecond,
+        motionDrive?.catchingUp ?? false,
+      )
+      if (smoothed) {
+        return [vehicle.id, { ...located, x: smoothed.x, y: smoothed.y }] as const
+      }
+      return [vehicle.id, located] as const
     })),
   )
   // 서버는 3초 경제 틱 끝에 승차를 확정한다. 화면에서는 차량이 역에 실제로
   // 도착한 프레임부터 예상 승차 인원을 먼저 반영해 대기열이 늦게 사라지지 않게 한다.
+  // (차량 coast보다 짧은 상한으로, 대기 숫자만 과도하게 0이 되지 않게 한다)
   const waitingByStation = new Map(state.stationStats.map(stat => [stat.stationId, stat.waitingCount]))
   for (const line of state.city.lines) {
     if (line.status !== 'OPERATING') continue
     for (const vehicle of orderedVehicles(line)) {
       if (vehicle.status !== 'OPERATING' || vehicle.isSpare) continue
-      const motion = vehicleMotionById.get(vehicle.id)
-      for (const stationId of motion?.arrivedStationIds ?? []) {
+      const synced = motionVehicleById.get(vehicle.id)
+      const sourceVehicle: Vehicle = synced
+        ? {
+            ...vehicle,
+            currentStationId: synced.currentStationId,
+            direction: synced.direction,
+            segmentProgressMinutes: synced.segmentProgressMinutes,
+            status: synced.status as Vehicle['status'],
+            isSpare: synced.isSpare,
+          }
+        : vehicle
+      const waitingMotion = locateVehicle(line, sourceVehicle, waitingPreviewGameMinutes, motionPhysics)
+      for (const stationId of waitingMotion.arrivedStationIds) {
         const waiting = waitingByStation.get(stationId) ?? 0
         waitingByStation.set(stationId, Math.max(0, waiting - vehicle.capacity))
       }
