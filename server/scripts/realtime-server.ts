@@ -2,24 +2,28 @@
  * 실시간 상태(차량 위치·틱, 도시 전체 상태) 전용 WebSocket 서버.
  *
  * HTTP 폴링(예전 /motion 500ms, /city 2500ms)을 대체한다 — 클라이언트가 반복해서
- * 요청하는 대신, 이 서버가 구독 중인 도시만 주기적으로 계산해서 밀어준다(push).
- * 액션(역 짓기 등)과 인증은 그대로 HTTP REST로 남아 있다.
+ * 요청하는 대신, 이 서버가 계산해서 밀어준다(push). 액션(역 짓기 등)과 인증은
+ * 그대로 HTTP REST로 남아 있다.
  *
- * 아무도 구독하지 않는 도시는 이 서버가 건드리지 않는다 — 누군가 실제로 접속해
- * 구독을 시작하는 순간부터만 그 도시의 틱을 실시간으로 진행시킨다.
+ * 구독 중인 도시는 빠르게(500ms, 큰 상한) 따라잡고, 최근에(30분 이내) 활동이 있던
+ * 나머지 활성 도시도 가벼운 배경 하트비트로 실시간에 가깝게 유지한다 — 그래야
+ * 나중에 들어왔을 때 밀린 틱을 몰아서 따라잡느라 순간이동처럼 보이는 일이 없다.
+ * 오래(수십 시간) 방치된 도시는 하트비트에서 제외해 워커 풀을 굶기지 않는다.
  *
  *   npx tsx scripts/realtime-server.ts
  */
 import { createServer } from 'node:http'
 import { WebSocketServer, WebSocket } from 'ws'
 import { resolvePlayerByToken, cityExists } from '../src/lib/access'
-import { syncCityClock } from '../src/lib/simulation'
+import { syncCityClock, tickRecentlyActiveCities } from '../src/lib/simulation'
 import { buildCityMotionSnapshot } from '../src/lib/city-motion'
 import { buildCityStateSnapshot } from '../src/lib/city-state'
+import { SIM } from '../src/types/game'
 
 const PORT = Number(process.env.REALTIME_PORT ?? 3012)
 const MOTION_INTERVAL_MS = 500
 const CITY_INTERVAL_MS = 2500
+const HEARTBEAT_INTERVAL_MS = SIM.LIVE_TICK_MS
 // 데스크톱을 켜둔 채 오래 자리를 비웠다 돌아온 구독이라도 몇 초 안에 실시간을 따라잡도록,
 // 이 브로드캐스트 루프는 HTTP 라이브 폴링(3틱)보다 넉넉한 상한을 쓴다. 오직 "지금 구독
 // 중인" 도시에만 적용되므로 예전 하트비트처럼 방치된 도시들에 발목 잡히지 않는다.
@@ -191,6 +195,16 @@ setInterval(() => {
     cityRunning = false
   })
 }, CITY_INTERVAL_MS)
+
+// 아무도 구독하지 않은 도시도(최근에 활동이 있었다면) 가볍게 실시간을 유지한다.
+let heartbeatRunning = false
+setInterval(() => {
+  if (heartbeatRunning) return
+  heartbeatRunning = true
+  tickRecentlyActiveCities().catch(err => console.error('[realtime] heartbeat failed', err)).finally(() => {
+    heartbeatRunning = false
+  })
+}, HEARTBEAT_INTERVAL_MS)
 
 httpServer.listen(PORT, () => {
   console.log(`[realtime] listening on :${PORT} (ws path /ws)`)

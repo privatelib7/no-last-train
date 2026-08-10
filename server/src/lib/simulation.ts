@@ -50,6 +50,42 @@ export async function syncCityClock(cityId: string, maxTicks: number = LIVE_POLL
   })
 }
 
+// 동시에 락 트랜잭션(커넥션 1개)을 쥔 채로 실제 작업(커넥션 1개 이상)도 돌리므로,
+// 도시 하나를 처리하는 데 최소 커넥션 2개가 필요하다. 풀 크기(10)를 넘겨 한꺼번에
+// 돌리면 서로 커넥션을 기다리다 트랜잭션이 타임아웃난다 — 동시 처리 도시 수를 제한한다.
+const HEARTBEAT_CONCURRENCY = 4
+// 오래(수십 시간) 방치된 도시(개발 중 만들고 잊어버린 등)는 하트비트에서 제외한다.
+// 그런 도시를 계속 붙잡고 있으면 워커 풀이 거기 묶여서, 최근에 접속했던(사람이
+// 신경 쓸 가능성이 있는) 도시가 하트비트를 못 받고 굶는다.
+const HEARTBEAT_STALE_CUTOFF_MS = 30 * 60 * 1000
+// 배경 하트비트는 가볍게만 — 화면을 실제로 보고 있는 도시의 빠른 따라잡기는
+// WebSocket 구독 쪽(scripts/realtime-server.ts, 더 큰 상한)이 맡는다.
+const HEARTBEAT_MAX_TICKS = 3
+
+// 아무도 관제실을 보고 있지 않아도(WS 구독이 없어도) 실시간에 가깝게 틱을 진행시켜,
+// 나중에 들어왔을 때 밀린 만큼을 몰아서 따라잡을 필요가(그래서 순간이동처럼 보일
+// 필요가) 없게 한다. scripts/realtime-server.ts가 주기적으로 호출한다.
+export async function tickRecentlyActiveCities(): Promise<void> {
+  const cities = await db.city.findMany({
+    where: {
+      status: 'ACTIVE',
+      lastTickAt: { gt: new Date(Date.now() - HEARTBEAT_STALE_CUTOFF_MS) },
+    },
+    select: { id: true },
+  })
+  let cursor = 0
+  async function worker() {
+    while (cursor < cities.length) {
+      const city = cities[cursor++]
+      await syncCityClock(city.id, HEARTBEAT_MAX_TICKS).catch(err => {
+        console.error(`[heartbeat] syncCityClock failed for ${city.id}`, err)
+      })
+    }
+  }
+  const workerCount = Math.min(HEARTBEAT_CONCURRENCY, cities.length)
+  await Promise.all(Array.from({ length: workerCount }, () => worker()))
+}
+
 // Cloudflare Workers 배포에서는 요청마다 격리된 isolate가 뜰 수 있어 위 in-memory
 // 큐만으로는 같은 도시에 대한 동시 요청을 막지 못한다(각 isolate가 서로 다른
 // citySimulationQueues 인스턴스를 가짐). 이 경우 같은 틱이 두 번 처리되어 차량이
